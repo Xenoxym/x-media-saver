@@ -27,7 +27,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Record build environment
         run: |
@@ -43,7 +43,7 @@ jobs:
 
       - name: Upload unsigned IPA
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: XMediaSaver-unsigned-ipa
           path: artifacts/XMediaSaver-unsigned.ipa
@@ -52,7 +52,7 @@ jobs:
 
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: XMediaSaver-build-logs-${{ github.run_number }}
           path: artifacts/logs/
