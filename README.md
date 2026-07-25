@@ -1,121 +1,151 @@
 # X Media Saver
 
-X Media Saver 是一个供个人侧载使用的 iOS 16+ SwiftUI App。当前版本保留单链接视频/动图下载，同时新增一个类似浏览器扩展的工作流：你在 App 内的 X 网页正常登录、打开书签并滚动，App 只解析这个网页会话已经加载的书签响应，然后在本机筛选、下载并保存媒体到照片图库。
+**English** | [简体中文](README.zh-CN.md)
 
-本项目没有自建后端、代理或第三方下载 API；也不使用 X OAuth、开发者 API key 或用户 Bearer Token。
+X Media Saver is a personal, sideloadable SwiftUI app for iOS 16 and later. It keeps the original single-link video/GIF downloader and adds an authenticated, browser-session workflow for capturing media metadata from X bookmarks.
 
-## 当前功能
+The app has no custom backend, proxy, or third-party download API. It does not use X OAuth, developer API keys, or user bearer tokens.
 
-- 单链接下载：粘贴 `x.com` / `twitter.com` 帖子地址，选择 MP4 质量并保存视频或动图。
-- 内置 X 浏览器：登录由 `WKWebView` 中的 X 官方网页完成。
-- 书签捕获：打开 X 书签页面后手动浏览，或让 App 自动向下滚动并收集页面自己返回的书签数据。
-- 批量筛选：可分别选择图片、动图和视频。
-- 时间筛选：按帖子的发布时间选择起止日期。
-- 会话统计：显示当前已捕获的书签、含媒体帖子、图片、动图与视频数量。
-- 本机保存：直接从 X 的 `pbs.twimg.com` / `video.twimg.com` 媒体地址下载，并以“仅添加”权限写入照片图库。
-- 逐项进度、取消、失败/跳过数量汇总。
+## Current features
 
-X 的[媒体文档](https://docs.x.com/x-api/media/introduction)把对象区分为 photo、video 和 animated GIF；其 `extended_entities` 数据也使用 `photo`、`video`、`animated_gif` 类型。本 App 按这些类型单独统计，其中动图选择其最高质量 MP4 变体并保存为视频资产。
+- **Single-link downloads:** Paste an `x.com` or `twitter.com` post URL, select an MP4 variant, and save a video or animated GIF to Photos.
+- **In-app X browser:** Sign in on the real X website inside a persistent `WKWebView`.
+- **Bookmark capture:** Open the X bookmarks page and either scroll manually or start the app's automatic scrolling.
+- **Media filters:** Select photos, animated GIFs, videos, or any combination.
+- **Date filters:** Filter by the post publication date.
+- **Session statistics:** Count captured bookmarks, bookmarks with media, photos, animated GIFs, and videos.
+- **Highest available quality:** Select the highest-bitrate MP4 by default and request X photos with `name=orig`.
+- **On-device saving:** Download directly from X media hosts and add the files to Photos with add-only permission.
+- **Batch progress and cancellation:** Continue past individual failures and report saved, skipped, and failed counts.
 
-## 登录与隐私边界
+X distinguishes photo, video, and animated-GIF media objects. The app preserves that distinction for filtering and statistics. Animated GIFs are normally delivered by X as MP4 variants, so the app saves their highest-quality MP4 representation. See the [X media documentation](https://docs.x.com/x-api/media/introduction).
 
-这个版本明确禁止 OAuth，也没有实现任何开发者 API 登录。X 官方书签 API 本身要求用户访问令牌和 OAuth；该路线仅作为为什么本项目不使用官方 API 的技术背景，不会被 App 调用，参见 [X Bookmarks 文档](https://docs.x.com/x-api/posts/bookmarks/introduction)。
+## What authenticated access currently means
 
-登录页面直接来自 `https://x.com`。账号、密码、验证码和二次验证只输入到 X 网页里，并由 WebKit 的持久网站数据存储维护登录会话。Apple 对[默认 WKWebsiteDataStore](https://developer.apple.com/documentation/webkit/wkwebsitedatastore)的说明确认它会把网站数据持久保存到磁盘；本 App 只让 WebKit 使用该存储，并提供按 X 域名清除的退出操作。原生代码：
+Signing in does not give the native code unrestricted access to the account.
 
-- 不读取密码输入框；
-- 不查询、复制、导出或上传 Cookie；
-- 不收集授权 Header 或令牌；
-- 不代表网页构造额外的 X GraphQL/API 请求；
-- 只在文档加载开始时注入一个很小的观察脚本，复制网页自身 `fetch` / XHR 已收到的 `Bookmarks`、`BookmarkFolderTimeline` 和 `TweetDetail` JSON 响应给本机解析器；
-- 只接受 X/Twitter 域名的相关响应，并阻止内置浏览器顶层跳转到其他域名；
-- 不把捕获内容发送到任何自建服务。
+The X login page runs inside `WKWebView`. Credentials, verification codes, and challenges are submitted directly to X. WebKit's persistent website data store retains the website session. The native app:
 
-“退出 X”会删除内置浏览器中与 `x.com` / `twitter.com` 相关的网站数据，不影响 Safari。
+- does not inspect password fields;
+- does not query, copy, export, or upload cookies;
+- does not extract authorization headers or account tokens;
+- does not construct additional private X GraphQL/API requests;
+- observes only X/Twitter `Bookmarks`, `BookmarkFolderTimeline`, and `TweetDetail` responses that the webpage itself has already loaded;
+- keeps captured metadata in the current app session;
+- does not send captured data to a custom service.
 
-## 使用书签批量保存
+The official X bookmarks API requires a user access token and OAuth. That API is intentionally not used here. See the [X bookmarks documentation](https://docs.x.com/x-api/posts/bookmarks/introduction).
 
-1. 打开 **X 浏览器** 标签。
-2. 在 X 网页里正常登录。
-3. 点击顶部 **书签**。
-4. 手动向下浏览，或点击底部 **自动滚动抓取**。看到数量长期不再增长后可停止。
-5. 切换到 **书签** 标签。
-6. 选择图片、动图、视频和可选日期范围。
-7. 点击 **批量下载并保存到照片**。
-8. 首次保存时，允许 App 使用照片图库的“仅添加”权限。
+Choosing **Sign out and clear** removes X/Twitter website data from this app's WebKit data store without affecting Safari. Apple documents that the default [`WKWebsiteDataStore`](https://developer.apple.com/documentation/webkit/wkwebsitedatastore) stores website data persistently.
 
-统计和下载范围只包括当前浏览器已经实际加载到本机的条目。App 不会在后台偷偷拉取未滚动到的页面。
+## Important behavior clarifications
 
-## 技术限制
+### Single-link mode
 
-这个实现遵守登录会话的可见范围，但依赖 X 网页内部响应格式，因此有以下重要限制：
+Single-link mode can use an authenticated post only after that post has already been opened and captured in the in-app browser. Pasting an arbitrary protected or login-only post URL does not currently make the app navigate to it automatically.
 
-- X 没有为第三方 iOS App 提供稳定、文档化的“复用网页会话书签 JSON”接口。GraphQL operation 名称、字段层级或网页实现改变时，捕获可能失效，需要更新 App。
-- App 不会绕过删除、停用、地区限制、年龄限制、受保护账号权限或其他 X 访问控制。能否捕获取决于该账号在内置浏览器中正常浏览时实际得到什么。
-- 登录挑战、验证码和账号风控完全由 X 决定。App 不自动填写、破解或转移这些流程。
-- 时间筛选使用帖子 `created_at`，不是“加入书签时间”；X 当前网页书签响应没有可靠提供后者。
-- “书签总数”是已加载数量，不是服务端保证的全量计数。若自动滚动过早停止，可返回浏览器继续滚动。
-- 同一媒体出现在多个已捕获帖子时，会按 `media_key` 去重后批量保存。
-- 当前只保存 X 提供的直接图片和 MP4 变体；HLS 播放列表、直播、外部卡片播放器不做拼接或转码。
-- 下载使用前台 `URLSession`，大量内容时请保持 App 在前台。
-- 网页会话可能因 X 的安全策略、系统清理或侧载 App 重签而失效，需要重新登录。
-- 保存媒体不代表获得转载或再利用权利；使用者仍需遵守适用法律、版权和 X 条款。
+If a matching browser capture is unavailable, the app falls back to X's public syndication/embed response. That fallback is unofficial and may not resolve login-only content.
 
-## 单链接模式
+The current single-link screen saves videos and animated GIFs. Photo saving is currently available through the bookmark batch workflow.
 
-单链接页面先查找当前内置浏览器会话中已经捕获的同一帖子。若没有捕获记录，则保留旧版的快捷解析路径，直接请求 X 的公开 syndication/embed 响应。该公开响应不是稳定的官方开发者 API，因此可能无法解析登录后可见的帖子。
+### Protected and private content
 
-对于登录后才能看到的帖子，先在 **X 浏览器** 中打开它，使页面正常加载，再返回单链接页面重试。单链接模式当前保存视频和动图；图片批量保存从书签页完成。
+The app can process media that the signed-in account is allowed to view and that the X webpage actually loads. This can include posts from protected accounts when the signed-in user has access.
 
-## 在 Xcode 中构建
+It does not bypass X access controls. Deleted posts, inaccessible protected posts, direct messages, region/age restrictions, and content withheld from the signed-in browser session are not made accessible by the app.
 
-要求：macOS、建议 Xcode 16 或更新版本，以及 iOS/iPadOS 16+ 设备。
+### Photo quality
 
-1. 打开 `XMediaSaver.xcodeproj`。
-2. 选择 **XMediaSaver** target。
-3. 在 **Signing & Capabilities** 中选择你的 Apple Development Team。
-4. 把 `com.example.XMediaSaver` 改为你自己的唯一 Bundle Identifier。
-5. 选择已连接的 iPhone/iPad，然后运行。
-6. 可通过 **Product > Test** 运行单元测试。
+For photos, the parser converts X's `pbs.twimg.com` media URL to a request with `name=orig`. This asks X's image CDN for the original/highest available image represented by that media URL instead of a normal preview size.
 
-## 生成 IPA
+This is separate from the X client's “Load in 4K” interface. The app does not simulate a long press or toggle that UI setting; it directly requests the original CDN variant. The result is still limited by what X retains and returns for that post.
 
-### Xcode Archive
+### Bookmark range and one-click behavior
 
-1. 选择 **Any iOS Device (arm64)** 或已连接设备。
-2. 执行 **Product > Archive**。
-3. 在 Organizer 中选择本地 Development 分发并导出 `.ipa`。
+Date filtering uses each post's `created_at` publication time. X's captured bookmark response does not reliably provide the time when a post was added to bookmarks.
 
-### 本机生成未签名 IPA
+Statistics and batch downloads include only bookmark entries that the webpage has actually loaded. In the current version, the user must:
 
-在项目目录运行：
+1. open the **X Browser** tab;
+2. sign in;
+3. open **Bookmarks**;
+4. start automatic scrolling or scroll manually;
+5. return to the native **Bookmarks** tab to filter and save.
+
+The browser is therefore not login-only yet. A fully native “sync bookmarks” button that drives the browser session in the background is a future workflow change, not a feature of the current build.
+
+## Using bookmark batch saving
+
+1. Open the **X Browser** tab.
+2. Sign in on the X website.
+3. Tap **Bookmarks**.
+4. Tap **Auto-scroll and capture**, or scroll manually.
+5. Return to the **Bookmarks** tab.
+6. Select photos, animated GIFs, videos, and an optional publication-date range.
+7. Tap **Batch download and save to Photos**.
+8. Grant add-only Photos permission when prompted.
+
+Duplicate captured media is removed by `media_key` before batch saving.
+
+## Reliability and technical limits
+
+- The browser workflow depends on X's undocumented web response structure. GraphQL operation names, response fields, or page behavior may change and require an app update.
+- Login challenges, verification, and account-risk decisions remain entirely controlled by X.
+- The captured bookmark count is a loaded-session count, not a guaranteed server-side total.
+- Automatic scrolling stops after repeated rounds with no newly captured posts, or after its safety limit.
+- The app saves direct X-hosted photos and MP4 variants. It does not assemble HLS streams, live broadcasts, or external card players.
+- Large batches use foreground `URLSession` downloads; keep the app open.
+- A WebKit session may expire or be cleared after system cleanup or sideloaded-app re-signing.
+- Saving media does not grant redistribution rights. Users remain responsible for applicable law, copyright, consent, and X's terms.
+
+## Build and run with Xcode
+
+Requirements: macOS, Xcode 16 or later recommended, and an iPhone or iPad running iOS/iPadOS 16 or later.
+
+1. Open `XMediaSaver.xcodeproj`.
+2. Select the **XMediaSaver** target.
+3. Choose your Apple Development team under **Signing & Capabilities**.
+4. Replace `com.example.XMediaSaver` with a bundle identifier unique to you.
+5. Select a connected device and run the app.
+6. Use **Product > Test** to run the unit tests.
+
+## Create an IPA
+
+### Xcode archive
+
+1. Select **Any iOS Device (arm64)** or a connected device.
+2. Choose **Product > Archive**.
+3. In Organizer, export a local Development build as an `.ipa`.
+
+### Local unsigned IPA
+
+Run from the project directory:
 
 ```bash
 bash Scripts/package-unsigned-ipa.sh
 ```
 
-输出为 `artifacts/XMediaSaver-unsigned.ipa`。它不能直接安装，必须由 SideStore 或 Sideloadly 在本地签名。
+The output is `artifacts/XMediaSaver-unsigned.ipa`. It must be signed locally by SideStore or Sideloadly before installation.
 
 ### GitHub Actions
 
-`.github/workflows/build-unsigned-ipa.yml` 会在 GitHub 托管的 macOS runner 上：
+`.github/workflows/build-unsigned-ipa.yml` runs on a GitHub-hosted macOS runner. It:
 
-1. 使用关闭代码签名的 Release 配置构建设备 `.app`；
-2. 验证 Mach-O 和标准 `Payload/` 结构；
-3. 生成未签名 IPA、校验和及构建日志；
-4. 上传工作流 artifacts。
+1. builds a Release device app with code signing disabled;
+2. verifies the device Mach-O app and standard `Payload/` structure;
+3. packages an unsigned IPA and records logs/checksums;
+4. uploads the IPA and diagnostics as workflow artifacts.
 
-在仓库 **Actions > Build unsigned IPA > Run workflow** 手动运行，或向 `main` 推送相关工程修改。
-完成后下载名为 `XMediaSaver-unsigned-ipa` 的 artifact。
+Run **Actions > Build unsigned IPA > Run workflow**, then download the `XMediaSaver-unsigned-ipa` artifact.
 
-不要把 Apple ID、密码、证书、Provisioning Profile、API key 或其他 Apple 凭证放入 GitHub Secrets 或仓库文件。GitHub 只编译未签名 App；下载 artifact 后使用 SideStore/Sideloadly 在自己的设备上本地签名。
+Do not store an Apple ID, password, signing certificate, provisioning profile, API key, or other Apple credential in GitHub Secrets or repository files. GitHub only builds the unsigned app; signing remains local.
 
-## 安装
+## Installation
 
-- SideStore：按照 [SideStore 官方安装文档](https://docs.sidestore.io/docs/installation/install)配置，然后从 Files 选择 IPA。
-- Sideloadly：从 [sideloadly.io](https://sideloadly.io/) 获取客户端，把 IPA 拖入并只在本机完成 Apple 账号签名。
+- **SideStore:** Follow the [official SideStore installation guide](https://docs.sidestore.io/docs/installation/install), then select the IPA from Files.
+- **Sideloadly:** Download it from [sideloadly.io](https://sideloadly.io/), import the IPA, and complete Apple-account signing locally.
 
-## 工程结构
+## Project structure
 
 ```text
 XMediaSaver/
@@ -132,8 +162,8 @@ XMediaSaver/
 └── Scripts/
 ```
 
-核心只依赖 Apple frameworks：SwiftUI、Foundation/URLSession、WebKit、UIKit 和 Photos。
+The app uses Apple frameworks only: SwiftUI, Foundation/URLSession, WebKit, UIKit, and Photos.
 
 ## License
 
-MIT。见 `LICENSE`。
+MIT. See `LICENSE`.
