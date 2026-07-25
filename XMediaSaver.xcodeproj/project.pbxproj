@@ -20,6 +20,18 @@
 		A1000000000000000000000B /* PostURLParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* PostURLParserTests.swift */; };
 		A1000000000000000000000C /* SyndicationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* SyndicationServiceTests.swift */; };
 		A1000000000000000000000D /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* XCTest.framework */; };
+		A1000000000000000000000E /* BrowserModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* BrowserModels.swift */; };
+		A1000000000000000000000F /* BrowserCaptureParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* BrowserCaptureParser.swift */; };
+		A10000000000000000000010 /* BrowserCaptureScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* BrowserCaptureScript.swift */; };
+		A10000000000000000000011 /* BatchMediaSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* BatchMediaSaver.swift */; };
+		A10000000000000000000012 /* BrowserSessionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* BrowserSessionModel.swift */; };
+		A10000000000000000000013 /* BookmarksViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* BookmarksViewModel.swift */; };
+		A10000000000000000000014 /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* BrowserView.swift */; };
+		A10000000000000000000015 /* BookmarksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* BookmarksView.swift */; };
+		A10000000000000000000016 /* SingleDownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* SingleDownloadView.swift */; };
+		A10000000000000000000017 /* ViewStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001A /* ViewStyles.swift */; };
+		A10000000000000000000018 /* BrowserCaptureParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001B /* BrowserCaptureParserTests.swift */; };
+		A10000000000000000000019 /* BookmarkModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001C /* BookmarkModelsTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +61,18 @@
 		A2000000000000000000000E /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 		A2000000000000000000000F /* XMediaSaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = XMediaSaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000010 /* XMediaSaverTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = XMediaSaverTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000011 /* BrowserModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModels.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* BrowserCaptureParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCaptureParser.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* BrowserCaptureScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCaptureScript.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* BatchMediaSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchMediaSaver.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* BrowserSessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSessionModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000016 /* BookmarksViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksViewModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000017 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* BookmarksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksView.swift; sourceTree = "<group>"; };
+		A20000000000000000000019 /* SingleDownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingleDownloadView.swift; sourceTree = "<group>"; };
+		A2000000000000000000001A /* ViewStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewStyles.swift; sourceTree = "<group>"; };
+		A2000000000000000000001B /* BrowserCaptureParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCaptureParserTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000001C /* BookmarkModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkModelsTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +122,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000002 /* PostMedia.swift */,
+				A20000000000000000000011 /* BrowserModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -110,6 +135,9 @@
 				A20000000000000000000007 /* PhotoLibrarySaver.swift */,
 				A20000000000000000000003 /* PostURLParser.swift */,
 				A20000000000000000000005 /* SyndicationService.swift */,
+				A20000000000000000000012 /* BrowserCaptureParser.swift */,
+				A20000000000000000000013 /* BrowserCaptureScript.swift */,
+				A20000000000000000000014 /* BatchMediaSaver.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -118,6 +146,8 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000008 /* SaverViewModel.swift */,
+				A20000000000000000000015 /* BrowserSessionModel.swift */,
+				A20000000000000000000016 /* BookmarksViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -126,6 +156,10 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000009 /* ContentView.swift */,
+				A20000000000000000000017 /* BrowserView.swift */,
+				A20000000000000000000018 /* BookmarksView.swift */,
+				A20000000000000000000019 /* SingleDownloadView.swift */,
+				A2000000000000000000001A /* ViewStyles.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -135,6 +169,8 @@
 			children = (
 				A2000000000000000000000C /* PostURLParserTests.swift */,
 				A2000000000000000000000D /* SyndicationServiceTests.swift */,
+				A2000000000000000000001B /* BrowserCaptureParserTests.swift */,
+				A2000000000000000000001C /* BookmarkModelsTests.swift */,
 			);
 			path = XMediaSaverTests;
 			sourceTree = "<group>";
@@ -272,6 +308,16 @@
 				A10000000000000000000007 /* PhotoLibrarySaver.swift in Sources */,
 				A10000000000000000000008 /* SaverViewModel.swift in Sources */,
 				A10000000000000000000009 /* ContentView.swift in Sources */,
+				A1000000000000000000000E /* BrowserModels.swift in Sources */,
+				A1000000000000000000000F /* BrowserCaptureParser.swift in Sources */,
+				A10000000000000000000010 /* BrowserCaptureScript.swift in Sources */,
+				A10000000000000000000011 /* BatchMediaSaver.swift in Sources */,
+				A10000000000000000000012 /* BrowserSessionModel.swift in Sources */,
+				A10000000000000000000013 /* BookmarksViewModel.swift in Sources */,
+				A10000000000000000000014 /* BrowserView.swift in Sources */,
+				A10000000000000000000015 /* BookmarksView.swift in Sources */,
+				A10000000000000000000016 /* SingleDownloadView.swift in Sources */,
+				A10000000000000000000017 /* ViewStyles.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -281,6 +327,8 @@
 			files = (
 				A1000000000000000000000B /* PostURLParserTests.swift in Sources */,
 				A1000000000000000000000C /* SyndicationServiceTests.swift in Sources */,
+				A10000000000000000000018 /* BrowserCaptureParserTests.swift in Sources */,
+				A10000000000000000000019 /* BookmarkModelsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

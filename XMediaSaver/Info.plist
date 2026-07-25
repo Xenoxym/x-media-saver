@@ -23,7 +23,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>X Media Saver needs add-only access to put downloaded videos in your Photos library.</string>
+	<string>X Media Saver 需要仅添加权限，以把你选择的图片、动图和视频保存到照片图库。</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 @MainActor
@@ -44,7 +45,7 @@ final class SaverViewModel: ObservableObject {
             && !isDownloading
     }
 
-    func resolve() async {
+    func resolve(browserPost: BookmarkedPost? = nil) async {
         successMessage = nil
         post = nil
         isResolving = true
@@ -52,7 +53,14 @@ final class SaverViewModel: ObservableObject {
 
         do {
             let id = try PostURLParser.postID(from: postURL)
-            let resolved = try await metadataService.resolve(postID: id)
+            let resolved: PostMedia
+            if let browserPost,
+               browserPost.id == id,
+               let captured = Self.postMedia(from: browserPost) {
+                resolved = captured
+            } else {
+                resolved = try await metadataService.resolve(postID: id)
+            }
             post = resolved
             selectedItemID = resolved.items.first?.id
             selectedVariantID = resolved.items.first?.bestVariant?.id
@@ -90,7 +98,7 @@ final class SaverViewModel: ObservableObject {
             }
             try await photoSaver.saveVideo(at: localURL)
             try? FileManager.default.removeItem(at: localURL)
-            successMessage = "Saved to Photos."
+            successMessage = "已保存到照片。"
         } catch is CancellationError {
             if let localURL {
                 try? FileManager.default.removeItem(at: localURL)
@@ -121,6 +129,35 @@ final class SaverViewModel: ObservableObject {
         presentedError = PresentedError(
             message: message,
             offersSettings: (error as? AppError) == .photoPermissionDenied
+        )
+    }
+
+    private static func postMedia(
+        from post: BookmarkedPost
+    ) -> PostMedia? {
+        let items = post.media.compactMap { media -> VideoMediaItem? in
+            guard media.type != .photo else { return nil }
+            let variants = media.variants
+                .filter { $0.contentType.lowercased() == "video/mp4" }
+                .map {
+                    VideoVariant(url: $0.url, bitrate: $0.bitRate)
+                }
+            guard !variants.isEmpty else { return nil }
+            return VideoMediaItem(
+                id: media.id,
+                kind: media.type == .animatedGIF ? .animatedGIF : .video,
+                durationMilliseconds: media.durationMilliseconds,
+                variants: variants
+            )
+        }
+        guard !items.isEmpty else { return nil }
+        return PostMedia(
+            postID: post.id,
+            authorName: post.authorName,
+            authorHandle: post.authorUsername,
+            text: post.text,
+            items: items,
+            cameFromQuotedPost: false
         )
     }
 }

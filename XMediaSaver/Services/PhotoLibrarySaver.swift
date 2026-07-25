@@ -43,4 +43,25 @@ struct PhotoLibrarySaver {
             }
         }
     }
+
+    func saveImage(at fileURL: URL) async throws {
+        try await withCheckedThrowingContinuation {
+            (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromImage(
+                    atFileURL: fileURL
+                )
+            } completionHandler: { success, error in
+                if success {
+                    continuation.resume()
+                } else {
+                    continuation.resume(
+                        throwing: AppError.saveFailed(
+                            error?.localizedDescription ?? "Unknown error"
+                        )
+                    )
+                }
+            }
+        }
+    }
 }
