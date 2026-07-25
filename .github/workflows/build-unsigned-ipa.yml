@@ -1,0 +1,60 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-unsigned-ipa.yml"
+      - "Scripts/**"
+      - "XMediaSaver/**"
+      - "XMediaSaverTests/**"
+      - "XMediaSaver.xcodeproj/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: unsigned-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build generic iOS device app
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Record build environment
+        run: |
+          mkdir -p artifacts/logs
+          {
+            sw_vers
+            xcodebuild -version
+            xcode-select -p
+          } | tee artifacts/logs/environment.log
+
+      - name: Build and package unsigned IPA
+        run: bash Scripts/build-unsigned-ipa.sh
+
+      - name: Upload unsigned IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: XMediaSaver-unsigned-ipa
+          path: artifacts/XMediaSaver-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: XMediaSaver-build-logs-${{ github.run_number }}
+          path: artifacts/logs/
+          if-no-files-found: warn
+          retention-days: 14
