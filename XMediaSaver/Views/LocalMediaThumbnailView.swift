@@ -46,6 +46,7 @@ struct LocalMediaThumbnailView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
         .task(id: "\(media.mediaKey)-\(maximumPixelSize)-\(remoteImageName)") {
             await loader.load(

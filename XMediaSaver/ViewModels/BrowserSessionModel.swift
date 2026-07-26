@@ -28,7 +28,6 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     private let sizeResolver = MediaSizeResolver()
     private let storageManager = StorageManager()
     private var bookmarkResponseSequence = 0
-    private var autoSyncWhenAuthenticated = false
     private var sizeProbeTask: Task<Void, Never>?
     private var pendingSizeProbes: [SizeProbeRequest] = []
     private var sizeProbeKeys: Set<String> = []
@@ -113,12 +112,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     }
 
     func browserDidAppear() {
-        autoSyncWhenAuthenticated = true
         prepareBrowser()
-        if appearsLoggedIn && currentURL != nil {
-            autoSyncWhenAuthenticated = false
-            startAutoCapture()
-        }
     }
 
     func retryBrowserLogin() {
@@ -369,8 +363,12 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 )
                 if isBookmarkCapture {
                     syncNewPostCount += newCount
+                    let mergedPosts = Self.sizeProbePosts(
+                        received: capture.posts,
+                        indexed: allPostsByID
+                    )
                     enqueueSizeProbes(
-                        for: capture.posts,
+                        for: mergedPosts,
                         retryUnavailable: false
                     )
                 }
@@ -381,6 +379,13 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                     ?? error.localizedDescription
             }
         }
+    }
+
+    nonisolated static func sizeProbePosts(
+        received: [BookmarkedPost],
+        indexed: [String: BookmarkedPost]
+    ) -> [BookmarkedPost] {
+        received.compactMap { indexed[$0.id] }
     }
 
     @discardableResult
@@ -586,10 +591,6 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         isLoading = false
         currentURL = url
         captureError = nil
-        if autoSyncWhenAuthenticated && appearsLoggedIn {
-            autoSyncWhenAuthenticated = false
-            startAutoCapture()
-        }
     }
 
     private func navigationFailed(_ error: Error) {

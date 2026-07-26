@@ -222,6 +222,44 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertNil(missing)
     }
 
+    func testRepeatedCaptureUsesCompletedIndexedSizeMetadata() {
+        let incoming = makePost(
+            id: "repeated",
+            date: Date(),
+            types: [.photo]
+        )
+        let incomingMedia = incoming.media[0]
+        let completedMedia = BookmarkedMedia(
+            mediaKey: incomingMedia.mediaKey,
+            type: incomingMedia.type,
+            url: incomingMedia.url,
+            previewImageURL: incomingMedia.previewImageURL,
+            variants: incomingMedia.variants,
+            width: incomingMedia.width,
+            height: incomingMedia.height,
+            durationMilliseconds: incomingMedia.durationMilliseconds,
+            byteSize: 12_345,
+            sizeProbeCompleted: true
+        )
+        let indexed = BookmarkedPost(
+            id: incoming.id,
+            text: incoming.text,
+            createdAt: incoming.createdAt,
+            authorID: incoming.authorID,
+            authorName: incoming.authorName,
+            authorUsername: incoming.authorUsername,
+            media: [completedMedia]
+        )
+
+        let candidates = BrowserSessionModel.sizeProbePosts(
+            received: [incoming],
+            indexed: [indexed.id: indexed]
+        )
+
+        XCTAssertEqual(candidates[0].media[0].byteSize, 12_345)
+        XCTAssertEqual(candidates[0].media[0].sizeProbeCompleted, true)
+    }
+
     private func makePost(
         id: String,
         date: Date?,

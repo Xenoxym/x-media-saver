@@ -11,8 +11,6 @@ struct BrowserView: View {
                 controls
                 Divider()
                 BrowserWebView(session: session)
-                Divider()
-                captureStatus
             }
             .navigationTitle("X 浏览器")
             .navigationBarTitleDisplayMode(.inline)
@@ -35,87 +33,102 @@ struct BrowserView: View {
     }
 
     private var controls: some View {
-        HStack(spacing: 14) {
-            Button {
-                session.goBack()
-            } label: {
-                Image(systemName: "chevron.backward")
-            }
-
-            Button {
-                session.reload()
-            } label: {
-                Image(systemName: "arrow.clockwise")
-            }
-
-            Button {
-                session.openBookmarks()
-            } label: {
-                Label("书签", systemImage: "bookmark")
-            }
-
-            Spacer()
-
-            if session.isLoading {
-                ProgressView()
-            }
-
-            Menu {
-                Button("清空已抓取列表") {
-                    session.clearCapturedData()
+        VStack(spacing: 7) {
+            HStack(spacing: 14) {
+                Button {
+                    session.goBack()
+                } label: {
+                    Image(systemName: "chevron.backward")
                 }
-                Button("退出 X", role: .destructive) {
-                    confirmLogout = true
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-        }
-        .buttonStyle(.bordered)
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-    }
 
-    private var captureStatus: some View {
-        VStack(spacing: 6) {
-            HStack {
-                Label(
-                    "已捕获 \(session.capturedPosts.count) 条",
-                    systemImage: "tray.full"
-                )
-                .font(.caption.weight(.semibold))
+                Button {
+                    session.reload()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+
+                Button {
+                    session.openBookmarks()
+                } label: {
+                    Label("书签", systemImage: "bookmark")
+                }
 
                 Spacer()
 
-                if session.isAutoCapturing {
-                    Button("停止滚动") {
-                        session.stopAutoCapture()
+                if session.isLoading {
+                    ProgressView()
+                }
+
+                Menu {
+                    Button("清空已抓取列表") {
+                        session.clearCapturedData()
                     }
-                    .font(.caption)
+                    Button("退出 X", role: .destructive) {
+                        confirmLogout = true
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+            .buttonStyle(.bordered)
+
+            HStack(spacing: 10) {
+                Label(
+                    "\(session.capturedPosts.count)",
+                    systemImage: "tray.full"
+                )
+                .font(.caption.weight(.semibold).monospacedDigit())
+
+                if session.sizeAnalysisRemaining > 0 {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("大小 \(session.sizeAnalysisRemaining)")
+                            .font(.caption2.monospacedDigit())
+                    }
+                    .foregroundStyle(.secondary)
+                }
+
+                if let status = session.syncStatusText {
+                    Text(status)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    Button("同步书签") {
+                    Spacer()
+                }
+
+                Button {
+                    if session.isAutoCapturing {
+                        session.stopAutoCapture()
+                    } else {
                         session.startAutoCapture()
                     }
-                    .font(.caption)
+                } label: {
+                    Label(
+                        session.isAutoCapturing ? "停止" : "同步书签",
+                        systemImage: session.isAutoCapturing
+                            ? "stop.fill"
+                            : "arrow.down.to.line"
+                    )
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
             }
 
             if let error = session.captureError {
-                Text(error)
-                    .font(.caption2)
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button("重新加载 X 首页") {
-                    session.retryBrowserLogin()
+                HStack {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                    Spacer()
+                    Button("重试") {
+                        session.retryBrowserLogin()
+                    }
+                    .font(.caption.weight(.semibold))
                 }
-                .font(.caption.weight(.semibold))
-            } else {
-                Text(session.syncStatusText
-                    ?? "默认打开 X 首页；登录有效时会自动快速增量同步书签。离开此栏目后仍会继续，锁屏或切到其他 APP 时会受 iOS 暂停。")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.horizontal)

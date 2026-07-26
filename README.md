@@ -10,7 +10,7 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 
 - **Single-link downloads:** Paste an `x.com` or `twitter.com` post URL, select an MP4 variant, and save a video or animated GIF to Photos.
 - **In-app X browser:** Sign in on the real X website inside a persistent `WKWebView`.
-- **Fast incremental bookmark sync:** Opening the X Browser after signing in starts an approximately one-second scroll loop while the capture layer observes every bookmark response. Existing post IDs are updated in place, new IDs are appended, and locally indexed posts are not deleted merely because they disappeared from X.
+- **Fast incremental bookmark sync:** Bookmark scrolling starts only after the user taps **Sync bookmarks** in X Browser. The approximately one-second scroll loop observes every bookmark response; existing post IDs are updated in place, new IDs are appended, and locally indexed posts are not deleted merely because they disappeared from X.
 - **Local post index:** Each captured post, its author/text/date, and its media metadata are stored on-device and restored after relaunch. Media files are downloaded only when Save is used.
 - **Browse and search:** Group by account or hashtag; search handle, display name, numeric user ID, post text, or hashtag; sort account groups by size or name.
 - **Native post preview:** Open a captured post to read its full text and preview original photos or highest-quality MP4 media.
@@ -81,7 +81,7 @@ The sync is append/update-only: post IDs already in the local index are not dupl
 ## Using bookmark batch saving
 
 1. Open the **X Browser** tab once and sign in on the X website.
-2. The app automatically opens bookmarks and synchronizes slowly. You may leave the browser tab for another tab inside this app; use **Sync** to run it again later.
+2. The app opens X Home without scrolling. Tap **Sync bookmarks** when you want it to open bookmarks and begin automatic scrolling; tap **Stop** to end the current pass.
 3. In **Bookmarks**, choose account/post/hashtag browsing and optionally search by account metadata, text, hashtag, publication date, duration, or media size.
 4. Select photos, animated GIFs, videos, and an optional publication-date range.
 5. Tap **Batch download and save to Photos**.
@@ -104,7 +104,7 @@ Library/
 
 Each item is downloaded to a temporary file, moved into its type folder, recorded, and then followed by the next item. `posts.jsonl` maps post text/account/date data to local relative media paths so the captured post can be reconstructed offline. `export-state.jsonl` is append-only and allows interrupted or repeated exports to skip completed `media_key` values.
 
-The default app-owned Library is indexed on demand for local-first previews. Timeline and gallery thumbnails do not create permanent thumbnail files: local images are downsampled from their originals, local videos generate frames only for visible cells, and remote items request a small poster. A bounded in-memory cache is discarded when the app exits, preventing a second thumbnail library from consuming persistent storage.
+The default app-owned Library is indexed on demand for local-first previews. The media gallery uses fixed square, center-cropped cells in a stable three-column grid. Timeline and gallery thumbnails do not create permanent thumbnail files: local images are downsampled from their originals, local videos generate frames only for visible cells, and remote items request a small poster. A bounded in-memory cache is discarded when the app exits, preventing a second thumbnail library from consuming persistent storage.
 
 ## Reliability and technical limits
 

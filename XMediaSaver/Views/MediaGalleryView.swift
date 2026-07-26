@@ -37,26 +37,41 @@ struct MediaGalleryView: View {
                     NavigationLink {
                         BookmarkPostDetailView(post: item.post)
                     } label: {
-                        ZStack(alignment: .bottomLeading) {
-                            LocalMediaThumbnailView(
-                                media: item.media,
-                                maximumPixelSize: 420
-                            )
-                            .aspectRatio(1, contentMode: .fill)
+                        GeometryReader { geometry in
+                            ZStack(alignment: .bottomLeading) {
+                                Color(uiColor: .secondarySystemBackground)
 
-                            HStack(spacing: 4) {
-                                Image(systemName: item.media.type.systemImage)
-                                if let duration = item.media.durationMilliseconds {
-                                    Text(Self.durationText(duration))
+                                LocalMediaThumbnailView(
+                                    media: item.media,
+                                    maximumPixelSize: 420
+                                )
+                                .frame(
+                                    width: geometry.size.width,
+                                    height: geometry.size.height
+                                )
+
+                                HStack(spacing: 4) {
+                                    Image(
+                                        systemName: item.media.type.systemImage
+                                    )
+                                    if let duration =
+                                        item.media.durationMilliseconds {
+                                        Text(Self.durationText(duration))
+                                    }
                                 }
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(5)
+                                .background(.black.opacity(0.55))
                             }
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(5)
-                            .background(.black.opacity(0.55))
+                            .frame(
+                                width: geometry.size.width,
+                                height: geometry.size.height
+                            )
+                            .contentShape(Rectangle())
+                            .clipped()
                         }
                         .aspectRatio(1, contentMode: .fit)
-                        .clipped()
                     }
                     .buttonStyle(.plain)
                     .onAppear {
