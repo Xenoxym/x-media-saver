@@ -5,6 +5,7 @@ struct SingleDownloadView: View {
     @ObservedObject var session: BrowserSessionModel
     @StateObject private var viewModel = SaverViewModel()
     @Environment(\.openURL) private var openURL
+    @FocusState private var isURLFieldFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -24,14 +25,24 @@ struct SingleDownloadView: View {
                 }
                 .padding()
             }
+            .scrollDismissesKeyboard(.interactively)
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("X Media Saver")
             .toolbar {
                 if viewModel.post != nil || !viewModel.postURL.isEmpty {
-                    Button("清空") {
-                        viewModel.clear()
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("清空") {
+                            isURLFieldFocused = false
+                            viewModel.clear()
+                        }
+                        .disabled(viewModel.isDownloading)
                     }
-                    .disabled(viewModel.isDownloading)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("完成") {
+                        isURLFieldFocused = false
+                    }
                 }
             }
         }
@@ -65,7 +76,7 @@ struct SingleDownloadView: View {
                 .symbolRenderingMode(.palette)
             Text("单链接保存视频与动图")
                 .font(.title2.bold())
-            Text("保留原有快捷下载；如果帖子已在内置浏览器中加载，会优先使用该浏览器会话捕获到的媒体。")
+            Text("登录一次后，粘贴链接即可自动使用同一个 X 浏览器会话解析并保存视频或动图。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -88,6 +99,11 @@ struct SingleDownloadView: View {
             .keyboardType(.URL)
             .lineLimit(2...4)
             .textFieldStyle(.roundedBorder)
+            .focused($isURLFieldFocused)
+            .submitLabel(.done)
+            .onSubmit {
+                isURLFieldFocused = false
+            }
 
             HStack {
                 Button {
@@ -102,13 +118,17 @@ struct SingleDownloadView: View {
                 Spacer()
 
                 Button {
+                    isURLFieldFocused = false
                     Task {
-                        let postID = try? PostURLParser.postID(
-                            from: viewModel.postURL
-                        )
                         await viewModel.resolve(
-                            browserPost: postID.flatMap {
-                                session.post(withID: $0)
+                            browserResolver: { postID in
+                                let url = try PostURLParser.postURL(
+                                    from: viewModel.postURL
+                                )
+                                return try await session.capturePost(
+                                    withID: postID,
+                                    from: url
+                                )
                             }
                         )
                     }
@@ -228,7 +248,7 @@ struct SingleDownloadView: View {
             Label("浏览器会话", systemImage: "person.crop.circle.badge.checkmark")
                 .font(.subheadline.weight(.semibold))
             Text(
-                "遇到登录后才能看到的帖子时，先在“X 浏览器”中正常登录并打开该帖子，再回到这里重试。APP 不使用 OAuth，也不读取或导出 Cookie。"
+                "只需在“X 浏览器”中登录一次。登录有效期内，粘贴链接后会自动使用同一个 WebKit 会话打开并解析帖子，无需先手动浏览该帖子。"
             )
             .font(.caption)
             .foregroundStyle(.secondary)

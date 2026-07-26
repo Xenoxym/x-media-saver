@@ -45,7 +45,9 @@ final class SaverViewModel: ObservableObject {
             && !isDownloading
     }
 
-    func resolve(browserPost: BookmarkedPost? = nil) async {
+    func resolve(
+        browserResolver: ((String) async throws -> BookmarkedPost?)? = nil
+    ) async {
         successMessage = nil
         post = nil
         isResolving = true
@@ -53,13 +55,27 @@ final class SaverViewModel: ObservableObject {
 
         do {
             let id = try PostURLParser.postID(from: postURL)
+            var browserPost: BookmarkedPost?
+            var browserError: Error?
+            if let browserResolver {
+                do {
+                    browserPost = try await browserResolver(id)
+                } catch {
+                    browserError = error
+                }
+            }
+
             let resolved: PostMedia
             if let browserPost,
                browserPost.id == id,
                let captured = Self.postMedia(from: browserPost) {
                 resolved = captured
             } else {
-                resolved = try await metadataService.resolve(postID: id)
+                do {
+                    resolved = try await metadataService.resolve(postID: id)
+                } catch {
+                    throw browserError ?? error
+                }
             }
             post = resolved
             selectedItemID = resolved.items.first?.id

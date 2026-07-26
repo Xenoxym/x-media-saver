@@ -20,7 +20,7 @@ enum AppError: LocalizedError, Equatable {
         case .invalidURL:
             return "请粘贴有效的 x.com 或 twitter.com 帖子地址。"
         case .unsupportedOrUnavailablePost:
-            return "快捷解析无法读取这条帖子。请先在“浏览器”中登录并打开该帖子，或确认帖子仍然可访问。"
+            return "当前 X 会话和快捷解析都无法读取这条帖子。请确认登录仍有效，并且该账号有权访问。"
         case .noVideo:
             return "没有找到可下载的 MP4 视频或动图。"
         case .metadataServiceChanged:
@@ -38,9 +38,9 @@ enum AppError: LocalizedError, Equatable {
         case .browserUnavailable:
             return "内置 X 浏览器当前不可用。"
         case .browserCaptureFailed(let message):
-            return "无法解析浏览器已经加载的书签数据：\(message)"
+            return "无法解析 X 浏览器会话已经加载的数据：\(message)"
         case .notLoggedIn:
-            return "请先在“浏览器”标签登录 X 账号并打开书签页面。"
+            return "请先在“X 浏览器”标签登录账号，然后返回重试。"
         case .noMediaSelected:
             return "请至少选择一种媒体类型。"
         }

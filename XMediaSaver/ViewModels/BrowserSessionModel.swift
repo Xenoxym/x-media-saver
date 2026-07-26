@@ -11,11 +11,39 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     @Published private(set) var lastCaptureAt: Date?
     @Published private(set) var captureError: String?
 
-    weak var webView: WKWebView?
+    private(set) var webView: WKWebView!
     private var postsByID: [String: BookmarkedPost] = [:]
     private var allPostsByID: [String: BookmarkedPost] = [:]
     private var postOrder: [String] = []
     private var autoCaptureTask: Task<Void, Never>?
+    private var messageHandlerProxy: WeakScriptMessageHandler?
+
+    override init() {
+        super.init()
+
+        let controller = WKUserContentController()
+        controller.addUserScript(
+            WKUserScript(
+                source: BrowserCaptureScript.source,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+        let proxy = WeakScriptMessageHandler(delegate: self)
+        messageHandlerProxy = proxy
+        controller.add(proxy, name: "xMediaCapture")
+
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .default()
+        configuration.userContentController = controller
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+
+        webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.navigationDelegate = self
+        webView.allowsBackForwardNavigationGestures = true
+        webView.scrollView.keyboardDismissMode = .interactive
+        webView.load(URLRequest(url: URL(string: "https://x.com/home")!))
+    }
 
     var appearsLoggedIn: Bool {
         guard let currentURL else { return !capturedPosts.isEmpty }
@@ -29,19 +57,6 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         currentURL?.path.lowercased().contains("/bookmarks") == true
     }
 
-    func attach(_ webView: WKWebView) {
-        self.webView = webView
-        if webView.url == nil {
-            load(URL(string: "https://x.com/home")!)
-        }
-    }
-
-    func detach(_ webView: WKWebView) {
-        if self.webView === webView {
-            self.webView = nil
-        }
-    }
-
     func load(_ url: URL) {
         guard url.scheme?.lowercased() == "https",
               let host = url.host?.lowercased(),
@@ -53,7 +68,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
             captureError = "只允许在内置浏览器中打开 x.com。"
             return
         }
-        webView?.load(URLRequest(url: url))
+        webView.load(URLRequest(url: url))
     }
 
     func openBookmarks() {
@@ -61,12 +76,12 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     }
 
     func reload() {
-        webView?.reload()
+        webView.reload()
     }
 
     func goBack() {
-        guard webView?.canGoBack == true else { return }
-        webView?.goBack()
+        guard webView.canGoBack else { return }
+        webView.goBack()
     }
 
     func clearCapturedData() {
@@ -98,26 +113,47 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 }
             }
         }
-        webView?.load(URLRequest(url: URL(string: "https://x.com/i/flow/login")!))
+        webView.load(URLRequest(url: URL(string: "https://x.com/i/flow/login")!))
     }
 
     func startAutoCapture() {
         guard !isAutoCapturing else { return }
-        guard isOnBookmarksPage else {
-            captureError = "请先打开 X 的书签页面。"
-            return
-        }
 
         captureError = nil
         isAutoCapturing = true
         autoCaptureTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                isAutoCapturing = false
+                autoCaptureTask = nil
+            }
+
+            if !isOnBookmarksPage {
+                openBookmarks()
+                for _ in 0..<80 {
+                    guard !Task.isCancelled else { return }
+                    if isOnBookmarksPage && !isLoading {
+                        break
+                    }
+                    if currentURL?.path.lowercased().contains("/login") == true
+                        || currentURL?.path.lowercased().contains("/i/flow/login") == true {
+                        captureError = "登录会话已失效，请先到“X 浏览器”重新登录。"
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                }
+            }
+
+            guard isOnBookmarksPage else {
+                captureError = "无法打开书签页面，请先到“X 浏览器”确认登录状态。"
+                return
+            }
+
             var unchangedRounds = 0
             var previousCount = capturedPosts.count
 
             for _ in 0..<200 {
                 guard !Task.isCancelled else { break }
-                guard let webView else { break }
 
                 do {
                     _ = try await webView.evaluateJavaScript(
@@ -141,8 +177,6 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                     break
                 }
             }
-            isAutoCapturing = false
-            autoCaptureTask = nil
         }
     }
 
@@ -154,6 +188,35 @@ final class BrowserSessionModel: NSObject, ObservableObject {
 
     func post(withID id: String) -> BookmarkedPost? {
         allPostsByID[id]
+    }
+
+    func capturePost(
+        withID id: String,
+        from url: URL
+    ) async throws -> BookmarkedPost {
+        if let cached = allPostsByID[id] {
+            return cached
+        }
+
+        stopAutoCapture()
+        captureError = nil
+        load(url)
+
+        for _ in 0..<100 {
+            try Task.checkCancellation()
+            if let captured = allPostsByID[id] {
+                return captured
+            }
+            if currentURL?.path.lowercased().contains("/login") == true
+                || currentURL?.path.lowercased().contains("/i/flow/login") == true {
+                throw AppError.notLoggedIn
+            }
+            try await Task.sleep(nanoseconds: 250_000_000)
+        }
+
+        throw AppError.browserCaptureFailed(
+            "X 页面没有在等待时间内返回这条帖子的媒体数据。"
+        )
     }
 
     private func receiveCapture(url: String, body: String) {
@@ -226,23 +289,20 @@ extension BrowserSessionModel: WKNavigationDelegate {
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
         guard navigationAction.targetFrame?.isMainFrame != false,
-              let url = navigationAction.request.url,
-              let host = url.host?.lowercased()
+              let url = navigationAction.request.url
         else {
             decisionHandler(.allow)
             return
         }
-        let isAllowed = url.scheme?.lowercased() == "https"
-            && (
-                host == "x.com"
-                    || host.hasSuffix(".x.com")
-                    || host == "twitter.com"
-                    || host.hasSuffix(".twitter.com")
-            )
+
+        let scheme = url.scheme?.lowercased()
+        let isAllowed = scheme == "https"
+            || scheme == "about"
+            || scheme == "data"
         decisionHandler(isAllowed ? .allow : .cancel)
         if !isAllowed {
             Task { @MainActor [weak self] in
-                self?.captureError = "为保护登录会话，内置浏览器阻止了离开 x.com 的顶层跳转。"
+                self?.captureError = "内置浏览器阻止了不安全的非 HTTPS 跳转。"
             }
         }
     }
@@ -276,5 +336,23 @@ extension BrowserSessionModel: WKNavigationDelegate {
             self?.isLoading = false
             self?.captureError = error.localizedDescription
         }
+    }
+}
+
+private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    weak var delegate: WKScriptMessageHandler?
+
+    init(delegate: WKScriptMessageHandler) {
+        self.delegate = delegate
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        delegate?.userContentController(
+            userContentController,
+            didReceive: message
+        )
     }
 }

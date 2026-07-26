@@ -10,7 +10,7 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 
 - **Single-link downloads:** Paste an `x.com` or `twitter.com` post URL, select an MP4 variant, and save a video or animated GIF to Photos.
 - **In-app X browser:** Sign in on the real X website inside a persistent `WKWebView`.
-- **Bookmark capture:** Open the X bookmarks page and either scroll manually or start the app's automatic scrolling.
+- **One-tap bookmark sync:** After signing in once, start synchronization from the native Bookmarks tab. The persistent WebView opens the X bookmarks page and scrolls automatically.
 - **Media filters:** Select photos, animated GIFs, videos, or any combination.
 - **Date filters:** Filter by the post publication date.
 - **Session statistics:** Count captured bookmarks, bookmarks with media, photos, animated GIFs, and videos.
@@ -42,7 +42,7 @@ Choosing **Sign out and clear** removes X/Twitter website data from this app's W
 
 ### Single-link mode
 
-Single-link mode can use an authenticated post only after that post has already been opened and captured in the in-app browser. Pasting an arbitrary protected or login-only post URL does not currently make the app navigate to it automatically.
+After signing in once, single-link mode automatically opens the pasted post in the same persistent WebView and waits for the X page's `TweetDetail` response. The user does not need to open the post manually in the browser first.
 
 If a matching browser capture is unavailable, the app falls back to X's public syndication/embed response. That fallback is unofficial and may not resolve login-only content.
 
@@ -64,26 +64,16 @@ This is separate from the X client's “Load in 4K” interface. The app does no
 
 Date filtering uses each post's `created_at` publication time. X's captured bookmark response does not reliably provide the time when a post was added to bookmarks.
 
-Statistics and batch downloads include only bookmark entries that the webpage has actually loaded. In the current version, the user must:
-
-1. open the **X Browser** tab;
-2. sign in;
-3. open **Bookmarks**;
-4. start automatic scrolling or scroll manually;
-5. return to the native **Bookmarks** tab to filter and save.
-
-The browser is therefore not login-only yet. A fully native “sync bookmarks” button that drives the browser session in the background is a future workflow change, not a feature of the current build.
+Statistics and batch downloads include only bookmark entries that the webpage actually loads. After the first browser login, the native **Sync** button drives the persistent WebView to the bookmarks page and scrolls it automatically. If the WebKit login session expires, the app asks the user to return to the browser and sign in again.
 
 ## Using bookmark batch saving
 
-1. Open the **X Browser** tab.
-2. Sign in on the X website.
-3. Tap **Bookmarks**.
-4. Tap **Auto-scroll and capture**, or scroll manually.
-5. Return to the **Bookmarks** tab.
-6. Select photos, animated GIFs, videos, and an optional publication-date range.
-7. Tap **Batch download and save to Photos**.
-8. Grant add-only Photos permission when prompted.
+1. Open the **X Browser** tab once and sign in on the X website.
+2. Return to the native **Bookmarks** tab.
+3. Tap **Sync**. The app opens the X bookmarks page in its persistent WebView and scrolls automatically.
+4. Select photos, animated GIFs, videos, and an optional publication-date range.
+5. Tap **Batch download and save to Photos**.
+6. Grant add-only Photos permission when prompted.
 
 Duplicate captured media is removed by `media_key` before batch saving.
 
@@ -92,7 +82,7 @@ Duplicate captured media is removed by `media_key` before batch saving.
 - The browser workflow depends on X's undocumented web response structure. GraphQL operation names, response fields, or page behavior may change and require an app update.
 - Login challenges, verification, and account-risk decisions remain entirely controlled by X.
 - The captured bookmark count is a loaded-session count, not a guaranteed server-side total.
-- Automatic scrolling stops after repeated rounds with no newly captured posts, or after its safety limit.
+- Automatic synchronization stops after repeated rounds with no newly captured posts, or after its safety limit.
 - The app saves direct X-hosted photos and MP4 variants. It does not assemble HLS streams, live broadcasts, or external card players.
 - Large batches use foreground `URLSession` downloads; keep the app open.
 - A WebKit session may expire or be cleared after system cleanup or sideloaded-app re-signing.

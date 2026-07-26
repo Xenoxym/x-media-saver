@@ -35,6 +35,21 @@ struct BookmarksView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("书签媒体")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if session.isAutoCapturing {
+                        Button("停止") {
+                            session.stopAutoCapture()
+                        }
+                    } else {
+                        Button {
+                            session.startAutoCapture()
+                        } label: {
+                            Label("同步", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                    }
+                }
+            }
         }
         .alert(item: $viewModel.presentedError) { error in
             if error.offersSettings {
@@ -67,11 +82,32 @@ struct BookmarksView: View {
             Text("还没有捕获书签")
                 .font(.title3.bold())
             Text(
-                "前往“X 浏览器”标签，在 X 网页中登录，然后打开书签并点击“自动滚动抓取”。返回这里即可筛选和批量保存。"
+                "首次使用请到“X 浏览器”登录。之后可直接在这里点击“同步书签”，APP 会自动打开书签页并滚动抓取。"
             )
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
+
+            if session.isAutoCapturing {
+                ProgressView("正在自动同步书签…")
+            } else {
+                Button {
+                    session.startAutoCapture()
+                } label: {
+                    Label(
+                        "同步书签",
+                        systemImage: "arrow.triangle.2.circlepath"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let error = session.captureError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .multilineTextAlignment(.center)
+            }
         }
         .frame(maxWidth: .infinity)
         .saverCard()
@@ -99,6 +135,14 @@ struct BookmarksView: View {
             Text("统计范围是当前内置浏览器已经滚动并加载到的书签，不代表 X 服务端未加载的总量。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if session.isAutoCapturing {
+                ProgressView("正在自动同步，已捕获 \(session.capturedPosts.count) 条…")
+            } else if let error = session.captureError {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
         .saverCard()
     }

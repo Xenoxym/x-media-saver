@@ -36,4 +36,17 @@ final class PostURLParserTests: XCTestCase {
             try PostURLParser.postID(from: "https://x.com/example/status/not-a-number")
         )
     }
+
+    func testReturnsNormalizedPostURLForBrowserSession() throws {
+        let url = try PostURLParser.postURL(
+            from: "twitter.com/example/status/1293593516040269825?s=20"
+        )
+
+        XCTAssertEqual(url.scheme, "https")
+        XCTAssertEqual(url.host, "twitter.com")
+        XCTAssertEqual(
+            url.path,
+            "/example/status/1293593516040269825"
+        )
+    }
 }

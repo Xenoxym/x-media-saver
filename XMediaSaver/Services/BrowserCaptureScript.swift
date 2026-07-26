@@ -16,7 +16,9 @@ enum BrowserCaptureScript {
           return isXHost && parsed.pathname.includes('/graphql/') &&
             (url.includes('Bookmarks') ||
              url.includes('BookmarkFolderTimeline') ||
-             url.includes('TweetDetail'));
+             url.includes('TweetDetail') ||
+             url.includes('TweetResultByRestId') ||
+             url.includes('TweetResultsByRestIds'));
         } catch (_) {
           return false;
         }

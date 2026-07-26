@@ -90,11 +90,10 @@ struct BrowserView: View {
                     }
                     .font(.caption)
                 } else {
-                    Button("自动滚动抓取") {
+                    Button("同步书签") {
                         session.startAutoCapture()
                     }
                     .font(.caption)
-                    .disabled(!session.isOnBookmarksPage)
                 }
             }
 
@@ -105,7 +104,7 @@ struct BrowserView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(
-                    "账号密码只输入到 X 网页。APP 不读取密码或导出 Cookie，只解析此页面已加载的书签响应。"
+                    "WebKit 会持久保存 X 登录会话。单链接和书签同步会复用该会话；APP 不会把会话发送到外部服务。"
                 )
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -122,27 +121,7 @@ private struct BrowserWebView: UIViewRepresentable {
     @ObservedObject var session: BrowserSessionModel
 
     func makeUIView(context: Context) -> WKWebView {
-        let controller = WKUserContentController()
-        controller.addUserScript(
-            WKUserScript(
-                source: BrowserCaptureScript.source,
-                injectionTime: .atDocumentStart,
-                forMainFrameOnly: true
-            )
-        )
-        controller.add(session, name: "xMediaCapture")
-
-        let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
-        configuration.userContentController = controller
-        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = session
-        webView.allowsBackForwardNavigationGestures = true
-        webView.scrollView.keyboardDismissMode = .interactive
-        session.attach(webView)
-        return webView
+        session.webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {}
@@ -150,13 +129,5 @@ private struct BrowserWebView: UIViewRepresentable {
     static func dismantleUIView(
         _ webView: WKWebView,
         coordinator: ()
-    ) {
-        if let session = webView.navigationDelegate as? BrowserSessionModel {
-            webView.configuration.userContentController.removeScriptMessageHandler(
-                forName: "xMediaCapture"
-            )
-            session.detach(webView)
-        }
-        webView.navigationDelegate = nil
-    }
+    ) {}
 }

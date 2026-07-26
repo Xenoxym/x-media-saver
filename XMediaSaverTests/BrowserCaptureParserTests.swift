@@ -126,4 +126,47 @@ final class BrowserCaptureParserTests: XCTestCase {
             )
         )
     }
+
+    func testParsesDirectTweetResultUsedBySingleLinkNavigation() throws {
+        let json = """
+        {
+          "data": {
+            "tweetResult": {
+              "result": {
+                "rest_id": "98765",
+                "legacy": {
+                  "full_text": "Login-only example",
+                  "extended_entities": {
+                    "media": [{
+                      "id_str": "v1",
+                      "type": "video",
+                      "media_url_https": "https://pbs.twimg.com/media/thumb.jpg",
+                      "video_info": {
+                        "variants": [{
+                          "bitrate": 832000,
+                          "content_type": "video/mp4",
+                          "url": "https://video.twimg.com/ext_tw_video/example.mp4"
+                        }]
+                      }
+                    }]
+                  }
+                }
+              }
+            }
+          }
+        }
+        """
+
+        let capture = try BrowserCaptureParser.parse(
+            data: Data(json.utf8),
+            sourceURL: "https://x.com/i/api/graphql/example/TweetResultByRestId"
+        )
+
+        XCTAssertEqual(capture.posts.count, 1)
+        XCTAssertEqual(capture.posts[0].id, "98765")
+        XCTAssertEqual(
+            capture.posts[0].media[0].bestMP4Variant?.bitRate,
+            832_000
+        )
+    }
 }

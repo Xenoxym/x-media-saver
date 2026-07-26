@@ -10,6 +10,7 @@ enum BrowserCaptureParser {
         }
 
         let entryResults = timelineResults(in: root)
+            + directTweetResults(in: root)
         var postsByID: [String: BookmarkedPost] = [:]
         var orderedIDs: [String] = []
 
@@ -37,6 +38,21 @@ enum BrowserCaptureParser {
                 return
             }
             if let result = resultFromEntry(dictionary) {
+                results.append(result)
+            }
+        }
+        return results
+    }
+
+    private static func directTweetResults(in value: Any) -> [[String: Any]] {
+        var results: [[String: Any]] = []
+        walk(value) { dictionary in
+            if let tweetResults = dictionary["tweet_results"] as? [String: Any],
+               let result = tweetResults["result"] as? [String: Any] {
+                results.append(result)
+            }
+            if let tweetResult = dictionary["tweetResult"] as? [String: Any],
+               let result = tweetResult["result"] as? [String: Any] {
                 results.append(result)
             }
         }
