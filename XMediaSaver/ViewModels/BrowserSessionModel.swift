@@ -10,7 +10,9 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var isAutoCapturing = false
     @Published private(set) var syncPageCount = 0
+    @Published private(set) var syncNewPostCount = 0
     @Published private(set) var syncStatusText: String?
+    @Published private(set) var sizeAnalysisRemaining = 0
     @Published private(set) var lastCaptureAt: Date?
     @Published private(set) var captureError: String?
 
@@ -23,8 +25,13 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     private var persistenceTask: Task<Void, Never>?
     private var messageHandlerProxy: WeakScriptMessageHandler?
     private let persistenceStore = BookmarkPersistenceStore()
+    private let sizeResolver = MediaSizeResolver()
+    private let storageManager = StorageManager()
     private var bookmarkResponseSequence = 0
     private var autoSyncWhenAuthenticated = false
+    private var sizeProbeTask: Task<Void, Never>?
+    private var pendingSizeProbes: [SizeProbeRequest] = []
+    private var sizeProbeKeys: Set<String> = []
 
     override init() {
         super.init()
@@ -68,6 +75,9 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                     "无法读取本地书签索引：\(error.localizedDescription)"
             }
         }
+        Task {
+            await self.storageManager.clearTemporaryAndURLCache()
+        }
     }
 
     var appearsLoggedIn: Bool {
@@ -99,7 +109,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
 
     func prepareBrowser() {
         guard webView.url == nil, !isLoading else { return }
-        load(URL(string: "https://x.com/i/flow/login")!)
+        load(URL(string: "https://x.com/home")!)
     }
 
     func browserDidAppear() {
@@ -117,7 +127,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         isLoading = false
         currentURL = nil
         captureError = nil
-        load(URL(string: "https://x.com/i/flow/login")!)
+        load(URL(string: "https://x.com/home")!)
     }
 
     func openBookmarks() {
@@ -135,12 +145,18 @@ final class BrowserSessionModel: NSObject, ObservableObject {
 
     func clearCapturedData() {
         persistenceTask?.cancel()
+        sizeProbeTask?.cancel()
+        sizeProbeTask = nil
+        pendingSizeProbes = []
+        sizeProbeKeys = []
         capturedPosts = []
         postsByID = [:]
         allPostsByID = [:]
         postOrder = []
         syncPageCount = 0
+        syncNewPostCount = 0
         syncStatusText = nil
+        sizeAnalysisRemaining = 0
         lastCaptureAt = nil
         captureError = nil
         Task {
@@ -168,7 +184,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 }
             }
         }
-        webView.load(URLRequest(url: URL(string: "https://x.com/i/flow/login")!))
+        webView.load(URLRequest(url: URL(string: "https://x.com/home")!))
     }
 
     func startAutoCapture() {
@@ -177,6 +193,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         captureError = nil
         isAutoCapturing = true
         syncPageCount = 0
+        syncNewPostCount = 0
         syncStatusText = "正在打开书签页面…"
         autoCaptureTask = Task { [weak self] in
             guard let self else { return }
@@ -211,45 +228,40 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 return
             }
 
-            syncStatusText = "正在等待 X 返回书签分页…"
-            var responseTimeouts = 0
+            syncStatusText = "正在快速增量同步…"
+            var idleRounds = 0
+            var observedSequence = bookmarkResponseSequence
 
-            for _ in 0..<200 {
+            for _ in 0..<800 {
                 guard !Task.isCancelled else { break }
-                let responseBeforeScroll = bookmarkResponseSequence
 
                 do {
                     _ = try await webView.evaluateJavaScript(
-                        "window.scrollTo({top: document.body.scrollHeight, behavior: 'smooth'});"
+                        "window.scrollTo(0, Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));"
                     )
                 } catch {
                     captureError = error.localizedDescription
                     break
                 }
 
-                var receivedNextResponse = false
-                for _ in 0..<25 {
-                    guard !Task.isCancelled else { return }
-                    if bookmarkResponseSequence > responseBeforeScroll {
-                        receivedNextResponse = true
-                        break
-                    }
-                    try? await Task.sleep(nanoseconds: 200_000_000)
-                }
-
-                if receivedNextResponse {
-                    responseTimeouts = 0
-                    syncPageCount += 1
+                try? await Task.sleep(nanoseconds: 950_000_000)
+                let currentSequence = bookmarkResponseSequence
+                if currentSequence > observedSequence {
+                    let received = currentSequence - observedSequence
+                    observedSequence = currentSequence
+                    idleRounds = 0
+                    syncPageCount += received
                     syncStatusText =
-                        "已确认 \(syncPageCount) 个分页响应，累计 \(capturedPosts.count) 条"
-                    try? await Task.sleep(nanoseconds: 650_000_000)
+                        "已读取 \(syncPageCount) 页，新增 \(syncNewPostCount) 条，总计 \(capturedPosts.count) 条"
                 } else {
-                    responseTimeouts += 1
-                    syncStatusText =
-                        "等待下一页响应（\(responseTimeouts)/4）…"
+                    idleRounds += 1
+                    if idleRounds >= 2 {
+                        syncStatusText =
+                            "等待下一页（\(idleRounds)/6），新增 \(syncNewPostCount) 条…"
+                    }
                 }
 
-                if responseTimeouts >= 4 {
+                if idleRounds >= 6 {
                     break
                 }
             }
@@ -260,6 +272,42 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         autoCaptureTask?.cancel()
         autoCaptureTask = nil
         isAutoCapturing = false
+    }
+
+    func analyzeMissingMediaSizes(retryUnavailable: Bool = false) {
+        enqueueSizeProbes(
+            for: capturedPosts,
+            retryUnavailable: retryUnavailable
+        )
+    }
+
+    func clearCachesKeepingLogin() async {
+        await storageManager.clearTemporaryAndURLCache()
+        let cacheTypes: Set<String> = [
+            WKWebsiteDataTypeDiskCache,
+            WKWebsiteDataTypeMemoryCache,
+            WKWebsiteDataTypeOfflineWebApplicationCache,
+            WKWebsiteDataTypeFetchCache
+        ]
+        let dataStore = WKWebsiteDataStore.default()
+        await withCheckedContinuation {
+            (continuation: CheckedContinuation<Void, Never>) in
+            dataStore.fetchDataRecords(ofTypes: cacheTypes) { records in
+                let xRecords = records.filter {
+                    let name = $0.displayName.lowercased()
+                    return name.contains("x.com")
+                        || name.contains("twitter.com")
+                        || name.contains("twimg.com")
+                }
+                dataStore.removeData(
+                    ofTypes: cacheTypes,
+                    for: xRecords
+                ) {
+                    continuation.resume()
+                }
+            }
+        }
+        syncStatusText = "缓存已清理，X 登录会话已保留"
     }
 
     func post(withID id: String) -> BookmarkedPost? {
@@ -301,6 +349,12 @@ final class BrowserSessionModel: NSObject, ObservableObject {
             return
         }
 
+        let isBookmarkCapture = url.contains("Bookmarks")
+            || url.contains("BookmarkFolderTimeline")
+        if isBookmarkCapture {
+            bookmarkResponseSequence += 1
+        }
+
         Task {
             do {
                 let capture = try await Task.detached(priority: .utility) {
@@ -309,15 +363,17 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                         sourceURL: url
                     )
                 }.value
-                let isBookmarkCapture = url.contains("Bookmarks")
-                    || url.contains("BookmarkFolderTimeline")
-                if isBookmarkCapture {
-                    bookmarkResponseSequence += 1
-                }
-                merge(
+                let newCount = merge(
                     capture.posts,
                     isBookmarkCapture: isBookmarkCapture
                 )
+                if isBookmarkCapture {
+                    syncNewPostCount += newCount
+                    enqueueSizeProbes(
+                        for: capture.posts,
+                        retryUnavailable: false
+                    )
+                }
                 lastCaptureAt = Date()
                 captureError = nil
             } catch {
@@ -327,23 +383,31 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         }
     }
 
+    @discardableResult
     private func merge(
         _ posts: [BookmarkedPost],
         isBookmarkCapture: Bool
-    ) {
+    ) -> Int {
+        var newCount = 0
         for post in posts {
-            allPostsByID[post.id] = post
+            let mergedPost = preservingLocalMetadata(
+                incoming: post,
+                existing: allPostsByID[post.id]
+            )
+            allPostsByID[post.id] = mergedPost
             if isBookmarkCapture {
                 if postsByID[post.id] == nil {
                     postOrder.append(post.id)
+                    newCount += 1
                 }
-                postsByID[post.id] = post
+                postsByID[post.id] = mergedPost
             }
         }
         capturedPosts = postOrder.compactMap { postsByID[$0] }
         if isBookmarkCapture {
             schedulePersistence()
         }
+        return newCount
     }
 
     private func restore(_ posts: [BookmarkedPost]) {
@@ -371,6 +435,136 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                     "无法保存本地书签索引：\(error.localizedDescription)"
             }
         }
+    }
+
+    private func preservingLocalMetadata(
+        incoming: BookmarkedPost,
+        existing: BookmarkedPost?
+    ) -> BookmarkedPost {
+        guard let existing else { return incoming }
+        let oldMedia = Dictionary(
+            uniqueKeysWithValues: existing.media.map { ($0.mediaKey, $0) }
+        )
+        let media = incoming.media.map { item in
+            guard let old = oldMedia[item.mediaKey],
+                  item.byteSize == nil
+            else {
+                return item
+            }
+            return BookmarkedMedia(
+                mediaKey: item.mediaKey,
+                type: item.type,
+                url: item.url,
+                previewImageURL: item.previewImageURL,
+                variants: item.variants,
+                width: item.width,
+                height: item.height,
+                durationMilliseconds: item.durationMilliseconds,
+                byteSize: old.byteSize,
+                sizeProbeCompleted: old.sizeProbeCompleted
+            )
+        }
+        return BookmarkedPost(
+            id: incoming.id,
+            text: incoming.text,
+            createdAt: incoming.createdAt,
+            authorID: incoming.authorID,
+            authorName: incoming.authorName,
+            authorUsername: incoming.authorUsername,
+            media: media
+        )
+    }
+
+    private func enqueueSizeProbes(
+        for posts: [BookmarkedPost],
+        retryUnavailable: Bool
+    ) {
+        for post in posts {
+            for media in post.media {
+                let needsProbe = media.byteSize == nil
+                    && (retryUnavailable
+                        || media.sizeProbeCompleted != true)
+                guard needsProbe,
+                      let url = media.downloadURL,
+                      sizeProbeKeys.insert(media.mediaKey).inserted
+                else {
+                    continue
+                }
+                pendingSizeProbes.append(
+                    SizeProbeRequest(
+                        postID: post.id,
+                        mediaKey: media.mediaKey,
+                        url: url
+                    )
+                )
+            }
+        }
+        sizeAnalysisRemaining = pendingSizeProbes.count
+        startSizeProbeWorkerIfNeeded()
+    }
+
+    private func startSizeProbeWorkerIfNeeded() {
+        guard sizeProbeTask == nil, !pendingSizeProbes.isEmpty else { return }
+        sizeProbeTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                sizeProbeTask = nil
+                sizeAnalysisRemaining = pendingSizeProbes.count
+                if !pendingSizeProbes.isEmpty {
+                    startSizeProbeWorkerIfNeeded()
+                }
+            }
+            while !pendingSizeProbes.isEmpty {
+                guard !Task.isCancelled else { return }
+                let request = pendingSizeProbes.removeFirst()
+                sizeAnalysisRemaining = pendingSizeProbes.count + 1
+                let size = await sizeResolver.resolve(request.url)
+                applyResolvedSize(
+                    size,
+                    postID: request.postID,
+                    mediaKey: request.mediaKey
+                )
+                sizeProbeKeys.remove(request.mediaKey)
+                sizeAnalysisRemaining = pendingSizeProbes.count
+                try? await Task.sleep(nanoseconds: 150_000_000)
+            }
+        }
+    }
+
+    private func applyResolvedSize(
+        _ byteSize: Int64?,
+        postID: String,
+        mediaKey: String
+    ) {
+        guard let post = postsByID[postID] else { return }
+        let media = post.media.map { item in
+            guard item.mediaKey == mediaKey else { return item }
+            return BookmarkedMedia(
+                mediaKey: item.mediaKey,
+                type: item.type,
+                url: item.url,
+                previewImageURL: item.previewImageURL,
+                variants: item.variants,
+                width: item.width,
+                height: item.height,
+                durationMilliseconds: item.durationMilliseconds,
+                byteSize: byteSize,
+                sizeProbeCompleted: true
+            )
+        }
+        let updated = BookmarkedPost(
+            id: post.id,
+            text: post.text,
+            createdAt: post.createdAt,
+            authorID: post.authorID,
+            authorName: post.authorName,
+            authorUsername: post.authorUsername,
+            media: media
+        )
+        postsByID[postID] = updated
+        allPostsByID[postID] = updated
+        capturedPosts = postOrder.compactMap { postsByID[$0] }
+        schedulePersistence()
     }
 
     private func navigationStarted(url: URL?) {
@@ -409,6 +603,12 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         isLoading = false
         captureError = "X 页面加载失败：\(error.localizedDescription)（\(nsError.code)）"
     }
+}
+
+private struct SizeProbeRequest {
+    let postID: String
+    let mediaKey: String
+    let url: URL
 }
 
 extension BrowserSessionModel: WKScriptMessageHandler {

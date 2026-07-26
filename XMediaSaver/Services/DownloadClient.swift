@@ -7,7 +7,9 @@ final class DownloadClient: NSObject, URLSessionDownloadDelegate, @unchecked Sen
     private var downloadedFileURL: URL?
     private var destinationExtension = "mp4"
     private lazy var session: URLSession = {
-        let configuration = URLSessionConfiguration.default
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.waitsForConnectivity = true
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 60 * 60

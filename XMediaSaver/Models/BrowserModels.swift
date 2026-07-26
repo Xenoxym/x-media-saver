@@ -45,8 +45,34 @@ struct BookmarkedMedia: Identifiable, Codable, Hashable {
     let width: Int?
     let height: Int?
     let durationMilliseconds: Int?
+    let byteSize: Int64?
+    let sizeProbeCompleted: Bool?
 
     var id: String { mediaKey }
+
+    init(
+        mediaKey: String,
+        type: BookmarkMediaType,
+        url: URL?,
+        previewImageURL: URL?,
+        variants: [XMediaVariant],
+        width: Int?,
+        height: Int?,
+        durationMilliseconds: Int?,
+        byteSize: Int64? = nil,
+        sizeProbeCompleted: Bool? = nil
+    ) {
+        self.mediaKey = mediaKey
+        self.type = type
+        self.url = url
+        self.previewImageURL = previewImageURL
+        self.variants = variants
+        self.width = width
+        self.height = height
+        self.durationMilliseconds = durationMilliseconds
+        self.byteSize = byteSize
+        self.sizeProbeCompleted = sizeProbeCompleted
+    }
 
     var bestMP4Variant: XMediaVariant? {
         variants
@@ -73,10 +99,12 @@ struct BookmarkedMedia: Identifiable, Codable, Hashable {
         case width
         case height
         case durationMilliseconds = "duration_ms"
+        case byteSize = "byte_size"
+        case sizeProbeCompleted = "size_probe_completed"
     }
 }
 
-struct BookmarkedPost: Identifiable, Codable, Equatable {
+struct BookmarkedPost: Identifiable, Codable, Equatable, Hashable {
     let id: String
     let text: String
     let createdAt: Date?
@@ -104,9 +132,7 @@ enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
 
 enum BookmarkSearchField: String, CaseIterable, Identifiable {
     case all
-    case handle
-    case displayName
-    case userID
+    case account
     case content
     case hashtag
 
@@ -114,12 +140,109 @@ enum BookmarkSearchField: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .all: return "全部字段"
-        case .handle: return "@用户名"
-        case .displayName: return "显示昵称"
-        case .userID: return "数字 User ID"
+        case .all: return "全部"
+        case .account: return "账号"
         case .content: return "正文"
         case .hashtag: return "Hashtag"
+        }
+    }
+}
+
+enum BookmarkPostSort: String, CaseIterable, Identifiable {
+    case newest
+    case oldest
+
+    var id: String { rawValue }
+    var title: String { self == .newest ? "最新优先" : "最早优先" }
+}
+
+enum BookmarkHashtagSort: String, CaseIterable, Identifiable {
+    case countDescending
+    case nameAscending
+
+    var id: String { rawValue }
+    var title: String {
+        self == .countDescending ? "帖子数从多到少" : "标签名称排序"
+    }
+}
+
+enum MediaDurationRange: String, CaseIterable, Identifiable {
+    case all
+    case underOneMinute
+    case oneToTenMinutes
+    case tenToThirtyMinutes
+    case thirtyToSixtyMinutes
+    case overOneHour
+    case unknown
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "不限时长"
+        case .underOneMinute: return "1 分钟以内"
+        case .oneToTenMinutes: return "1–10 分钟"
+        case .tenToThirtyMinutes: return "10–30 分钟"
+        case .thirtyToSixtyMinutes: return "30–60 分钟"
+        case .overOneHour: return "1 小时以上"
+        case .unknown: return "时长未知"
+        }
+    }
+
+    func contains(milliseconds: Int?) -> Bool {
+        guard self != .all else { return true }
+        guard let milliseconds else { return self == .unknown }
+        let minute = 60_000
+        switch self {
+        case .all, .unknown: return false
+        case .underOneMinute: return milliseconds < minute
+        case .oneToTenMinutes:
+            return milliseconds >= minute && milliseconds < 10 * minute
+        case .tenToThirtyMinutes:
+            return milliseconds >= 10 * minute && milliseconds < 30 * minute
+        case .thirtyToSixtyMinutes:
+            return milliseconds >= 30 * minute && milliseconds < 60 * minute
+        case .overOneHour: return milliseconds >= 60 * minute
+        }
+    }
+}
+
+enum MediaSizeRange: String, CaseIterable, Identifiable {
+    case all
+    case underTenMB
+    case tenToFiftyMB
+    case fiftyToTwoHundredMB
+    case twoHundredToFiveHundredMB
+    case overFiveHundredMB
+    case unknown
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "不限大小"
+        case .underTenMB: return "10 MB 以下"
+        case .tenToFiftyMB: return "10–50 MB"
+        case .fiftyToTwoHundredMB: return "50–200 MB"
+        case .twoHundredToFiveHundredMB: return "200–500 MB"
+        case .overFiveHundredMB: return "500 MB 以上"
+        case .unknown: return "大小未知"
+        }
+    }
+
+    func contains(bytes: Int64?) -> Bool {
+        guard self != .all else { return true }
+        guard let bytes else { return self == .unknown }
+        let mb: Int64 = 1_048_576
+        switch self {
+        case .all, .unknown: return false
+        case .underTenMB: return bytes < 10 * mb
+        case .tenToFiftyMB: return bytes >= 10 * mb && bytes < 50 * mb
+        case .fiftyToTwoHundredMB:
+            return bytes >= 50 * mb && bytes < 200 * mb
+        case .twoHundredToFiveHundredMB:
+            return bytes >= 200 * mb && bytes < 500 * mb
+        case .overFiveHundredMB: return bytes >= 500 * mb
         }
     }
 }
@@ -171,6 +294,8 @@ struct BookmarkFilter: Equatable {
     ) ?? Date()
     var useEndDate = false
     var endDate = Date()
+    var durationRange = MediaDurationRange.all
+    var sizeRange = MediaSizeRange.all
 
     var selectedTypes: Set<BookmarkMediaType> {
         var result: Set<BookmarkMediaType> = []
@@ -200,12 +325,47 @@ struct BookmarkFilter: Equatable {
                 return false
             }
         }
-        return post.media.contains { selectedTypes.contains($0.type) }
+        guard sizeRange.contains(bytes: post.totalKnownByteSize) else {
+            return false
+        }
+        return !media(in: post, checksPostRange: false).isEmpty
     }
 
     func media(in post: BookmarkedPost) -> [BookmarkedMedia] {
         guard contains(post) else { return [] }
-        return post.media.filter { selectedTypes.contains($0.type) }
+        return media(in: post, checksPostRange: false)
+    }
+
+    private func media(
+        in post: BookmarkedPost,
+        checksPostRange: Bool
+    ) -> [BookmarkedMedia] {
+        if checksPostRange && !sizeRange.contains(bytes: post.totalKnownByteSize) {
+            return []
+        }
+        return post.media.filter { media in
+            guard selectedTypes.contains(media.type) else { return false }
+            if media.type == .video || media.type == .animatedGIF {
+                return durationRange.contains(
+                    milliseconds: media.durationMilliseconds
+                )
+            }
+            return durationRange == .all
+        }
+    }
+}
+
+extension BookmarkedPost {
+    var totalKnownByteSize: Int64? {
+        guard !media.isEmpty, media.allSatisfy({ $0.byteSize != nil }) else {
+            return nil
+        }
+        return media.compactMap(\.byteSize).reduce(0, +)
+    }
+
+    var postURL: URL? {
+        guard let authorUsername else { return nil }
+        return URL(string: "https://x.com/\(authorUsername)/status/\(id)")
     }
 }
 

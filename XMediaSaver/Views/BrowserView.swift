@@ -106,13 +106,13 @@ struct BrowserView: View {
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                Button("重新加载登录页") {
+                Button("重新加载 X 首页") {
                     session.retryBrowserLogin()
                 }
                 .font(.caption.weight(.semibold))
             } else {
                 Text(session.syncStatusText
-                    ?? "登录后会自动打开书签页并在后台慢速同步；离开此栏目后仍会继续，锁屏或切到其他 APP 时会受 iOS 暂停。")
+                    ?? "默认打开 X 首页；登录有效时会自动快速增量同步书签。离开此栏目后仍会继续，锁屏或切到其他 APP 时会受 iOS 暂停。")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)

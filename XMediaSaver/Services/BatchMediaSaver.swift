@@ -21,6 +21,7 @@ final class BatchMediaSaver: @unchecked Sendable {
 
     func save(
         _ mediaItems: [BookmarkedMedia],
+        didSave: @escaping @Sendable (BookmarkedMedia, Int64) async -> Void,
         progress: @escaping @Sendable (BatchSaveProgress) -> Void
     ) async throws -> BatchSaveResult {
         guard !mediaItems.isEmpty else {
@@ -86,6 +87,13 @@ final class BatchMediaSaver: @unchecked Sendable {
                     try await photoSaver.saveVideo(at: localURL)
                 }
                 saved += 1
+                let values = try? localURL.resourceValues(
+                    forKeys: [.fileSizeKey, .totalFileAllocatedSizeKey]
+                )
+                let byteSize = Int64(
+                    values?.fileSize ?? values?.totalFileAllocatedSize ?? 0
+                )
+                await didSave(media, byteSize)
                 try? FileManager.default.removeItem(at: localURL)
             } catch is CancellationError {
                 if let localURL {

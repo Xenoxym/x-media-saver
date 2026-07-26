@@ -89,11 +89,10 @@ final class BookmarkModelsTests: XCTestCase {
         ]
         let viewModel = BookmarksViewModel()
 
-        viewModel.searchField = .handle
+        viewModel.searchField = .account
         viewModel.searchText = "@ALI"
         XCTAssertEqual(viewModel.filteredPosts(from: posts).map(\.id), ["1", "2"])
 
-        viewModel.searchField = .userID
         viewModel.searchText = "999"
         XCTAssertEqual(viewModel.filteredPosts(from: posts).map(\.id), ["3"])
 
@@ -110,6 +109,39 @@ final class BookmarkModelsTests: XCTestCase {
             viewModel.hashtagGroups(from: posts).first?.title.lowercased(),
             "travel"
         )
+    }
+
+    func testDurationAndPostSizeRanges() {
+        let video = BookmarkedMedia(
+            mediaKey: "video",
+            type: .video,
+            url: nil,
+            previewImageURL: nil,
+            variants: [],
+            width: 1920,
+            height: 1080,
+            durationMilliseconds: 15 * 60 * 1_000,
+            byteSize: 75 * 1_048_576,
+            sizeProbeCompleted: true
+        )
+        let post = BookmarkedPost(
+            id: "duration",
+            text: "",
+            createdAt: Date(),
+            authorID: nil,
+            authorName: nil,
+            authorUsername: nil,
+            media: [video]
+        )
+        var filter = BookmarkFilter()
+        filter.includePhotos = false
+        filter.includeGIFs = false
+        filter.durationRange = .tenToThirtyMinutes
+        filter.sizeRange = .fiftyToTwoHundredMB
+
+        XCTAssertTrue(filter.contains(post))
+        filter.durationRange = .underOneMinute
+        XCTAssertFalse(filter.contains(post))
     }
 
     func testPersistenceStoresPostMetadataWithoutMediaFiles() async throws {
@@ -141,6 +173,26 @@ final class BookmarkModelsTests: XCTestCase {
         try await store.clear()
         let cleared = try await store.load()
         XCTAssertEqual(cleared, [])
+    }
+
+    func testPhotoSaveHistoryDeduplicatesAcrossReloads() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("saved.jsonl")
+        defer {
+            try? FileManager.default.removeItem(
+                at: fileURL.deletingLastPathComponent()
+            )
+        }
+
+        let firstStore = MediaSaveHistoryStore(fileURL: fileURL)
+        _ = try await firstStore.insert("media-1")
+        _ = try await firstStore.insert("media-1")
+        _ = try await firstStore.insert("media-2")
+
+        let secondStore = MediaSaveHistoryStore(fileURL: fileURL)
+        let restored = try await secondStore.load()
+        XCTAssertEqual(restored, Set(["media-1", "media-2"]))
     }
 
     private func makePost(

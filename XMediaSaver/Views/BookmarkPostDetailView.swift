@@ -1,0 +1,154 @@
+import AVKit
+import SwiftUI
+
+struct BookmarkPostDetailView: View {
+    let post: BookmarkedPost
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                authorHeader
+
+                if !post.text.isEmpty {
+                    Text(post.text)
+                        .font(.body)
+                        .textSelection(.enabled)
+                }
+
+                ForEach(post.media) { media in
+                    mediaCard(media)
+                }
+
+                if let postURL = post.postURL {
+                    Button {
+                        openURL(postURL)
+                    } label: {
+                        Label("在 X 中查看原帖", systemImage: "arrow.up.right.square")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .padding()
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("Post 预览")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var authorHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(post.authorName ?? "未知作者")
+                .font(.headline)
+            HStack(spacing: 8) {
+                if let username = post.authorUsername {
+                    Text("@\(username)")
+                }
+                if let date = post.createdAt {
+                    Text(date.formatted(date: .abbreviated, time: .shortened))
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if let authorID = post.authorID {
+                Text("User ID: \(authorID)")
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .saverCard()
+    }
+
+    private func mediaCard(_ media: BookmarkedMedia) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            switch media.type {
+            case .photo:
+                AsyncImage(url: media.previewImageURL ?? media.url) { phase in
+                    switch phase {
+                    case .empty:
+                        ProgressView()
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity)
+                    case .failure:
+                        Label("图片预览加载失败", systemImage: "photo.badge.exclamationmark")
+                            .frame(maxWidth: .infinity, minHeight: 120)
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+            case .animatedGIF, .video:
+                if let url = media.bestMP4Variant?.url {
+                    InlineVideoPreview(url: url)
+                        .frame(minHeight: 220)
+                } else {
+                    Label("没有可播放的 MP4 变体", systemImage: "video.slash")
+                        .frame(maxWidth: .infinity, minHeight: 120)
+                }
+            }
+
+            HStack {
+                Label(media.type.title, systemImage: media.type.systemImage)
+                Spacer()
+                Text(mediaMetadata(media))
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+        }
+        .saverCard()
+    }
+
+    private func mediaMetadata(_ media: BookmarkedMedia) -> String {
+        var values: [String] = []
+        if let width = media.width, let height = media.height {
+            values.append("\(width)×\(height)")
+        }
+        if let duration = media.durationMilliseconds {
+            values.append(Self.durationFormatter.string(
+                from: TimeInterval(duration) / 1_000
+            ) ?? "")
+        }
+        if let byteSize = media.byteSize {
+            values.append(Self.byteFormatter.string(fromByteCount: byteSize))
+        } else {
+            values.append("大小待分析")
+        }
+        return values.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
+    }()
+
+    private static let durationFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.hour, .minute, .second]
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+}
+
+private struct InlineVideoPreview: View {
+    let url: URL
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .onAppear {
+                if player == nil {
+                    player = AVPlayer(url: url)
+                }
+            }
+            .onDisappear {
+                player?.pause()
+            }
+    }
+}
