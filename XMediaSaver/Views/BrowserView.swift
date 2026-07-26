@@ -102,6 +102,11 @@ struct BrowserView: View {
                     .font(.caption2)
                     .foregroundStyle(.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                Button("重新加载登录页") {
+                    session.retryBrowserLogin()
+                }
+                .font(.caption.weight(.semibold))
             } else {
                 Text(
                     "WebKit 会持久保存 X 登录会话。单链接和书签同步会复用该会话；APP 不会把会话发送到外部服务。"
@@ -121,10 +126,13 @@ private struct BrowserWebView: UIViewRepresentable {
     @ObservedObject var session: BrowserSessionModel
 
     func makeUIView(context: Context) -> WKWebView {
-        session.webView
+        session.prepareBrowser()
+        return session.webView
     }
 
-    func updateUIView(_ webView: WKWebView, context: Context) {}
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        session.prepareBrowser()
+    }
 
     static func dismantleUIView(
         _ webView: WKWebView,

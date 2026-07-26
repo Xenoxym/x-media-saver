@@ -4,6 +4,15 @@ enum BrowserCaptureScript {
     static let source = #"""
     (() => {
       if (window.__xMediaSaverCaptureInstalled) return;
+
+      const pageHost = window.location.hostname.toLowerCase();
+      const isXPage = pageHost === 'x.com' || pageHost.endsWith('.x.com') ||
+        pageHost === 'twitter.com' || pageHost.endsWith('.twitter.com');
+      if (!isXPage) return;
+
+      const pagePath = window.location.pathname.toLowerCase();
+      if (pagePath.includes('/i/flow/login') || pagePath === '/login') return;
+
       window.__xMediaSaverCaptureInstalled = true;
 
       const shouldCapture = (url) => {

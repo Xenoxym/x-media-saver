@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 import WebKit
 
 @MainActor
@@ -16,6 +17,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     private var allPostsByID: [String: BookmarkedPost] = [:]
     private var postOrder: [String] = []
     private var autoCaptureTask: Task<Void, Never>?
+    private var navigationTimeoutTask: Task<Void, Never>?
     private var messageHandlerProxy: WeakScriptMessageHandler?
 
     override init() {
@@ -37,12 +39,18 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         configuration.websiteDataStore = .default()
         configuration.userContentController = controller
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.defaultWebpagePreferences.preferredContentMode = .mobile
+        configuration.allowsInlineMediaPlayback = true
+        configuration.applicationNameForUserAgent =
+            "Version/17.0 Mobile/15E148 Safari/604.1"
 
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = self
         webView.allowsBackForwardNavigationGestures = true
         webView.scrollView.keyboardDismissMode = .interactive
-        webView.load(URLRequest(url: URL(string: "https://x.com/home")!))
+        webView.isOpaque = false
+        webView.backgroundColor = .systemBackground
+        webView.scrollView.backgroundColor = .systemBackground
     }
 
     var appearsLoggedIn: Bool {
@@ -68,7 +76,22 @@ final class BrowserSessionModel: NSObject, ObservableObject {
             captureError = "只允许在内置浏览器中打开 x.com。"
             return
         }
+        captureError = nil
         webView.load(URLRequest(url: url))
+    }
+
+    func prepareBrowser() {
+        guard webView.url == nil, !isLoading else { return }
+        load(URL(string: "https://x.com/i/flow/login")!)
+    }
+
+    func retryBrowserLogin() {
+        navigationTimeoutTask?.cancel()
+        webView.stopLoading()
+        isLoading = false
+        currentURL = nil
+        captureError = nil
+        load(URL(string: "https://x.com/i/flow/login")!)
     }
 
     func openBookmarks() {
@@ -262,6 +285,39 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         }
         capturedPosts = postOrder.compactMap { postsByID[$0] }
     }
+
+    private func navigationStarted(url: URL?) {
+        navigationTimeoutTask?.cancel()
+        isLoading = true
+        currentURL = url
+        navigationTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
+            guard !Task.isCancelled, let self, isLoading else { return }
+            webView.stopLoading()
+            isLoading = false
+            captureError = "X 页面加载超过 30 秒。请检查网络后点击“重新加载登录页”。"
+        }
+    }
+
+    private func navigationFinished(url: URL?) {
+        navigationTimeoutTask?.cancel()
+        navigationTimeoutTask = nil
+        isLoading = false
+        currentURL = url
+        captureError = nil
+    }
+
+    private func navigationFailed(_ error: Error) {
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain
+            && nsError.code == NSURLErrorCancelled {
+            return
+        }
+        navigationTimeoutTask?.cancel()
+        navigationTimeoutTask = nil
+        isLoading = false
+        captureError = "X 页面加载失败：\(error.localizedDescription)（\(nsError.code)）"
+    }
 }
 
 extension BrowserSessionModel: WKScriptMessageHandler {
@@ -312,7 +368,15 @@ extension BrowserSessionModel: WKNavigationDelegate {
         didStartProvisionalNavigation navigation: WKNavigation?
     ) {
         Task { @MainActor [weak self] in
-            self?.isLoading = true
+            self?.navigationStarted(url: webView.url)
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        didCommit navigation: WKNavigation?
+    ) {
+        Task { @MainActor [weak self] in
             self?.currentURL = webView.url
         }
     }
@@ -322,8 +386,17 @@ extension BrowserSessionModel: WKNavigationDelegate {
         didFinish navigation: WKNavigation?
     ) {
         Task { @MainActor [weak self] in
-            self?.isLoading = false
-            self?.currentURL = webView.url
+            self?.navigationFinished(url: webView.url)
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation?,
+        withError error: Error
+    ) {
+        Task { @MainActor [weak self] in
+            self?.navigationFailed(error)
         }
     }
 
@@ -333,8 +406,18 @@ extension BrowserSessionModel: WKNavigationDelegate {
         withError error: Error
     ) {
         Task { @MainActor [weak self] in
-            self?.isLoading = false
-            self?.captureError = error.localizedDescription
+            self?.navigationFailed(error)
+        }
+    }
+
+    nonisolated func webViewWebContentProcessDidTerminate(
+        _ webView: WKWebView
+    ) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            navigationTimeoutTask?.cancel()
+            isLoading = false
+            captureError = "X 浏览器进程已被 iOS 终止，请点击“重新加载登录页”。"
         }
     }
 }
