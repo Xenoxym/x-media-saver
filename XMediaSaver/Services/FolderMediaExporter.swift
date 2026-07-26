@@ -259,6 +259,35 @@ final class FolderMediaExporter: @unchecked Sendable {
     ) throws {
         let temporaryURL = destination.appendingPathComponent("posts.jsonl.tmp")
         let targetURL = destination.appendingPathComponent("posts.jsonl")
+        var recordsByID = try loadPostManifest(at: targetURL)
+        for post in posts {
+            recordsByID[post.id] = ExportedPostRecord(
+                id: post.id,
+                postURL: post.postURL,
+                text: post.text,
+                createdAt: post.createdAt,
+                authorID: post.authorID,
+                authorName: post.authorName,
+                authorUsername: post.authorUsername,
+                media: (mediaByPostID[post.id] ?? []).map { media in
+                    let relativePath = state[media.mediaKey]
+                    return ExportedMediaRecord(
+                        mediaKey: media.mediaKey,
+                        type: media.type,
+                        remoteURL: media.downloadURL,
+                        localRelativePath: relativePath,
+                        width: media.width,
+                        height: media.height,
+                        durationMilliseconds: media.durationMilliseconds,
+                        byteSize: localFileSize(
+                            relativePath: relativePath,
+                            destination: destination
+                        ) ?? media.byteSize
+                    )
+                }
+            )
+        }
+
         FileManager.default.createFile(
             atPath: temporaryURL.path,
             contents: nil
@@ -269,28 +298,19 @@ final class FolderMediaExporter: @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys]
-        for post in posts {
-            let record = ExportedPostRecord(
-                id: post.id,
-                postURL: post.postURL,
-                text: post.text,
-                createdAt: post.createdAt,
-                authorID: post.authorID,
-                authorName: post.authorName,
-                authorUsername: post.authorUsername,
-                media: (mediaByPostID[post.id] ?? []).map { media in
-                    ExportedMediaRecord(
-                        mediaKey: media.mediaKey,
-                        type: media.type,
-                        remoteURL: media.downloadURL,
-                        localRelativePath: state[media.mediaKey],
-                        width: media.width,
-                        height: media.height,
-                        durationMilliseconds: media.durationMilliseconds,
-                        byteSize: media.byteSize
-                    )
-                }
-            )
+        let records = recordsByID.values.sorted {
+            switch ($0.createdAt, $1.createdAt) {
+            case let (left?, right?) where left != right:
+                return left > right
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                return $0.id > $1.id
+            }
+        }
+        for record in records {
             var line = try encoder.encode(record)
             line.append(0x0A)
             try handle.write(contentsOf: line)
@@ -308,6 +328,40 @@ final class FolderMediaExporter: @unchecked Sendable {
                 to: targetURL
             )
         }
+    }
+
+    private func loadPostManifest(
+        at url: URL
+    ) throws -> [String: ExportedPostRecord] {
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return [:]
+        }
+        let data = try Data(contentsOf: url)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        var result: [String: ExportedPostRecord] = [:]
+        for line in data.split(separator: 0x0A) {
+            if let record = try? decoder.decode(
+                ExportedPostRecord.self,
+                from: Data(line)
+            ) {
+                result[record.id] = record
+            }
+        }
+        return result
+    }
+
+    private func localFileSize(
+        relativePath: String?,
+        destination: URL
+    ) -> Int64? {
+        guard let relativePath else { return nil }
+        let url = destination.appendingPathComponent(relativePath)
+        let values = try? url.resourceValues(
+            forKeys: [.fileSizeKey, .totalFileAllocatedSizeKey]
+        )
+        let value = values?.fileSize ?? values?.totalFileAllocatedSize
+        return value.map(Int64.init)
     }
 
     private static func relativePath(
