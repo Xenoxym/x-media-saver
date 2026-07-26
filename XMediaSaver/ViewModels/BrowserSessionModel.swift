@@ -9,6 +9,8 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     @Published private(set) var currentURL: URL?
     @Published private(set) var isLoading = false
     @Published private(set) var isAutoCapturing = false
+    @Published private(set) var syncPageCount = 0
+    @Published private(set) var syncStatusText: String?
     @Published private(set) var lastCaptureAt: Date?
     @Published private(set) var captureError: String?
 
@@ -18,7 +20,11 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     private var postOrder: [String] = []
     private var autoCaptureTask: Task<Void, Never>?
     private var navigationTimeoutTask: Task<Void, Never>?
+    private var persistenceTask: Task<Void, Never>?
     private var messageHandlerProxy: WeakScriptMessageHandler?
+    private let persistenceStore = BookmarkPersistenceStore()
+    private var bookmarkResponseSequence = 0
+    private var autoSyncWhenAuthenticated = false
 
     override init() {
         super.init()
@@ -51,6 +57,17 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         webView.isOpaque = false
         webView.backgroundColor = .systemBackground
         webView.scrollView.backgroundColor = .systemBackground
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let storedPosts = try await self.persistenceStore.load()
+                self.restore(storedPosts)
+            } catch {
+                self.captureError =
+                    "无法读取本地书签索引：\(error.localizedDescription)"
+            }
+        }
     }
 
     var appearsLoggedIn: Bool {
@@ -85,6 +102,15 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         load(URL(string: "https://x.com/i/flow/login")!)
     }
 
+    func browserDidAppear() {
+        autoSyncWhenAuthenticated = true
+        prepareBrowser()
+        if appearsLoggedIn && currentURL != nil {
+            autoSyncWhenAuthenticated = false
+            startAutoCapture()
+        }
+    }
+
     func retryBrowserLogin() {
         navigationTimeoutTask?.cancel()
         webView.stopLoading()
@@ -108,12 +134,18 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     }
 
     func clearCapturedData() {
+        persistenceTask?.cancel()
         capturedPosts = []
         postsByID = [:]
         allPostsByID = [:]
         postOrder = []
+        syncPageCount = 0
+        syncStatusText = nil
         lastCaptureAt = nil
         captureError = nil
+        Task {
+            try? await self.persistenceStore.clear()
+        }
     }
 
     func clearBrowserSession() async {
@@ -144,11 +176,18 @@ final class BrowserSessionModel: NSObject, ObservableObject {
 
         captureError = nil
         isAutoCapturing = true
+        syncPageCount = 0
+        syncStatusText = "正在打开书签页面…"
         autoCaptureTask = Task { [weak self] in
             guard let self else { return }
             defer {
                 isAutoCapturing = false
                 autoCaptureTask = nil
+                if Task.isCancelled {
+                    syncStatusText = "同步已停止"
+                } else if captureError == nil {
+                    syncStatusText = "本轮同步完成"
+                }
             }
 
             if !isOnBookmarksPage {
@@ -172,11 +211,12 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 return
             }
 
-            var unchangedRounds = 0
-            var previousCount = capturedPosts.count
+            syncStatusText = "正在等待 X 返回书签分页…"
+            var responseTimeouts = 0
 
             for _ in 0..<200 {
                 guard !Task.isCancelled else { break }
+                let responseBeforeScroll = bookmarkResponseSequence
 
                 do {
                     _ = try await webView.evaluateJavaScript(
@@ -187,16 +227,29 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                     break
                 }
 
-                try? await Task.sleep(nanoseconds: 1_200_000_000)
-                let currentCount = capturedPosts.count
-                if currentCount == previousCount {
-                    unchangedRounds += 1
-                } else {
-                    unchangedRounds = 0
-                    previousCount = currentCount
+                var receivedNextResponse = false
+                for _ in 0..<25 {
+                    guard !Task.isCancelled else { return }
+                    if bookmarkResponseSequence > responseBeforeScroll {
+                        receivedNextResponse = true
+                        break
+                    }
+                    try? await Task.sleep(nanoseconds: 200_000_000)
                 }
 
-                if unchangedRounds >= 6 {
+                if receivedNextResponse {
+                    responseTimeouts = 0
+                    syncPageCount += 1
+                    syncStatusText =
+                        "已确认 \(syncPageCount) 个分页响应，累计 \(capturedPosts.count) 条"
+                    try? await Task.sleep(nanoseconds: 650_000_000)
+                } else {
+                    responseTimeouts += 1
+                    syncStatusText =
+                        "等待下一页响应（\(responseTimeouts)/4）…"
+                }
+
+                if responseTimeouts >= 4 {
                     break
                 }
             }
@@ -256,10 +309,14 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                         sourceURL: url
                     )
                 }.value
+                let isBookmarkCapture = url.contains("Bookmarks")
+                    || url.contains("BookmarkFolderTimeline")
+                if isBookmarkCapture {
+                    bookmarkResponseSequence += 1
+                }
                 merge(
                     capture.posts,
-                    isBookmarkCapture: url.contains("Bookmarks")
-                        || url.contains("BookmarkFolderTimeline")
+                    isBookmarkCapture: isBookmarkCapture
                 )
                 lastCaptureAt = Date()
                 captureError = nil
@@ -284,6 +341,36 @@ final class BrowserSessionModel: NSObject, ObservableObject {
             }
         }
         capturedPosts = postOrder.compactMap { postsByID[$0] }
+        if isBookmarkCapture {
+            schedulePersistence()
+        }
+    }
+
+    private func restore(_ posts: [BookmarkedPost]) {
+        guard !posts.isEmpty else { return }
+        for post in posts where postsByID[post.id] == nil {
+            postsByID[post.id] = post
+            allPostsByID[post.id] = post
+            postOrder.append(post.id)
+        }
+        capturedPosts = postOrder.compactMap { postsByID[$0] }
+        schedulePersistence()
+    }
+
+    private func schedulePersistence() {
+        persistenceTask?.cancel()
+        let snapshot = capturedPosts
+        persistenceTask = Task { [weak self] in
+            guard let self else { return }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
+            do {
+                try await self.persistenceStore.save(snapshot)
+            } catch {
+                self.captureError =
+                    "无法保存本地书签索引：\(error.localizedDescription)"
+            }
+        }
     }
 
     private func navigationStarted(url: URL?) {
@@ -305,6 +392,10 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         isLoading = false
         currentURL = url
         captureError = nil
+        if autoSyncWhenAuthenticated && appearsLoggedIn {
+            autoSyncWhenAuthenticated = false
+            startAutoCapture()
+        }
     }
 
     private func navigationFailed(_ error: Error) {

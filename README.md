@@ -10,10 +10,12 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 
 - **Single-link downloads:** Paste an `x.com` or `twitter.com` post URL, select an MP4 variant, and save a video or animated GIF to Photos.
 - **In-app X browser:** Sign in on the real X website inside a persistent `WKWebView`.
-- **One-tap bookmark sync:** After signing in once, start synchronization from the native Bookmarks tab. The persistent WebView opens the X bookmarks page and scrolls automatically.
+- **Automatic bookmark sync:** Opening the X Browser after signing in starts a slow sync that waits for each bookmark-page response before continuing. It can keep running while another tab of this app is visible.
+- **Local post index:** Each captured post, its author/text/date, and its media metadata are stored on-device and restored after relaunch. Media files are downloaded only when Save is used.
+- **Browse and search:** Group by account or hashtag; search handle, display name, numeric user ID, post text, or hashtag; sort account groups by size or name.
 - **Media filters:** Select photos, animated GIFs, videos, or any combination.
 - **Date filters:** Filter by the post publication date.
-- **Session statistics:** Count captured bookmarks, bookmarks with media, photos, animated GIFs, and videos.
+- **Local-index statistics:** Count indexed bookmarks, bookmarks with media, photos, animated GIFs, and videos.
 - **Highest available quality:** Select the highest-bitrate MP4 by default and request X photos with `name=orig`.
 - **On-device saving:** Download directly from X media hosts and add the files to Photos with add-only permission.
 - **Batch progress and cancellation:** Continue past individual failures and report saved, skipped, and failed counts.
@@ -31,7 +33,7 @@ The X login page runs inside `WKWebView`. Credentials, verification codes, and c
 - does not extract authorization headers or account tokens;
 - does not construct additional private X GraphQL/API requests;
 - observes only X/Twitter `Bookmarks`, `BookmarkFolderTimeline`, and `TweetDetail` responses that the webpage itself has already loaded;
-- keeps captured metadata in the current app session;
+- keeps captured post/media metadata in the app's protected local Application Support directory;
 - does not send captured data to a custom service.
 
 The official X bookmarks API requires a user access token and OAuth. That API is intentionally not used here. See the [X bookmarks documentation](https://docs.x.com/x-api/posts/bookmarks/introduction).
@@ -64,13 +66,13 @@ This is separate from the X client's “Load in 4K” interface. The app does no
 
 Date filtering uses each post's `created_at` publication time. X's captured bookmark response does not reliably provide the time when a post was added to bookmarks.
 
-Statistics and batch downloads include only bookmark entries that the webpage actually loads. After the first browser login, the native **Sync** button drives the persistent WebView to the bookmarks page and scrolls it automatically. If the WebKit login session expires, the app asks the user to return to the browser and sign in again.
+Statistics and batch downloads include only bookmark entries that the webpage has loaded at least once. Opening **X Browser** after the first login automatically starts synchronization; the native **Sync** button can also start it. Each scroll waits up to five seconds for an actual X bookmark response before proceeding, and synchronization stops after four response timeouts. If the WebKit login session expires, the app asks the user to sign in again.
 
 ## Using bookmark batch saving
 
 1. Open the **X Browser** tab once and sign in on the X website.
-2. Return to the native **Bookmarks** tab.
-3. Tap **Sync**. The app opens the X bookmarks page in its persistent WebView and scrolls automatically.
+2. The app automatically opens bookmarks and synchronizes slowly. You may leave the browser tab for another tab inside this app; use **Sync** to run it again later.
+3. In **Bookmarks**, choose account/post/hashtag browsing and optionally search by account metadata, text, hashtag, or publication-date range.
 4. Select photos, animated GIFs, videos, and an optional publication-date range.
 5. Tap **Batch download and save to Photos**.
 6. Grant add-only Photos permission when prompted.
@@ -81,8 +83,9 @@ Duplicate captured media is removed by `media_key` before batch saving.
 
 - The browser workflow depends on X's undocumented web response structure. GraphQL operation names, response fields, or page behavior may change and require an app update.
 - Login challenges, verification, and account-risk decisions remain entirely controlled by X.
-- The captured bookmark count is a loaded-session count, not a guaranteed server-side total.
-- Automatic synchronization stops after repeated rounds with no newly captured posts, or after its safety limit.
+- The indexed bookmark count is a locally retained loaded count, not a guaranteed server-side total. X does not expose a reliable bookmark-added timestamp here.
+- Synchronization advances on captured page responses rather than on rendered-cell counts. This substantially reduces missed intermediate pages, but no undocumented web workflow can guarantee a complete server-side inventory.
+- Sync can continue when the WebView is offscreen inside this app. iOS may suspend WebKit after locking the device or switching to another app, so this is not an unrestricted system background task.
 - The app saves direct X-hosted photos and MP4 variants. It does not assemble HLS streams, live broadcasts, or external card players.
 - Large batches use foreground `URLSession` downloads; keep the app open.
 - A WebKit session may expire or be cleared after system cleanup or sideloaded-app re-signing.

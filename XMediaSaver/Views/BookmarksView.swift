@@ -5,6 +5,8 @@ struct BookmarksView: View {
     @ObservedObject var session: BrowserSessionModel
     @ObservedObject var viewModel: BookmarksViewModel
     @Environment(\.openURL) private var openURL
+    @State private var expandedAccounts: Set<String> = []
+    @State private var expandedHashtags: Set<String> = []
 
     private var statistics: BookmarkStatistics {
         BookmarkStatistics.calculate(from: session.capturedPosts)
@@ -16,6 +18,14 @@ struct BookmarksView: View {
 
     private var selectedMediaCount: Int {
         viewModel.selectedMedia(from: session.capturedPosts).count
+    }
+
+    private var accountGroups: [BookmarkAccountGroup] {
+        viewModel.accountGroups(from: session.capturedPosts)
+    }
+
+    private var hashtagGroups: [BookmarkHashtagGroup] {
+        viewModel.hashtagGroups(from: session.capturedPosts)
     }
 
     var body: some View {
@@ -35,6 +45,10 @@ struct BookmarksView: View {
             }
             .background(Color(uiColor: .systemGroupedBackground))
             .navigationTitle("书签媒体")
+            .searchable(
+                text: $viewModel.searchText,
+                prompt: "搜索账号、User ID、正文或 #标签"
+            )
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if session.isAutoCapturing {
@@ -115,7 +129,7 @@ struct BookmarksView: View {
 
     private var statisticsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("本次浏览器会话统计", systemImage: "chart.bar.xaxis")
+            Label("本地书签索引统计", systemImage: "chart.bar.xaxis")
                 .font(.headline)
 
             LazyVGrid(
@@ -132,12 +146,15 @@ struct BookmarksView: View {
                 stat("视频", statistics.videoCount, "video")
             }
 
-            Text("统计范围是当前内置浏览器已经滚动并加载到的书签，不代表 X 服务端未加载的总量。")
+            Text("统计范围包含本机已保存索引和本次新读取的数据；未从 X 分页加载过的书签不会计入。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
             if session.isAutoCapturing {
-                ProgressView("正在自动同步，已捕获 \(session.capturedPosts.count) 条…")
+                ProgressView(
+                    session.syncStatusText
+                        ?? "正在自动同步，已捕获 \(session.capturedPosts.count) 条…"
+                )
             } else if let error = session.captureError {
                 Text(error)
                     .font(.caption)
@@ -279,59 +296,236 @@ struct BookmarksView: View {
     }
 
     private var postsCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("筛选结果（\(filteredPosts.count) 条帖子）")
-                .font(.headline)
+        LazyVStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("浏览与搜索")
+                    .font(.headline)
+                Spacer()
+                Text("\(filteredPosts.count) 条")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
 
-            ForEach(filteredPosts.prefix(50)) { post in
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text(
-                            post.authorUsername.map { "@\($0)" }
-                                ?? post.authorName
-                                ?? "未知作者"
-                        )
-                        .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        if let date = post.createdAt {
-                            Text(date, style: .date)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
+            Picker("查看方式", selection: $viewModel.browseMode) {
+                ForEach(BookmarkBrowseMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
 
-                    if !post.text.isEmpty {
-                        Text(post.text)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-
-                    HStack(spacing: 10) {
-                        ForEach(
-                            BookmarkMediaType.allCases.filter { type in
-                                post.media.contains { $0.type == type }
-                            }
-                        ) { type in
-                            Label(
-                                "\(post.media.filter { $0.type == type }.count)",
-                                systemImage: type.systemImage
-                            )
-                            .font(.caption)
-                        }
+            HStack {
+                Picker("匹配字段", selection: $viewModel.searchField) {
+                    ForEach(BookmarkSearchField.allCases) { field in
+                        Text(field.title).tag(field)
                     }
                 }
-                if post.id != filteredPosts.prefix(50).last?.id {
+
+                if viewModel.browseMode == .accounts {
+                    Menu {
+                        Picker("账号排序", selection: $viewModel.accountSort) {
+                            ForEach(BookmarkAccountSort.allCases) { sort in
+                                Text(sort.title).tag(sort)
+                            }
+                        }
+                    } label: {
+                        Label("排序", systemImage: "arrow.up.arrow.down")
+                    }
+                }
+            }
+            .font(.subheadline)
+
+            Divider()
+
+            switch viewModel.browseMode {
+            case .accounts:
+                accountResults
+            case .posts:
+                postResults
+            case .hashtags:
+                hashtagResults
+            }
+        }
+        .saverCard()
+    }
+
+    @ViewBuilder
+    private var accountResults: some View {
+        if accountGroups.isEmpty {
+            noResults("没有符合条件的账号")
+        } else {
+            ForEach(accountGroups) { group in
+                DisclosureGroup(
+                    isExpanded: expansionBinding(
+                        for: group.id,
+                        in: $expandedAccounts
+                    )
+                ) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if let authorID = group.authorID {
+                            Text("User ID: \(authorID)")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
+                        }
+                        ForEach(group.posts) { post in
+                            postRow(post, showsAuthor: false)
+                            if post.id != group.posts.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(group.authorName ?? "未知作者")
+                                .font(.subheadline.weight(.semibold))
+                            if let username = group.authorUsername {
+                                Text("@\(username)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                        Text("\(group.posts.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if group.id != accountGroups.last?.id {
                     Divider()
                 }
             }
+        }
+    }
 
-            if filteredPosts.count > 50 {
-                Text("列表只预览前 50 条；批量保存仍会处理全部筛选结果。")
+    @ViewBuilder
+    private var postResults: some View {
+        if filteredPosts.isEmpty {
+            noResults("没有符合条件的帖子")
+        } else {
+            ForEach(Array(filteredPosts.prefix(100))) { post in
+                postRow(post, showsAuthor: true)
+                if post.id != filteredPosts.prefix(100).last?.id {
+                    Divider()
+                }
+            }
+            if filteredPosts.count > 100 {
+                Text("帖子视图预览前 100 条；账号分组可展开查看，批量保存仍处理全部筛选结果。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .saverCard()
+    }
+
+    @ViewBuilder
+    private var hashtagResults: some View {
+        if hashtagGroups.isEmpty {
+            noResults("筛选结果中没有 Hashtag")
+        } else {
+            ForEach(hashtagGroups) { group in
+                DisclosureGroup(
+                    isExpanded: expansionBinding(
+                        for: group.id,
+                        in: $expandedHashtags
+                    )
+                ) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(group.posts) { post in
+                            postRow(post, showsAuthor: true)
+                            if post.id != group.posts.last?.id {
+                                Divider()
+                            }
+                        }
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    HStack {
+                        Text("#\(group.title)")
+                            .font(.subheadline.weight(.semibold))
+                        Spacer()
+                        Text("\(group.posts.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if group.id != hashtagGroups.last?.id {
+                    Divider()
+                }
+            }
+        }
+    }
+
+    private func postRow(
+        _ post: BookmarkedPost,
+        showsAuthor: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                if showsAuthor {
+                    Text(
+                        post.authorUsername.map { "@\($0)" }
+                            ?? post.authorName
+                            ?? "未知作者"
+                    )
+                    .font(.subheadline.weight(.semibold))
+                }
+                Spacer()
+                if let date = post.createdAt {
+                    Text(date, style: .date)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if !post.text.isEmpty {
+                Text(post.text)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+            }
+
+            HStack(spacing: 10) {
+                ForEach(
+                    BookmarkMediaType.allCases.filter { type in
+                        post.media.contains { $0.type == type }
+                    }
+                ) { type in
+                    Label(
+                        "\(post.media.filter { $0.type == type }.count)",
+                        systemImage: type.systemImage
+                    )
+                    .font(.caption)
+                }
+            }
+        }
+    }
+
+    private func noResults(_ message: String) -> some View {
+        VStack(spacing: 8) {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.title2)
+                .foregroundStyle(.secondary)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 16)
+    }
+
+    private func expansionBinding(
+        for id: String,
+        in values: Binding<Set<String>>
+    ) -> Binding<Bool> {
+        Binding(
+            get: { values.wrappedValue.contains(id) },
+            set: { isExpanded in
+                if isExpanded {
+                    values.wrappedValue.insert(id)
+                } else {
+                    values.wrappedValue.remove(id)
+                }
+            }
+        )
     }
 }

@@ -86,6 +86,74 @@ struct BookmarkedPost: Identifiable, Codable, Equatable {
     let media: [BookmarkedMedia]
 }
 
+enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
+    case accounts
+    case posts
+    case hashtags
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .accounts: return "账号"
+        case .posts: return "帖子"
+        case .hashtags: return "标签"
+        }
+    }
+}
+
+enum BookmarkSearchField: String, CaseIterable, Identifiable {
+    case all
+    case handle
+    case displayName
+    case userID
+    case content
+    case hashtag
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "全部字段"
+        case .handle: return "@用户名"
+        case .displayName: return "显示昵称"
+        case .userID: return "数字 User ID"
+        case .content: return "正文"
+        case .hashtag: return "Hashtag"
+        }
+    }
+}
+
+enum BookmarkAccountSort: String, CaseIterable, Identifiable {
+    case countDescending
+    case handleAscending
+    case nameAscending
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .countDescending: return "帖子数从多到少"
+        case .handleAscending: return "@用户名排序"
+        case .nameAscending: return "显示昵称排序"
+        }
+    }
+}
+
+struct BookmarkAccountGroup: Identifiable {
+    let id: String
+    let authorID: String?
+    let authorName: String?
+    let authorUsername: String?
+    let posts: [BookmarkedPost]
+}
+
+struct BookmarkHashtagGroup: Identifiable {
+    let id: String
+    let title: String
+    let posts: [BookmarkedPost]
+}
+
 struct BookmarkPage: Equatable {
     let posts: [BookmarkedPost]
     let nextToken: String?

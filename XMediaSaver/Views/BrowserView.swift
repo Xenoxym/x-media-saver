@@ -16,6 +16,9 @@ struct BrowserView: View {
             }
             .navigationTitle("X 浏览器")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                session.browserDidAppear()
+            }
             .confirmationDialog(
                 "退出并清除 X 浏览器数据？",
                 isPresented: $confirmLogout,
@@ -108,9 +111,8 @@ struct BrowserView: View {
                 }
                 .font(.caption.weight(.semibold))
             } else {
-                Text(
-                    "WebKit 会持久保存 X 登录会话。单链接和书签同步会复用该会话；APP 不会把会话发送到外部服务。"
-                )
+                Text(session.syncStatusText
+                    ?? "登录后会自动打开书签页并在后台慢速同步；离开此栏目后仍会继续，锁屏或切到其他 APP 时会受 iOS 暂停。")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -126,12 +128,10 @@ private struct BrowserWebView: UIViewRepresentable {
     @ObservedObject var session: BrowserSessionModel
 
     func makeUIView(context: Context) -> WKWebView {
-        session.prepareBrowser()
         return session.webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        session.prepareBrowser()
     }
 
     static func dismantleUIView(

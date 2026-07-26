@@ -56,18 +56,109 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertFalse(filter.contains(wrongDate, calendar: calendar))
     }
 
+    @MainActor
+    func testSearchAndAccountGroupingUsePostMetadata() {
+        let posts = [
+            makePost(
+                id: "1",
+                date: Date(timeIntervalSince1970: 300),
+                types: [.photo],
+                text: "Sunset in Chengdu #Travel",
+                authorID: "123456",
+                authorName: "Alice Zhang",
+                authorUsername: "alice"
+            ),
+            makePost(
+                id: "2",
+                date: Date(timeIntervalSince1970: 200),
+                types: [.video],
+                text: "Second post #travel",
+                authorID: "123456",
+                authorName: "Alice Zhang",
+                authorUsername: "alice"
+            ),
+            makePost(
+                id: "3",
+                date: Date(timeIntervalSince1970: 100),
+                types: [.animatedGIF],
+                text: "No tag",
+                authorID: "999",
+                authorName: "Bob",
+                authorUsername: "bob"
+            )
+        ]
+        let viewModel = BookmarksViewModel()
+
+        viewModel.searchField = .handle
+        viewModel.searchText = "@ALI"
+        XCTAssertEqual(viewModel.filteredPosts(from: posts).map(\.id), ["1", "2"])
+
+        viewModel.searchField = .userID
+        viewModel.searchText = "999"
+        XCTAssertEqual(viewModel.filteredPosts(from: posts).map(\.id), ["3"])
+
+        viewModel.searchField = .hashtag
+        viewModel.searchText = "#travel"
+        XCTAssertEqual(viewModel.filteredPosts(from: posts).map(\.id), ["1", "2"])
+
+        viewModel.searchField = .all
+        viewModel.searchText = ""
+        let groups = viewModel.accountGroups(from: posts)
+        XCTAssertEqual(groups.first?.authorUsername, "alice")
+        XCTAssertEqual(groups.first?.posts.count, 2)
+        XCTAssertEqual(
+            viewModel.hashtagGroups(from: posts).first?.title.lowercased(),
+            "travel"
+        )
+    }
+
+    func testPersistenceStoresPostMetadataWithoutMediaFiles() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("bookmarks.json")
+        defer {
+            try? FileManager.default.removeItem(
+                at: fileURL.deletingLastPathComponent()
+            )
+        }
+
+        let store = BookmarkPersistenceStore(fileURL: fileURL)
+        let expected = [
+            makePost(
+                id: "42",
+                date: Date(timeIntervalSince1970: 100),
+                types: [.photo],
+                text: "Persist me",
+                authorID: "123",
+                authorName: "Example",
+                authorUsername: "example"
+            )
+        ]
+        try await store.save(expected)
+
+        let restored = try await store.load()
+        XCTAssertEqual(restored, expected)
+        try await store.clear()
+        let cleared = try await store.load()
+        XCTAssertEqual(cleared, [])
+    }
+
     private func makePost(
         id: String,
         date: Date?,
-        types: [BookmarkMediaType]
+        types: [BookmarkMediaType],
+        text: String = "",
+        authorID: String? = nil,
+        authorName: String? = nil,
+        authorUsername: String? = nil
     ) -> BookmarkedPost {
         BookmarkedPost(
             id: id,
-            text: "",
+            text: text,
             createdAt: date,
-            authorID: nil,
-            authorName: nil,
-            authorUsername: nil,
+            authorID: authorID,
+            authorName: authorName,
+            authorUsername: authorUsername,
             media: types.enumerated().map { index, type in
                 BookmarkedMedia(
                     mediaKey: "\(id)-\(index)",
