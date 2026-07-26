@@ -12,7 +12,7 @@ final class BookmarksViewModel: ObservableObject {
     @Published var searchField = BookmarkSearchField.all {
         didSet { scheduleRecompute() }
     }
-    @Published var browseMode = BookmarkBrowseMode.accounts {
+    @Published var browseMode = BookmarkBrowseMode.posts {
         didSet { scheduleRecompute() }
     }
     @Published var accountSort = BookmarkAccountSort.countDescending {
@@ -194,7 +194,7 @@ final class BookmarksViewModel: ObservableObject {
         exportTask = Task { [weak self] in
             guard let self else { return }
             do {
-                exportResult = try await exporter.export(
+                let completedExport = try await exporter.export(
                     posts: filtered,
                     mediaByPostID: mediaByPostID,
                     destination: destination
@@ -203,6 +203,10 @@ final class BookmarksViewModel: ObservableObject {
                         self?.exportProgress = update
                     }
                 }
+                exportResult = completedExport
+                await LocalMediaLibrary.shared.register(
+                    root: completedExport.destination
+                )
             } catch is CancellationError {
                 // User cancellation is intentionally silent.
             } catch {

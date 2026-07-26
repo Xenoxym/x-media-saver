@@ -115,8 +115,8 @@ struct BookmarkedPost: Identifiable, Codable, Equatable, Hashable {
 }
 
 enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
-    case accounts
     case posts
+    case accounts
     case hashtags
 
     var id: String { rawValue }

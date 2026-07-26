@@ -14,6 +14,9 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 - **Local post index:** Each captured post, its author/text/date, and its media metadata are stored on-device and restored after relaunch. Media files are downloaded only when Save is used.
 - **Browse and search:** Group by account or hashtag; search handle, display name, numeric user ID, post text, or hashtag; sort account groups by size or name.
 - **Native post preview:** Open a captured post to read its full text and preview original photos or highest-quality MP4 media.
+- **Media-first timeline:** The Posts tab is first and defaults to connected, X-like post cards with media. A remembered one-tap text-only mode is available when a lighter view is preferred.
+- **Media galleries:** The All media, Photos, Animated GIFs, and Videos counters open three-column lazy galleries.
+- **Local-first playback:** Preview lookup uses `media_key` to open an existing Files-library item first and falls back to the unchanged X CDN URL only when no local file exists.
 - **Duration and size filters:** Filter video/GIF duration with presets and filter the aggregate media size of a post after its CDN size has been resolved.
 - **Streaming Files export:** Save one media item at a time into a visible `Images / Animated GIFs / Videos` folder tree and write a line-oriented `posts.jsonl` manifest. No ZIP or whole-batch memory buffer is used.
 - **Persistent duplicate protection:** Successful Photos saves and Files exports keep separate on-device `media_key` ledgers and skip completed media by default.
@@ -100,6 +103,8 @@ Library/
 ```
 
 Each item is downloaded to a temporary file, moved into its type folder, recorded, and then followed by the next item. `posts.jsonl` maps post text/account/date data to local relative media paths so the captured post can be reconstructed offline. `export-state.jsonl` is append-only and allows interrupted or repeated exports to skip completed `media_key` values.
+
+The default app-owned Library is indexed on demand for local-first previews. Timeline and gallery thumbnails do not create permanent thumbnail files: local images are downsampled from their originals, local videos generate frames only for visible cells, and remote items request a small poster. A bounded in-memory cache is discarded when the app exits, preventing a second thumbnail library from consuming persistent storage.
 
 ## Reliability and technical limits
 

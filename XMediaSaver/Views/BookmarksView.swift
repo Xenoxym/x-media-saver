@@ -12,6 +12,12 @@ struct BookmarksView: View {
     @State private var postLimit = 100
     @State private var showsStorage = false
     @State private var choosesExportFolder = false
+    @AppStorage("bookmarkPostPreviewMode")
+    private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
+
+    private var previewMode: BookmarkPostPreviewMode {
+        BookmarkPostPreviewMode(rawValue: previewModeRaw) ?? .media
+    }
 
     private var statistics: BookmarkStatistics {
         BookmarkStatistics.calculate(from: session.capturedPosts)
@@ -159,10 +165,32 @@ struct BookmarksView: View {
                 spacing: 10
             ) {
                 stat("已索引 Post", statistics.bookmarkCount, "bookmark")
-                stat("含媒体", statistics.bookmarksWithMedia, "paperclip")
-                stat("图片", statistics.photoCount, "photo")
-                stat("动图", statistics.gifCount, "sparkles.tv")
-                stat("视频", statistics.videoCount, "video")
+                galleryStat(
+                    "含媒体",
+                    statistics.photoCount
+                        + statistics.gifCount
+                        + statistics.videoCount,
+                    "paperclip",
+                    type: nil
+                )
+                galleryStat(
+                    "图片",
+                    statistics.photoCount,
+                    "photo",
+                    type: .photo
+                )
+                galleryStat(
+                    "动图",
+                    statistics.gifCount,
+                    "sparkles.tv",
+                    type: .animatedGIF
+                )
+                galleryStat(
+                    "视频",
+                    statistics.videoCount,
+                    "video",
+                    type: .video
+                )
             }
 
             if session.isAutoCapturing {
@@ -219,6 +247,40 @@ struct BookmarksView: View {
         .padding(10)
         .background(Color(uiColor: .tertiarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func galleryStat(
+        _ title: String,
+        _ value: Int,
+        _ systemImage: String,
+        type: BookmarkMediaType?
+    ) -> some View {
+        NavigationLink {
+            MediaGalleryView(
+                posts: session.capturedPosts,
+                mediaType: type
+            )
+        } label: {
+            HStack {
+                Image(systemName: systemImage)
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(value, format: .number)
+                        .font(.title3.bold().monospacedDigit())
+                    Text(title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(10)
+            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
     }
 
     private var filterCard: some View {
@@ -405,11 +467,25 @@ struct BookmarksView: View {
                 Text("浏览与搜索")
                     .font(.headline)
                 Spacer()
+                Button {
+                    previewModeRaw = previewMode == .media
+                        ? BookmarkPostPreviewMode.text.rawValue
+                        : BookmarkPostPreviewMode.media.rawValue
+                } label: {
+                    Label(
+                        previewMode == .media ? "媒体" : "纯文字",
+                        systemImage: previewMode == .media
+                            ? "photo.on.rectangle"
+                            : "text.alignleft"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
                 Text("\(viewModel.visiblePosts.count) 条")
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            Text("搜索范围请直接在顶部搜索栏选择；账号会同时匹配昵称、@用户名和数字 User ID。")
+            Text("默认显示媒体时间线；右上角可切换纯文字。搜索范围请直接在顶部搜索栏选择。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -583,12 +659,15 @@ struct BookmarksView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 if showsAuthor {
-                    Text(
-                        post.authorUsername.map { "@\($0)" }
-                            ?? post.authorName
-                            ?? "未知作者"
-                    )
-                    .font(.subheadline.weight(.semibold))
+                    HStack(spacing: 5) {
+                        Text(post.authorName ?? "未知作者")
+                            .font(.subheadline.weight(.semibold))
+                        if let username = post.authorUsername {
+                            Text("@\(username)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 Spacer()
                 if let date = post.createdAt {
@@ -604,7 +683,10 @@ struct BookmarksView: View {
                 Text(post.text)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(3)
+                    .lineLimit(previewMode == .media ? nil : 3)
+            }
+            if previewMode == .media, !post.media.isEmpty {
+                postMediaGrid(post.media)
             }
             HStack(spacing: 10) {
                 ForEach(
@@ -622,6 +704,36 @@ struct BookmarksView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func postMediaGrid(_ media: [BookmarkedMedia]) -> some View {
+        if media.count == 1, let item = media.first {
+            LocalMediaThumbnailView(
+                media: item,
+                maximumPixelSize: 900
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 260)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        } else {
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(), spacing: 3),
+                    GridItem(.flexible(), spacing: 3)
+                ],
+                spacing: 3
+            ) {
+                ForEach(Array(media.prefix(4))) { item in
+                    LocalMediaThumbnailView(
+                        media: item,
+                        maximumPixelSize: 600
+                    )
+                    .frame(height: 150)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
         }
     }
 
@@ -670,4 +782,9 @@ struct BookmarksView: View {
         formatter.countStyle = .file
         return formatter
     }()
+}
+
+private enum BookmarkPostPreviewMode: String {
+    case media
+    case text
 }

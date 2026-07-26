@@ -195,6 +195,33 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertEqual(restored, Set(["media-1", "media-2"]))
     }
 
+    func testLocalMediaLibraryPrefersExistingExportedFile() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let imageURL = root
+            .appendingPathComponent("Images", isDirectory: true)
+            .appendingPathComponent("one.jpg")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(
+            at: imageURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data([0x01]).write(to: imageURL)
+        let state = """
+        {"mediaKey":"media-1","relativePath":"Images/one.jpg"}
+
+        """
+        try Data(state.utf8).write(
+            to: root.appendingPathComponent("export-state.jsonl")
+        )
+
+        let library = LocalMediaLibrary(roots: [root])
+        let resolved = await library.localURL(for: "media-1")
+        XCTAssertEqual(resolved?.path, imageURL.path)
+        let missing = await library.localURL(for: "missing")
+        XCTAssertNil(missing)
+    }
+
     private func makePost(
         id: String,
         date: Date?,

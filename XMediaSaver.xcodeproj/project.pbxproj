@@ -39,6 +39,9 @@
 		A1000000000000000000001E /* FolderMediaExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* FolderMediaExporter.swift */; };
 		A1000000000000000000001F /* StorageManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* StorageManagementView.swift */; };
 		A10000000000000000000020 /* BookmarkPostDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* BookmarkPostDetailView.swift */; };
+		A10000000000000000000021 /* LocalMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* LocalMediaLibrary.swift */; };
+		A10000000000000000000022 /* LocalMediaThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* LocalMediaThumbnailView.swift */; };
+		A10000000000000000000023 /* MediaGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* MediaGalleryView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -87,6 +90,9 @@
 		A20000000000000000000021 /* FolderMediaExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderMediaExporter.swift; sourceTree = "<group>"; };
 		A20000000000000000000022 /* StorageManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageManagementView.swift; sourceTree = "<group>"; };
 		A20000000000000000000023 /* BookmarkPostDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkPostDetailView.swift; sourceTree = "<group>"; };
+		A20000000000000000000024 /* LocalMediaLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMediaLibrary.swift; sourceTree = "<group>"; };
+		A20000000000000000000025 /* LocalMediaThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMediaThumbnailView.swift; sourceTree = "<group>"; };
+		A20000000000000000000026 /* MediaGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -157,6 +163,7 @@
 				A2000000000000000000001F /* MediaSizeResolver.swift */,
 				A20000000000000000000020 /* StorageManager.swift */,
 				A20000000000000000000021 /* FolderMediaExporter.swift */,
+				A20000000000000000000024 /* LocalMediaLibrary.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -181,6 +188,8 @@
 				A2000000000000000000001A /* ViewStyles.swift */,
 				A20000000000000000000022 /* StorageManagementView.swift */,
 				A20000000000000000000023 /* BookmarkPostDetailView.swift */,
+				A20000000000000000000025 /* LocalMediaThumbnailView.swift */,
+				A20000000000000000000026 /* MediaGalleryView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -346,6 +355,9 @@
 				A1000000000000000000001E /* FolderMediaExporter.swift in Sources */,
 				A1000000000000000000001F /* StorageManagementView.swift in Sources */,
 				A10000000000000000000020 /* BookmarkPostDetailView.swift in Sources */,
+				A10000000000000000000021 /* LocalMediaLibrary.swift in Sources */,
+				A10000000000000000000022 /* LocalMediaThumbnailView.swift in Sources */,
+				A10000000000000000000023 /* MediaGalleryView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

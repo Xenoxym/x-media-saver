@@ -65,26 +65,16 @@ struct BookmarkPostDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             switch media.type {
             case .photo:
-                AsyncImage(url: media.previewImageURL ?? media.url) { phase in
-                    switch phase {
-                    case .empty:
-                        ProgressView()
-                            .frame(maxWidth: .infinity, minHeight: 180)
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity)
-                    case .failure:
-                        Label("图片预览加载失败", systemImage: "photo.badge.exclamationmark")
-                            .frame(maxWidth: .infinity, minHeight: 120)
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
+                LocalMediaThumbnailView(
+                    media: media,
+                    maximumPixelSize: 2_048,
+                    contentMode: .fit,
+                    remoteImageName: "orig"
+                )
+                .frame(maxWidth: .infinity, minHeight: 180)
             case .animatedGIF, .video:
-                if let url = media.bestMP4Variant?.url {
-                    InlineVideoPreview(url: url)
+                if media.bestMP4Variant?.url != nil {
+                    InlineVideoPreview(media: media)
                         .frame(minHeight: 220)
                 } else {
                     Label("没有可播放的 MP4 变体", systemImage: "video.slash")
@@ -136,15 +126,20 @@ struct BookmarkPostDetailView: View {
 }
 
 private struct InlineVideoPreview: View {
-    let url: URL
+    let media: BookmarkedMedia
     @State private var player: AVPlayer?
 
     var body: some View {
         VideoPlayer(player: player)
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            .onAppear {
+            .task(id: media.mediaKey) {
                 if player == nil {
-                    player = AVPlayer(url: url)
+                    let localURL = await LocalMediaLibrary.shared.localURL(
+                        for: media.mediaKey
+                    )
+                    if let url = localURL ?? media.bestMP4Variant?.url {
+                        player = AVPlayer(url: url)
+                    }
                 }
             }
             .onDisappear {
