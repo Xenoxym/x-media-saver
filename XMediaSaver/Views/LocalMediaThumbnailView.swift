@@ -5,11 +5,34 @@ import UIKit
 
 struct LocalMediaThumbnailView: View {
     let media: BookmarkedMedia
-    var maximumPixelSize: Int = 600
-    var contentMode: ContentMode = .fill
-    var remoteImageName = "small"
-    var showsPlaceholder = true
-    @StateObject private var loader = LocalMediaThumbnailLoader()
+    let maximumPixelSize: Int
+    let contentMode: ContentMode
+    let remoteImageName: String
+    let showsPlaceholder: Bool
+    @StateObject private var loader: LocalMediaThumbnailLoader
+
+    init(
+        media: BookmarkedMedia,
+        maximumPixelSize: Int = 600,
+        contentMode: ContentMode = .fill,
+        remoteImageName: String = "small",
+        showsPlaceholder: Bool = true
+    ) {
+        self.media = media
+        self.maximumPixelSize = maximumPixelSize
+        self.contentMode = contentMode
+        self.remoteImageName = remoteImageName
+        self.showsPlaceholder = showsPlaceholder
+        _loader = StateObject(
+            wrappedValue: LocalMediaThumbnailLoader(
+                cachedImage: LocalMediaThumbnailLoader.cachedImage(
+                    media: media,
+                    maximumPixelSize: maximumPixelSize,
+                    remoteImageName: remoteImageName
+                )
+            )
+        )
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -88,13 +111,34 @@ final class LocalMediaThumbnailLoader: ObservableObject {
         return URLSession(configuration: configuration)
     }()
 
+    init(cachedImage: UIImage? = nil) {
+        image = cachedImage
+    }
+
+    static func cachedImage(
+        media: BookmarkedMedia,
+        maximumPixelSize: Int,
+        remoteImageName: String
+    ) -> UIImage? {
+        cache.object(
+            forKey: cacheKey(
+                media: media,
+                maximumPixelSize: maximumPixelSize,
+                remoteImageName: remoteImageName
+            )
+        )
+    }
+
     func load(
         media: BookmarkedMedia,
         maximumPixelSize: Int,
         remoteImageName: String
     ) async {
-        let key = "\(media.mediaKey)-\(maximumPixelSize)-\(remoteImageName)"
-            as NSString
+        let key = Self.cacheKey(
+            media: media,
+            maximumPixelSize: maximumPixelSize,
+            remoteImageName: remoteImageName
+        )
         if let cached = Self.cache.object(forKey: key) {
             image = cached
             isLocal = await LocalMediaLibrary.shared.localURL(
@@ -175,6 +219,14 @@ final class LocalMediaThumbnailLoader: ObservableObject {
             maximumPixelSize: maximumPixelSize,
             remoteImageName: remoteImageName
         )
+    }
+
+    private static func cacheKey(
+        media: BookmarkedMedia,
+        maximumPixelSize: Int,
+        remoteImageName: String
+    ) -> NSString {
+        "\(media.mediaKey)-\(maximumPixelSize)-\(remoteImageName)" as NSString
     }
 
     nonisolated private static func previewURL(

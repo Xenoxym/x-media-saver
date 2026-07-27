@@ -617,7 +617,8 @@ private struct ZoomableGalleryPhoto: View {
                     media: media,
                     maximumPixelSize: 1_280,
                     contentMode: .fit,
-                    remoteImageName: "orig"
+                    remoteImageName: "orig",
+                    showsPlaceholder: false
                 )
 
                 LocalMediaThumbnailView(
