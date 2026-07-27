@@ -42,6 +42,7 @@
 		A10000000000000000000021 /* LocalMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* LocalMediaLibrary.swift */; };
 		A10000000000000000000022 /* LocalMediaThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* LocalMediaThumbnailView.swift */; };
 		A10000000000000000000023 /* MediaGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* MediaGalleryView.swift */; };
+		A10000000000000000000024 /* IndexedPostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* IndexedPostsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -93,6 +94,7 @@
 		A20000000000000000000024 /* LocalMediaLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMediaLibrary.swift; sourceTree = "<group>"; };
 		A20000000000000000000025 /* LocalMediaThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMediaThumbnailView.swift; sourceTree = "<group>"; };
 		A20000000000000000000026 /* MediaGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryView.swift; sourceTree = "<group>"; };
+		A20000000000000000000027 /* IndexedPostsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexedPostsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -190,6 +192,7 @@
 				A20000000000000000000023 /* BookmarkPostDetailView.swift */,
 				A20000000000000000000025 /* LocalMediaThumbnailView.swift */,
 				A20000000000000000000026 /* MediaGalleryView.swift */,
+				A20000000000000000000027 /* IndexedPostsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -358,6 +361,7 @@
 				A10000000000000000000021 /* LocalMediaLibrary.swift in Sources */,
 				A10000000000000000000022 /* LocalMediaThumbnailView.swift in Sources */,
 				A10000000000000000000023 /* MediaGalleryView.swift in Sources */,
+				A10000000000000000000024 /* IndexedPostsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

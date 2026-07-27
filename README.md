@@ -13,8 +13,8 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 - **Fast incremental bookmark sync:** Bookmark scrolling starts only after the user taps **Sync bookmarks** in X Browser. The approximately one-second scroll loop observes every bookmark response; existing post IDs are updated in place, new IDs are appended, and locally indexed posts are not deleted merely because they disappeared from X.
 - **Local post index:** Each captured post, its author/text/date, and its media metadata are stored on-device and restored after relaunch. Media files are downloaded only when Save is used.
 - **Browse and search:** Group by account or hashtag; search handle, display name, numeric user ID, post text, or hashtag; sort account groups by size or name.
-- **Native post preview:** Open a captured post to read its full text and preview original photos or highest-quality MP4 media.
-- **Media-first timeline:** The Posts tab is first and defaults to connected, X-like post cards with media. A remembered one-tap text-only mode is available when a lighter view is preferred.
+- **Native post preview and saving:** Open a captured post to read its full text, preview original photos or highest-quality MP4 media, and save that post's deduplicated media directly to Photos.
+- **Indexed-post timeline:** The Indexed Posts statistic opens a live, X-like stream of every locally indexed post. It defaults to media, supports newest/oldest sorting and search, and offers a remembered text-only mode.
 - **Media galleries:** The All media, Photos, Animated GIFs, and Videos counters open three-column lazy galleries.
 - **Local-first playback:** Preview lookup uses `media_key` to open an existing Files-library item first and falls back to the unchanged X CDN URL only when no local file exists.
 - **Duration and size filters:** Filter video/GIF duration with presets and filter the aggregate media size of a post after its CDN size has been resolved.

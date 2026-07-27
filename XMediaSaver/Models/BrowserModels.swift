@@ -115,7 +115,6 @@ struct BookmarkedPost: Identifiable, Codable, Equatable, Hashable {
 }
 
 enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
-    case posts
     case accounts
     case hashtags
 
@@ -124,10 +123,14 @@ enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .accounts: return "账号"
-        case .posts: return "帖子"
         case .hashtags: return "标签"
         }
     }
+}
+
+enum BookmarkPostPreviewMode: String {
+    case media
+    case text
 }
 
 enum BookmarkSearchField: String, CaseIterable, Identifiable {

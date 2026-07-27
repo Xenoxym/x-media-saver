@@ -2,6 +2,13 @@ import XCTest
 @testable import XMediaSaver
 
 final class BookmarkModelsTests: XCTestCase {
+    func testBrowseModesKeepOnlyAccountAndHashtagAggregation() {
+        XCTAssertEqual(
+            BookmarkBrowseMode.allCases.map(\.rawValue),
+            ["accounts", "hashtags"]
+        )
+    }
+
     func testStatisticsDistinguishGIFAndVideo() {
         let posts = [
             makePost(

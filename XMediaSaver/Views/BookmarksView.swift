@@ -9,7 +9,6 @@ struct BookmarksView: View {
     @State private var expandedAccounts: Set<String> = []
     @State private var expandedHashtags: Set<String> = []
     @State private var groupLimits: [String: Int] = [:]
-    @State private var postLimit = 100
     @State private var showsStorage = false
     @State private var choosesExportFolder = false
     @AppStorage("bookmarkPostPreviewMode")
@@ -134,7 +133,7 @@ struct BookmarksView: View {
                 .symbolRenderingMode(.palette)
             Text("还没有捕获书签")
                 .font(.title3.bold())
-            Text("首次在“X 浏览器”登录后，App 会自动快速增量同步；已有 Post 不会重复添加。")
+            Text("首次在“X 浏览器”登录后点击“同步”，即可快速增量读取；已有 Post 不会重复添加。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -164,7 +163,7 @@ struct BookmarksView: View {
                 columns: [GridItem(.flexible()), GridItem(.flexible())],
                 spacing: 10
             ) {
-                stat("已索引 Post", statistics.bookmarkCount, "bookmark")
+                indexedPostsStat
                 galleryStat(
                     "含媒体",
                     statistics.photoCount
@@ -227,26 +226,30 @@ struct BookmarksView: View {
         .saverCard()
     }
 
-    private func stat(
-        _ title: String,
-        _ value: Int,
-        _ systemImage: String
-    ) -> some View {
-        HStack {
-            Image(systemName: systemImage)
-                .foregroundStyle(.tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(value, format: .number)
-                    .font(.title3.bold().monospacedDigit())
-                Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    private var indexedPostsStat: some View {
+        NavigationLink {
+            IndexedPostsView(session: session)
+        } label: {
+            HStack {
+                Image(systemName: "bookmark")
+                    .foregroundStyle(.tint)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(statistics.bookmarkCount, format: .number)
+                        .font(.title3.bold().monospacedDigit())
+                    Text("已索引 Post")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
-            Spacer(minLength: 0)
+            .padding(10)
+            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
         }
-        .padding(10)
-        .background(Color(uiColor: .tertiarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .buttonStyle(.plain)
     }
 
     private func galleryStat(
@@ -521,7 +524,7 @@ struct BookmarksView: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            Text("默认显示媒体时间线；右上角可切换纯文字。搜索范围请直接在顶部搜索栏选择。")
+            Text("按账号或 Hashtag 聚合；展开后的 Post 可切换媒体或纯文字。搜索范围请直接在顶部搜索栏选择。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -537,7 +540,6 @@ struct BookmarksView: View {
 
             switch viewModel.browseMode {
             case .accounts: accountResults
-            case .posts: postResults
             case .hashtags: hashtagResults
             }
         }
@@ -552,12 +554,6 @@ struct BookmarksView: View {
             case .accounts:
                 Picker("账号排序", selection: $viewModel.accountSort) {
                     ForEach(BookmarkAccountSort.allCases) {
-                        Text($0.title).tag($0)
-                    }
-                }
-            case .posts:
-                Picker("Post 排序", selection: $viewModel.postSort) {
-                    ForEach(BookmarkPostSort.allCases) {
                         Text($0.title).tag($0)
                     }
                 }
@@ -620,22 +616,6 @@ struct BookmarksView: View {
     }
 
     @ViewBuilder
-    private var postResults: some View {
-        if viewModel.visiblePosts.isEmpty {
-            noResults("没有符合条件的 Post")
-        } else {
-            ForEach(Array(viewModel.visiblePosts.prefix(postLimit))) {
-                postLink($0, showsAuthor: true)
-                Divider()
-            }
-            if viewModel.visiblePosts.count > postLimit {
-                Button("再显示 100 条") { postLimit += 100 }
-                    .font(.caption)
-            }
-        }
-    }
-
-    @ViewBuilder
     private var hashtagResults: some View {
         if viewModel.visibleHashtagGroups.isEmpty {
             noResults("筛选结果中没有 Hashtag")
@@ -682,106 +662,14 @@ struct BookmarksView: View {
         NavigationLink {
             BookmarkPostDetailView(post: post)
         } label: {
-            postRow(post, showsAuthor: showsAuthor)
+            BookmarkPostRowView(
+                post: post,
+                showsAuthor: showsAuthor,
+                previewMode: previewMode
+            )
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private func postRow(
-        _ post: BookmarkedPost,
-        showsAuthor: Bool
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                if showsAuthor {
-                    HStack(spacing: 5) {
-                        Text(post.authorName ?? "未知作者")
-                            .font(.subheadline.weight(.semibold))
-                        if let username = post.authorUsername {
-                            Text("@\(username)")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                Spacer()
-                if let date = post.createdAt {
-                    Text(date, style: .date)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-            if !post.text.isEmpty {
-                Text(post.text)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(previewMode == .media ? nil : 3)
-            }
-            if previewMode == .media, !post.media.isEmpty {
-                postMediaGrid(post.media)
-            }
-            HStack(spacing: 10) {
-                ForEach(
-                    BookmarkMediaType.allCases.filter { type in
-                        post.media.contains { $0.type == type }
-                    }
-                ) { type in
-                    Label(
-                        "\(post.media.filter { $0.type == type }.count)",
-                        systemImage: type.systemImage
-                    )
-                }
-                Spacer()
-                Text(postSizeText(post))
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder
-    private func postMediaGrid(_ media: [BookmarkedMedia]) -> some View {
-        if media.count == 1, let item = media.first {
-            LocalMediaThumbnailView(
-                media: item,
-                maximumPixelSize: 900
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: 260)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-        } else {
-            LazyVGrid(
-                columns: [
-                    GridItem(.flexible(), spacing: 3),
-                    GridItem(.flexible(), spacing: 3)
-                ],
-                spacing: 3
-            ) {
-                ForEach(Array(media.prefix(4))) { item in
-                    LocalMediaThumbnailView(
-                        media: item,
-                        maximumPixelSize: 600
-                    )
-                    .frame(height: 150)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-            }
-        }
-    }
-
-    private func postSizeText(_ post: BookmarkedPost) -> String {
-        guard let bytes = post.totalKnownByteSize else {
-            let known = post.media.compactMap(\.byteSize).reduce(0, +)
-            if known > 0 {
-                return "\(Self.byteFormatter.string(fromByteCount: known)) + 待分析"
-            }
-            return "大小待分析"
-        }
-        return Self.byteFormatter.string(fromByteCount: bytes)
     }
 
     private func noResults(_ message: String) -> some View {
@@ -818,9 +706,4 @@ struct BookmarksView: View {
         formatter.countStyle = .file
         return formatter
     }()
-}
-
-private enum BookmarkPostPreviewMode: String {
-    case media
-    case text
 }

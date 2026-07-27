@@ -36,7 +36,10 @@ final class BatchMediaSaver: @unchecked Sendable {
 
         for (index, media) in mediaItems.enumerated() {
             try Task.checkCancellation()
-            guard let remoteURL = media.downloadURL else {
+            let existingLocalURL = await LocalMediaLibrary.shared.localURL(
+                for: media.mediaKey
+            )
+            guard existingLocalURL != nil || media.downloadURL != nil else {
                 skipped += 1
                 issues.append(
                     "\(media.type.title) \(media.mediaKey)：没有可下载的直接地址"
@@ -61,20 +64,30 @@ final class BatchMediaSaver: @unchecked Sendable {
                 )
             )
 
-            var localURL: URL?
+            var localURL = existingLocalURL
+            var removesLocalFileWhenFinished = false
             do {
-                localURL = try await downloadClient.download(
-                    from: remoteURL,
-                    fileExtension: Self.fileExtension(for: media, url: remoteURL)
-                ) { fraction in
-                    progress(
-                        BatchSaveProgress(
-                            completed: index,
-                            total: mediaItems.count,
-                            currentFraction: fraction,
-                            currentType: media.type
+                if localURL == nil {
+                    guard let remoteURL = media.downloadURL else {
+                        throw AppError.downloadFailed
+                    }
+                    localURL = try await downloadClient.download(
+                        from: remoteURL,
+                        fileExtension: Self.fileExtension(
+                            for: media,
+                            url: remoteURL
                         )
-                    )
+                    ) { fraction in
+                        progress(
+                            BatchSaveProgress(
+                                completed: index,
+                                total: mediaItems.count,
+                                currentFraction: fraction,
+                                currentType: media.type
+                            )
+                        )
+                    }
+                    removesLocalFileWhenFinished = true
                 }
                 guard let localURL else {
                     throw AppError.downloadFailed
@@ -94,14 +107,16 @@ final class BatchMediaSaver: @unchecked Sendable {
                     values?.fileSize ?? values?.totalFileAllocatedSize ?? 0
                 )
                 await didSave(media, byteSize)
-                try? FileManager.default.removeItem(at: localURL)
+                if removesLocalFileWhenFinished {
+                    try? FileManager.default.removeItem(at: localURL)
+                }
             } catch is CancellationError {
-                if let localURL {
+                if removesLocalFileWhenFinished, let localURL {
                     try? FileManager.default.removeItem(at: localURL)
                 }
                 throw CancellationError()
             } catch {
-                if let localURL {
+                if removesLocalFileWhenFinished, let localURL {
                     try? FileManager.default.removeItem(at: localURL)
                 }
                 failed += 1

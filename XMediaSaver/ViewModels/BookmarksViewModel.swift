@@ -12,7 +12,7 @@ final class BookmarksViewModel: ObservableObject {
     @Published var searchField = BookmarkSearchField.all {
         didSet { scheduleRecompute() }
     }
-    @Published var browseMode = BookmarkBrowseMode.posts {
+    @Published var browseMode = BookmarkBrowseMode.accounts {
         didSet { scheduleRecompute() }
     }
     @Published var accountSort = BookmarkAccountSort.countDescending {
@@ -278,9 +278,6 @@ final class BookmarksViewModel: ObservableObject {
         switch browseMode {
         case .accounts:
             visibleAccountGroups = calculateAccountGroups(from: filtered)
-            visibleHashtagGroups = []
-        case .posts:
-            visibleAccountGroups = []
             visibleHashtagGroups = []
         case .hashtags:
             visibleAccountGroups = []

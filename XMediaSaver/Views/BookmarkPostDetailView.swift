@@ -1,9 +1,11 @@
 import AVKit
 import SwiftUI
+import UIKit
 
 struct BookmarkPostDetailView: View {
     let post: BookmarkedPost
     @Environment(\.openURL) private var openURL
+    @StateObject private var mediaSaver = PostMediaSaveModel()
 
     var body: some View {
         ScrollView {
@@ -18,6 +20,10 @@ struct BookmarkPostDetailView: View {
 
                 ForEach(post.media) { media in
                     mediaCard(media)
+                }
+
+                if !post.media.isEmpty {
+                    saveMediaSection
                 }
 
                 if let postURL = post.postURL {
@@ -35,6 +41,26 @@ struct BookmarkPostDetailView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Post 预览")
         .navigationBarTitleDisplayMode(.inline)
+        .alert(item: $mediaSaver.presentedError) { error in
+            if error.offersSettings {
+                return Alert(
+                    title: Text("需要照片权限"),
+                    message: Text(error.message),
+                    primaryButton: .default(Text("打开设置")) {
+                        guard let url = URL(
+                            string: UIApplication.openSettingsURLString
+                        ) else { return }
+                        openURL(url)
+                    },
+                    secondaryButton: .cancel()
+                )
+            }
+            return Alert(
+                title: Text("保存未完成"),
+                message: Text(error.message),
+                dismissButton: .default(Text("好"))
+            )
+        }
     }
 
     private var authorHeader: some View {
@@ -93,6 +119,45 @@ struct BookmarkPostDetailView: View {
         .saverCard()
     }
 
+    private var saveMediaSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if mediaSaver.isSaving {
+                ProgressView(
+                    value: mediaSaver.progressValue,
+                    total: 1
+                )
+                HStack {
+                    Text(
+                        "\(mediaSaver.progress.completed)/\(mediaSaver.progress.total)"
+                    )
+                    .font(.caption.monospacedDigit())
+                    Spacer()
+                    Button("取消", role: .cancel) {
+                        mediaSaver.cancel()
+                    }
+                }
+            } else {
+                Button {
+                    mediaSaver.save(post.media)
+                } label: {
+                    Label(
+                        "保存本 Post 媒体到照片",
+                        systemImage: "photo.badge.arrow.down"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
+            if let message = mediaSaver.resultMessage {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .saverCard()
+    }
+
     private func mediaMetadata(_ media: BookmarkedMedia) -> String {
         var values: [String] = []
         if let width = media.width, let height = media.height {
@@ -123,6 +188,98 @@ struct BookmarkPostDetailView: View {
         formatter.unitsStyle = .abbreviated
         return formatter
     }()
+}
+
+@MainActor
+private final class PostMediaSaveModel: ObservableObject {
+    @Published private(set) var isSaving = false
+    @Published private(set) var progress = BatchSaveProgress(
+        completed: 0,
+        total: 0,
+        currentFraction: 0,
+        currentType: nil
+    )
+    @Published private(set) var resultMessage: String?
+    @Published var presentedError: PresentedError?
+
+    private let saver = BatchMediaSaver()
+    private let history = MediaSaveHistoryStore()
+    private var task: Task<Void, Never>?
+
+    var progressValue: Double {
+        guard progress.total > 0 else { return 0 }
+        return min(
+            (Double(progress.completed) + progress.currentFraction)
+                / Double(progress.total),
+            1
+        )
+    }
+
+    func save(_ media: [BookmarkedMedia]) {
+        guard !isSaving, !media.isEmpty else { return }
+        resultMessage = nil
+        isSaving = true
+        task = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                isSaving = false
+                task = nil
+            }
+
+            do {
+                let completedKeys = try await history.load()
+                let remaining = media.filter {
+                    !completedKeys.contains($0.mediaKey)
+                }
+                let duplicateCount = media.count - remaining.count
+                guard !remaining.isEmpty else {
+                    resultMessage = "这个 Post 的媒体此前已经全部保存到照片。"
+                    return
+                }
+
+                progress = BatchSaveProgress(
+                    completed: 0,
+                    total: remaining.count,
+                    currentFraction: 0,
+                    currentType: nil
+                )
+                let result = try await saver.save(
+                    remaining,
+                    didSave: { [history] item, _ in
+                        _ = try? await history.insert(item.mediaKey)
+                    },
+                    progress: { update in
+                        Task { @MainActor [weak self] in
+                            self?.progress = update
+                        }
+                    }
+                )
+                resultMessage =
+                    "保存 \(result.saved) 项，跳过 \(result.skipped + duplicateCount) 项，失败 \(result.failed) 项。"
+                if result.failed > 0, let issue = result.issues.first {
+                    presentedError = PresentedError(
+                        message: issue,
+                        offersSettings: false
+                    )
+                }
+            } catch is CancellationError {
+                resultMessage = "保存已取消。"
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                presentedError = PresentedError(
+                    message: message,
+                    offersSettings:
+                        (error as? AppError) == .photoPermissionDenied
+                )
+            }
+        }
+    }
+
+    func cancel() {
+        saver.cancel()
+        task?.cancel()
+    }
 }
 
 private struct InlineVideoPreview: View {
