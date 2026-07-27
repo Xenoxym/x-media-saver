@@ -22,8 +22,8 @@ struct BookmarkPostDetailView: View {
                     mediaCard(media)
                 }
 
-                if !post.media.isEmpty {
-                    saveMediaSection
+                if mediaSaver.isSaving || mediaSaver.resultMessage != nil {
+                    saveMediaStatusSection
                 }
 
                 if let postURL = post.postURL {
@@ -41,6 +41,21 @@ struct BookmarkPostDetailView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Post 预览")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if !post.media.isEmpty {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button {
+                        mediaSaver.save(post.media)
+                    } label: {
+                        Label(
+                            "保存本 Post 媒体到照片",
+                            systemImage: "photo.badge.arrow.down"
+                        )
+                    }
+                    .disabled(mediaSaver.isSaving)
+                }
+            }
+        }
         .alert(item: $mediaSaver.presentedError) { error in
             if error.offersSettings {
                 return Alert(
@@ -91,13 +106,7 @@ struct BookmarkPostDetailView: View {
         VStack(alignment: .leading, spacing: 10) {
             switch media.type {
             case .photo:
-                LocalMediaThumbnailView(
-                    media: media,
-                    maximumPixelSize: 2_048,
-                    contentMode: .fit,
-                    remoteImageName: "orig"
-                )
-                .frame(maxWidth: .infinity, minHeight: 180)
+                FullScreenPhotoPreview(media: media)
             case .animatedGIF, .video:
                 if media.bestMP4Variant?.url != nil {
                     InlineVideoPreview(media: media)
@@ -119,7 +128,7 @@ struct BookmarkPostDetailView: View {
         .saverCard()
     }
 
-    private var saveMediaSection: some View {
+    private var saveMediaStatusSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             if mediaSaver.isSaving {
                 ProgressView(
@@ -136,17 +145,6 @@ struct BookmarkPostDetailView: View {
                         mediaSaver.cancel()
                     }
                 }
-            } else {
-                Button {
-                    mediaSaver.save(post.media)
-                } label: {
-                    Label(
-                        "保存本 Post 媒体到照片",
-                        systemImage: "photo.badge.arrow.down"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
             }
 
             if let message = mediaSaver.resultMessage {
@@ -188,6 +186,66 @@ struct BookmarkPostDetailView: View {
         formatter.unitsStyle = .abbreviated
         return formatter
     }()
+}
+
+private struct FullScreenPhotoPreview: View {
+    let media: BookmarkedMedia
+    @State private var isFullScreen = false
+
+    var body: some View {
+        LocalMediaThumbnailView(
+            media: media,
+            maximumPixelSize: 2_048,
+            contentMode: .fit,
+            remoteImageName: "orig"
+        )
+        .frame(maxWidth: .infinity, minHeight: 180)
+        .contentShape(Rectangle())
+        .overlay(alignment: .topTrailing) {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(8)
+                .background(.black.opacity(0.55), in: Circle())
+                .padding(10)
+                .allowsHitTesting(false)
+        }
+        .onTapGesture {
+            isFullScreen = true
+        }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("全屏查看图片")
+        .fullScreenCover(isPresented: $isFullScreen) {
+            FullScreenPhotoView(media: media)
+        }
+    }
+}
+
+private struct FullScreenPhotoView: View {
+    let media: BookmarkedMedia
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.black
+
+            LocalMediaThumbnailView(
+                media: media,
+                maximumPixelSize: 4_096,
+                contentMode: .fit,
+                remoteImageName: "orig"
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .ignoresSafeArea()
+        .contentShape(Rectangle())
+        .onTapGesture {
+            dismiss()
+        }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("退出全屏图片")
+        .statusBarHidden(true)
+    }
 }
 
 @MainActor
