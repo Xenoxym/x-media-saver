@@ -2,7 +2,6 @@ import SwiftUI
 
 struct StorageManagementView: View {
     @ObservedObject var session: BrowserSessionModel
-    @ObservedObject var bookmarksViewModel: BookmarksViewModel
     @Environment(\.dismiss) private var dismiss
     @State private var snapshot: StorageSnapshot?
     @State private var isWorking = false
@@ -15,7 +14,7 @@ struct StorageManagementView: View {
             List {
                 Section("存储占用") {
                     storageRow(
-                        "Post 索引与保存台账",
+                        "Post 索引",
                         bytes: snapshot?.bookmarkIndexBytes,
                         icon: "doc.text.magnifyingglass"
                     )
@@ -71,17 +70,6 @@ struct StorageManagementView: View {
                         )
                     }
 
-                    Button {
-                        Task {
-                            await bookmarksViewModel.clearPhotoSaveHistory()
-                            await refresh()
-                        }
-                    } label: {
-                        Label(
-                            "重置“已保存到照片”记录",
-                            systemImage: "arrow.counterclockwise"
-                        )
-                    }
                 } footer: {
                     Text(
                         "普通“清理缓存”不会删除 X Cookie、书签索引、照片图库资产或 Files 中的导出文件。WebKit 精确分类大小受 iOS 公共 API 限制，因此显示为合并估算。"

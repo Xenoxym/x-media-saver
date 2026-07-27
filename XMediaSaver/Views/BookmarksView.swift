@@ -82,8 +82,7 @@ struct BookmarksView: View {
         }
         .sheet(isPresented: $showsStorage) {
             StorageManagementView(
-                session: session,
-                bookmarksViewModel: viewModel
+                session: session
             )
         }
         .fileImporter(
@@ -523,23 +522,19 @@ struct BookmarksView: View {
                 .font(.subheadline.weight(.semibold))
 
                 Text(
-                    "去重后预计新增：照片 \(storageEstimateText(viewModel.photoNewStorageEstimate))；App 资料库 \(storageEstimateText(viewModel.filesNewStorageEstimate))"
+                    "保存到照片：\(storageEstimateText(viewModel.selectedStorageEstimate))；文件夹预计新增：\(storageEstimateText(viewModel.filesNewStorageEstimate))"
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
+                Text("保存到照片不做历史去重；重复操作会在相册中再次保存。")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
             }
             .padding(10)
             .background(Color(uiColor: .tertiarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
-
-            if viewModel.alreadySavedCount > 0 {
-                Toggle(
-                    "允许重新保存已完成的 \(viewModel.alreadySavedCount) 项",
-                    isOn: $viewModel.allowResaving
-                )
-                .font(.caption)
-            }
 
             if viewModel.isSaving || viewModel.isExporting {
                 operationProgress
@@ -602,16 +597,6 @@ struct BookmarksView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Menu("旧版已保存内容去重") {
-                Button("将当前筛选结果记为已保存（不下载）") {
-                    Task {
-                        await viewModel.markCurrentSelectionAsSaved(
-                            posts: session.capturedPosts
-                        )
-                    }
-                }
-            }
-            .font(.caption)
         }
         .saverCard()
     }

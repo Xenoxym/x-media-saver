@@ -24,18 +24,11 @@ final class BookmarksViewModel: ObservableObject {
     @Published var hashtagSort = BookmarkHashtagSort.countDescending {
         didSet { scheduleRecompute() }
     }
-    @Published var allowResaving = false {
-        didSet { scheduleRecompute() }
-    }
-
     @Published private(set) var visiblePosts: [BookmarkedPost] = []
     @Published private(set) var visibleAccountGroups: [BookmarkAccountGroup] = []
     @Published private(set) var visibleHashtagGroups: [BookmarkHashtagGroup] = []
     @Published private(set) var selectedMediaCount = 0
-    @Published private(set) var alreadySavedCount = 0
     @Published private(set) var selectedStorageEstimate =
-        MediaStorageEstimate.zero
-    @Published private(set) var photoNewStorageEstimate =
         MediaStorageEstimate.zero
     @Published private(set) var filesNewStorageEstimate =
         MediaStorageEstimate.zero
@@ -59,9 +52,7 @@ final class BookmarksViewModel: ObservableObject {
 
     private let saver: BatchMediaSaver
     private let exporter: FolderMediaExporter
-    private let saveHistory: MediaSaveHistoryStore
     private var sourcePosts: [BookmarkedPost] = []
-    private var savedMediaKeys: Set<String> = []
     private var localFileMediaKeys: Set<String> = []
     private var hashtagsByPostID: [String: [String]] = [:]
     private var saveTask: Task<Void, Never>?
@@ -70,15 +61,12 @@ final class BookmarksViewModel: ObservableObject {
 
     init(
         saver: BatchMediaSaver = BatchMediaSaver(),
-        exporter: FolderMediaExporter = FolderMediaExporter(),
-        saveHistory: MediaSaveHistoryStore = MediaSaveHistoryStore()
+        exporter: FolderMediaExporter = FolderMediaExporter()
     ) {
         self.saver = saver
         self.exporter = exporter
-        self.saveHistory = saveHistory
         Task { [weak self] in
             guard let self else { return }
-            savedMediaKeys = (try? await saveHistory.load()) ?? []
             localFileMediaKeys =
                 await LocalMediaLibrary.shared.availableMediaKeys()
             recomputeNow()
@@ -113,23 +101,10 @@ final class BookmarksViewModel: ObservableObject {
     func startSaving(posts: [BookmarkedPost]) {
         update(posts: posts)
         guard !isSaving, !isExporting else { return }
-        let allMedia = deduplicatedMedia(from: calculateFilteredPosts(posts))
-        let media = allowResaving
-            ? allMedia
-            : allMedia.filter { !savedMediaKeys.contains($0.mediaKey) }
-        let duplicateCount = allMedia.count - media.count
+        let media = deduplicatedMedia(from: calculateFilteredPosts(posts))
 
-        guard !allMedia.isEmpty else {
-            show(AppError.noMediaSelected)
-            return
-        }
         guard !media.isEmpty else {
-            result = BatchSaveResult(
-                saved: 0,
-                skipped: duplicateCount,
-                failed: 0,
-                issues: ["全部筛选媒体此前已经成功保存；开启“允许重新保存”可再次写入。"]
-            )
+            show(AppError.noMediaSelected)
             return
         }
 
@@ -146,23 +121,14 @@ final class BookmarksViewModel: ObservableObject {
             do {
                 let savedResult = try await saver.save(
                     media,
-                    didSave: { [saveHistory] media, _ in
-                        _ = try? await saveHistory.insert(media.mediaKey)
-                    },
+                    didSave: { _, _ in },
                     progress: { update in
                         Task { @MainActor [weak self] in
                             self?.progress = update
                         }
                     }
                 )
-                savedMediaKeys = (try? await saveHistory.load())
-                    ?? savedMediaKeys
-                result = BatchSaveResult(
-                    saved: savedResult.saved,
-                    skipped: savedResult.skipped + duplicateCount,
-                    failed: savedResult.failed,
-                    issues: savedResult.issues
-                )
+                result = savedResult
                 recomputeNow()
             } catch is CancellationError {
                 // User cancellation is intentionally silent.
@@ -236,21 +202,6 @@ final class BookmarksViewModel: ObservableObject {
         exportTask?.cancel()
     }
 
-    func clearPhotoSaveHistory() async {
-        try? await saveHistory.clear()
-        savedMediaKeys = []
-        recomputeNow()
-    }
-
-    func markCurrentSelectionAsSaved(posts: [BookmarkedPost]) async {
-        let media = deduplicatedMedia(from: calculateFilteredPosts(posts))
-        for item in media {
-            _ = try? await saveHistory.insert(item.mediaKey)
-        }
-        savedMediaKeys = (try? await saveHistory.load()) ?? savedMediaKeys
-        recomputeNow()
-    }
-
     static func hashtags(in text: String) -> [String] {
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return hashtagExpression.matches(in: text, range: range).compactMap {
@@ -288,19 +239,12 @@ final class BookmarksViewModel: ObservableObject {
         }
 
         let allMedia = deduplicatedMedia(from: filtered)
-        let photoNewMedia = allMedia.filter {
-            !savedMediaKeys.contains($0.mediaKey)
-        }
         let filesNewMedia = allMedia.filter {
             !localFileMediaKeys.contains($0.mediaKey)
         }
-        alreadySavedCount = allMedia.count - photoNewMedia.count
         selectedStorageEstimate = MediaStorageEstimate(media: allMedia)
-        photoNewStorageEstimate = MediaStorageEstimate(media: photoNewMedia)
         filesNewStorageEstimate = MediaStorageEstimate(media: filesNewMedia)
-        selectedMediaCount = allowResaving
-            ? allMedia.count
-            : photoNewMedia.count
+        selectedMediaCount = allMedia.count
     }
 
     private func calculateFilteredPosts(

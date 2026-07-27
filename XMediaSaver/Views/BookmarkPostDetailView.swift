@@ -304,7 +304,6 @@ private final class PostMediaSaveModel: ObservableObject {
     @Published var presentedError: PresentedError?
 
     private let saver = BatchMediaSaver()
-    private let history = MediaSaveHistoryStore()
     private var task: Task<Void, Never>?
 
     var progressValue: Double {
@@ -328,27 +327,15 @@ private final class PostMediaSaveModel: ObservableObject {
             }
 
             do {
-                let completedKeys = try await history.load()
-                let remaining = media.filter {
-                    !completedKeys.contains($0.mediaKey)
-                }
-                let duplicateCount = media.count - remaining.count
-                guard !remaining.isEmpty else {
-                    resultMessage = "这个 Post 的媒体此前已经全部保存到照片。"
-                    return
-                }
-
                 progress = BatchSaveProgress(
                     completed: 0,
-                    total: remaining.count,
+                    total: media.count,
                     currentFraction: 0,
                     currentType: nil
                 )
                 let result = try await saver.save(
-                    remaining,
-                    didSave: { [history] item, _ in
-                        _ = try? await history.insert(item.mediaKey)
-                    },
+                    media,
+                    didSave: { _, _ in },
                     progress: { update in
                         Task { @MainActor [weak self] in
                             self?.progress = update
@@ -356,7 +343,7 @@ private final class PostMediaSaveModel: ObservableObject {
                     }
                 )
                 resultMessage =
-                    "保存 \(result.saved) 项，跳过 \(result.skipped + duplicateCount) 项，失败 \(result.failed) 项。"
+                    "保存 \(result.saved) 项，跳过 \(result.skipped) 项，失败 \(result.failed) 项。"
                 if result.failed > 0, let issue = result.issues.first {
                     presentedError = PresentedError(
                         message: issue,

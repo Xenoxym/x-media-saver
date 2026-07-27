@@ -1,3 +1,4 @@
+import AVKit
 import SwiftUI
 import UIKit
 
@@ -7,13 +8,20 @@ struct MediaGalleryView: View {
     @State private var visibleLimit = 90
     @State private var isSelecting = false
     @State private var selectedMediaKeys: Set<String> = []
+    @State private var cellFrames: [String: CGRect] = [:]
+    @State private var dragAnchorIndex: Int?
+    @State private var dragSelects = true
+    @State private var selectionBeforeDrag: Set<String> = []
+    @State private var viewerSelection: GalleryViewerSelection?
     @StateObject private var mediaSaver = GalleryMediaSaveModel()
     private let galleryItems: [GalleryMediaItem]
+    private let indexByMediaKey: [String: Int]
+    private static let gridCoordinateSpace = "MediaGalleryGrid"
 
     init(posts: [BookmarkedPost], mediaType: BookmarkMediaType?) {
         self.mediaType = mediaType
         var seen: Set<String> = []
-        self.galleryItems = posts
+        let items = posts
             .sorted {
                 ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast)
             }
@@ -27,6 +35,12 @@ struct MediaGalleryView: View {
                     return GalleryMediaItem(post: post, media: media)
                 }
             }
+        self.galleryItems = items
+        self.indexByMediaKey = Dictionary(
+            uniqueKeysWithValues: items.enumerated().map {
+                ($0.element.id, $0.offset)
+            }
+        )
     }
 
     var body: some View {
@@ -39,22 +53,32 @@ struct MediaGalleryView: View {
                 spacing: 2
             ) {
                 ForEach(Array(galleryItems.prefix(visibleLimit))) { item in
-                    Group {
-                        if isSelecting {
-                            Button {
-                                toggleSelection(item.id)
-                            } label: {
-                                galleryCell(item)
-                            }
-                        } else {
-                            NavigationLink {
-                                BookmarkPostDetailView(post: item.post)
-                            } label: {
-                                galleryCell(item)
-                            }
+                    Button {
+                        guard !isSelecting,
+                              let index = galleryItems.firstIndex(
+                                where: { $0.id == item.id }
+                              )
+                        else {
+                            return
                         }
+                        viewerSelection = GalleryViewerSelection(index: index)
+                    } label: {
+                        galleryCell(item)
                     }
                     .buttonStyle(.plain)
+                    .disabled(isSelecting)
+                    .background {
+                        GeometryReader { geometry in
+                            Color.clear.preference(
+                                key: GalleryCellFramePreferenceKey.self,
+                                value: [
+                                    item.id: geometry.frame(
+                                        in: .named(Self.gridCoordinateSpace)
+                                    )
+                                ]
+                            )
+                        }
+                    }
                     .onAppear {
                         if item.id == galleryItems.prefix(visibleLimit).last?.id,
                            visibleLimit < galleryItems.count {
@@ -64,6 +88,14 @@ struct MediaGalleryView: View {
                 }
             }
         }
+        .coordinateSpace(name: Self.gridCoordinateSpace)
+        .onPreferenceChange(GalleryCellFramePreferenceKey.self) {
+            cellFrames = $0
+        }
+        .highPriorityGesture(
+            selectionDragGesture,
+            including: isSelecting ? .all : .none
+        )
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -75,6 +107,7 @@ struct MediaGalleryView: View {
                 Button(isSelecting ? "完成" : "多选") {
                     withAnimation {
                         isSelecting.toggle()
+                        resetSelectionDrag()
                         if !isSelecting {
                             selectedMediaKeys.removeAll()
                         }
@@ -87,6 +120,12 @@ struct MediaGalleryView: View {
             if isSelecting {
                 selectionBar
             }
+        }
+        .fullScreenCover(item: $viewerSelection) { selection in
+            GalleryFullScreenViewer(
+                items: galleryItems,
+                initialIndex: selection.index
+            )
         }
         .alert(item: $mediaSaver.presentedError) { error in
             if error.offersSettings {
@@ -108,6 +147,48 @@ struct MediaGalleryView: View {
                 dismissButton: .default(Text("好"))
             )
         }
+    }
+
+    private var selectionDragGesture: some Gesture {
+        DragGesture(
+            minimumDistance: 0,
+            coordinateSpace: .named(Self.gridCoordinateSpace)
+        )
+        .onChanged { value in
+            updateDragSelection(at: value.location)
+        }
+        .onEnded { _ in
+            resetSelectionDrag()
+        }
+    }
+
+    private func updateDragSelection(at location: CGPoint) {
+        guard isSelecting,
+              let key = cellFrames.first(where: {
+                $0.value.insetBy(dx: -1, dy: -1).contains(location)
+              })?.key,
+              let index = indexByMediaKey[key]
+        else {
+            return
+        }
+
+        if dragAnchorIndex == nil {
+            dragAnchorIndex = index
+            dragSelects = !selectedMediaKeys.contains(key)
+            selectionBeforeDrag = selectedMediaKeys
+        }
+        guard let anchor = dragAnchorIndex else { return }
+        let selectedRange = min(anchor, index)...max(anchor, index)
+        let keys = Set(selectedRange.map { galleryItems[$0].id })
+        selectedMediaKeys = dragSelects
+            ? selectionBeforeDrag.union(keys)
+            : selectionBeforeDrag.subtracting(keys)
+        mediaSaver.clearResult()
+    }
+
+    private func resetSelectionDrag() {
+        dragAnchorIndex = nil
+        selectionBeforeDrag.removeAll()
     }
 
     private func galleryCell(_ item: GalleryMediaItem) -> some View {
@@ -216,15 +297,6 @@ struct MediaGalleryView: View {
         .background(.ultraThinMaterial)
     }
 
-    private func toggleSelection(_ key: String) {
-        mediaSaver.clearResult()
-        if selectedMediaKeys.contains(key) {
-            selectedMediaKeys.remove(key)
-        } else {
-            selectedMediaKeys.insert(key)
-        }
-    }
-
     private var title: String {
         switch mediaType {
         case nil: return "全部媒体"
@@ -252,10 +324,289 @@ struct MediaGalleryView: View {
     }
 }
 
+private struct GalleryCellFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(
+        value: inout [String: CGRect],
+        nextValue: () -> [String: CGRect]
+    ) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+private struct GalleryViewerSelection: Identifiable {
+    let index: Int
+    var id: Int { index }
+}
+
 private struct GalleryMediaItem: Identifiable {
     let post: BookmarkedPost
     let media: BookmarkedMedia
     var id: String { media.mediaKey }
+}
+
+private struct GalleryFullScreenViewer: View {
+    let items: [GalleryMediaItem]
+    let initialIndex: Int
+    @Environment(\.dismiss) private var dismiss
+    @State private var currentIndex: Int
+    @State private var imageIsZoomed = false
+    @State private var presentedPost: BookmarkedPost?
+
+    init(items: [GalleryMediaItem], initialIndex: Int) {
+        self.items = items
+        self.initialIndex = initialIndex
+        _currentIndex = State(
+            initialValue: min(max(initialIndex, 0), max(items.count - 1, 0))
+        )
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .top) {
+                Color.black
+                    .ignoresSafeArea()
+
+                if let item = currentItem {
+                    GalleryViewerMediaPage(
+                        item: item,
+                        imageIsZoomed: $imageIsZoomed,
+                        dismissAction: { dismiss() }
+                    )
+                    .id(item.id)
+                }
+
+                HStack {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(11)
+                            .background(.black.opacity(0.55), in: Circle())
+                    }
+                    .accessibilityLabel("退出全屏")
+
+                    Spacer()
+
+                    Text("\(currentIndex + 1) / \(items.count)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(.black.opacity(0.55), in: Capsule())
+                }
+                .padding()
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        handleTap(
+                            at: value.location,
+                            width: geometry.size.width
+                        )
+                    }
+            )
+        }
+        .statusBarHidden(true)
+        .sheet(item: $presentedPost) { post in
+            NavigationStack {
+                BookmarkPostDetailView(post: post)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("关闭") {
+                                presentedPost = nil
+                            }
+                        }
+                    }
+            }
+        }
+    }
+
+    private var currentItem: GalleryMediaItem? {
+        guard items.indices.contains(currentIndex) else { return nil }
+        return items[currentIndex]
+    }
+
+    private func handleTap(at location: CGPoint, width: CGFloat) {
+        guard !imageIsZoomed, width > 0, location.y > 80 else { return }
+        if location.x < width / 3 {
+            move(by: -1)
+        } else if location.x > width * 2 / 3 {
+            move(by: 1)
+        } else if let currentItem {
+            presentedPost = currentItem.post
+        }
+    }
+
+    private func move(by offset: Int) {
+        let candidate = currentIndex + offset
+        guard items.indices.contains(candidate) else { return }
+        imageIsZoomed = false
+        withAnimation(.easeInOut(duration: 0.16)) {
+            currentIndex = candidate
+        }
+    }
+}
+
+private struct GalleryViewerMediaPage: View {
+    let item: GalleryMediaItem
+    @Binding var imageIsZoomed: Bool
+    let dismissAction: () -> Void
+
+    var body: some View {
+        switch item.media.type {
+        case .photo:
+            ZoomableGalleryPhoto(
+                media: item.media,
+                isZoomed: $imageIsZoomed,
+                dismissAction: dismissAction
+            )
+        case .animatedGIF, .video:
+            GalleryVideoPlayer(media: item.media)
+                .onAppear { imageIsZoomed = false }
+        }
+    }
+}
+
+private struct ZoomableGalleryPhoto: View {
+    let media: BookmarkedMedia
+    @Binding var isZoomed: Bool
+    let dismissAction: () -> Void
+    @State private var scale: CGFloat = 1
+    @State private var settledScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var settledOffset: CGSize = .zero
+    @State private var dismissOffset: CGSize = .zero
+
+    var body: some View {
+        ZStack {
+            Color.black
+                .opacity(backgroundOpacity)
+
+            LocalMediaThumbnailView(
+                media: media,
+                maximumPixelSize: 4_096,
+                contentMode: .fit,
+                remoteImageName: "orig"
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scaleEffect(scale)
+            .offset(combinedOffset)
+        }
+        .ignoresSafeArea()
+        .simultaneousGesture(magnificationGesture)
+        .simultaneousGesture(dragGesture)
+        .onDisappear {
+            isZoomed = false
+        }
+    }
+
+    private var magnificationGesture: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in
+                scale = min(max(settledScale * value, 1), 6)
+                updateZoomState()
+            }
+            .onEnded { _ in
+                settledScale = scale
+                if scale <= 1.01 {
+                    resetZoom()
+                }
+            }
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                if scale > 1.01 {
+                    offset = CGSize(
+                        width: settledOffset.width + value.translation.width,
+                        height: settledOffset.height + value.translation.height
+                    )
+                } else if value.translation.height > 0,
+                          abs(value.translation.height)
+                            > abs(value.translation.width) {
+                    dismissOffset = CGSize(
+                        width: value.translation.width * 0.2,
+                        height: value.translation.height
+                    )
+                }
+            }
+            .onEnded { value in
+                if scale > 1.01 {
+                    settledOffset = offset
+                    return
+                }
+                let predicted = value.predictedEndTranslation.height
+                if dismissOffset.height > 90 || predicted > 180 {
+                    dismissAction()
+                } else {
+                    withAnimation(.spring(response: 0.3)) {
+                        dismissOffset = .zero
+                    }
+                }
+            }
+    }
+
+    private var combinedOffset: CGSize {
+        CGSize(
+            width: offset.width + dismissOffset.width,
+            height: offset.height + dismissOffset.height
+        )
+    }
+
+    private var backgroundOpacity: Double {
+        let progress = min(
+            max(Double(dismissOffset.height / 360), 0),
+            0.45
+        )
+        return 1 - progress
+    }
+
+    private func updateZoomState() {
+        isZoomed = scale > 1.01
+        if !isZoomed {
+            offset = .zero
+            settledOffset = .zero
+        }
+    }
+
+    private func resetZoom() {
+        scale = 1
+        settledScale = 1
+        offset = .zero
+        settledOffset = .zero
+        dismissOffset = .zero
+        isZoomed = false
+    }
+}
+
+private struct GalleryVideoPlayer: View {
+    let media: BookmarkedMedia
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .ignoresSafeArea()
+            .task(id: media.mediaKey) {
+                player?.pause()
+                let localURL = await LocalMediaLibrary.shared.localURL(
+                    for: media.mediaKey
+                )
+                if let url = localURL ?? media.bestMP4Variant?.url {
+                    let newPlayer = AVPlayer(url: url)
+                    player = newPlayer
+                    newPlayer.play()
+                }
+            }
+            .onDisappear {
+                player?.pause()
+            }
+    }
 }
 
 @MainActor
@@ -271,7 +622,6 @@ private final class GalleryMediaSaveModel: ObservableObject {
     @Published var presentedError: PresentedError?
 
     private let saver = BatchMediaSaver()
-    private let history = MediaSaveHistoryStore()
     private var task: Task<Void, Never>?
 
     var progressValue: Double {
@@ -294,26 +644,15 @@ private final class GalleryMediaSaveModel: ObservableObject {
                 task = nil
             }
             do {
-                let completedKeys = try await history.load()
-                let remaining = media.filter {
-                    !completedKeys.contains($0.mediaKey)
-                }
-                let duplicates = media.count - remaining.count
-                guard !remaining.isEmpty else {
-                    resultMessage = "所选媒体此前已经全部保存到照片。"
-                    return
-                }
                 progress = BatchSaveProgress(
                     completed: 0,
-                    total: remaining.count,
+                    total: media.count,
                     currentFraction: 0,
                     currentType: nil
                 )
                 let result = try await saver.save(
-                    remaining,
-                    didSave: { [history] item, _ in
-                        _ = try? await history.insert(item.mediaKey)
-                    },
+                    media,
+                    didSave: { _, _ in },
                     progress: { update in
                         Task { @MainActor [weak self] in
                             self?.progress = update
@@ -321,7 +660,7 @@ private final class GalleryMediaSaveModel: ObservableObject {
                     }
                 )
                 resultMessage =
-                    "保存 \(result.saved) 项，跳过 \(result.skipped + duplicates) 项，失败 \(result.failed) 项。"
+                    "保存 \(result.saved) 项，跳过 \(result.skipped) 项，失败 \(result.failed) 项。"
                 if result.failed > 0, let issue = result.issues.first {
                     presentedError = PresentedError(
                         message: issue,
