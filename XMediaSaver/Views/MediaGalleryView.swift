@@ -445,6 +445,10 @@ private struct GalleryFullScreenViewer: View {
                         dismissAction: { dismiss() }
                     )
                     .id(item.id)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                        transaction.disablesAnimations = true
+                    }
                 }
 
                 HStack {
@@ -534,8 +538,10 @@ private struct GalleryFullScreenViewer: View {
     private func move(by offset: Int) {
         let candidate = currentIndex + offset
         guard items.indices.contains(candidate) else { return }
-        imageIsZoomed = false
-        withAnimation(.easeInOut(duration: 0.16)) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            imageIsZoomed = false
             currentIndex = candidate
         }
     }
