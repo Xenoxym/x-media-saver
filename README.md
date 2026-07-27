@@ -18,6 +18,7 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 - **Media galleries:** The All media, Photos, Animated GIFs, and Videos counters open three-column lazy galleries.
 - **Local-first playback:** Preview lookup uses `media_key` to open an existing Files-library item first and falls back to the unchanged X CDN URL only when no local file exists.
 - **Duration and size filters:** Filter video/GIF duration with presets and filter the aggregate media size of a post after its CDN size has been resolved.
+- **Batch storage estimates:** Sum the deduplicated known bytes for the current filter, report unknown-size items, and show separate estimated additions for Photos history and the app-owned Files Library.
 - **Streaming Files export:** Save one media item at a time into a visible `Images / Animated GIFs / Videos` folder tree and write a line-oriented `posts.jsonl` manifest. No ZIP or whole-batch memory buffer is used.
 - **Persistent duplicate protection:** Successful Photos saves and Files exports keep separate on-device `media_key` ledgers and skip completed media by default.
 - **Storage management:** Inspect controlled storage categories and clear temporary, URLSession, and X WebKit caches without removing the X login cookie.
@@ -105,6 +106,8 @@ Library/
 Each item is downloaded to a temporary file, moved into its type folder, recorded, and then followed by the next item. `posts.jsonl` maps post text/account/date data to local relative media paths so the captured post can be reconstructed offline. `export-state.jsonl` is append-only and allows interrupted or repeated exports to skip completed `media_key` values.
 
 The default app-owned Library is indexed on demand for local-first previews. The media gallery uses fixed square, center-cropped cells in a stable three-column grid. Timeline and gallery thumbnails do not create permanent thumbnail files: local images are downsampled from their originals, local videos generate frames only for visible cells, and remote items request a small poster. A bounded in-memory cache is discarded when the app exits, preventing a second thumbnail library from consuming persistent storage.
+
+Post video previews include an explicit full-screen control. A two-finger pinch-out gesture on the inline player also opens the full-screen player.
 
 ## Reliability and technical limits
 

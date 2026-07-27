@@ -33,6 +33,12 @@ final class BookmarksViewModel: ObservableObject {
     @Published private(set) var visibleHashtagGroups: [BookmarkHashtagGroup] = []
     @Published private(set) var selectedMediaCount = 0
     @Published private(set) var alreadySavedCount = 0
+    @Published private(set) var selectedStorageEstimate =
+        MediaStorageEstimate.zero
+    @Published private(set) var photoNewStorageEstimate =
+        MediaStorageEstimate.zero
+    @Published private(set) var filesNewStorageEstimate =
+        MediaStorageEstimate.zero
     @Published private(set) var isSaving = false
     @Published private(set) var progress = BatchSaveProgress(
         completed: 0,
@@ -56,6 +62,7 @@ final class BookmarksViewModel: ObservableObject {
     private let saveHistory: MediaSaveHistoryStore
     private var sourcePosts: [BookmarkedPost] = []
     private var savedMediaKeys: Set<String> = []
+    private var localFileMediaKeys: Set<String> = []
     private var hashtagsByPostID: [String: [String]] = [:]
     private var saveTask: Task<Void, Never>?
     private var exportTask: Task<Void, Never>?
@@ -72,6 +79,8 @@ final class BookmarksViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             savedMediaKeys = (try? await saveHistory.load()) ?? []
+            localFileMediaKeys =
+                await LocalMediaLibrary.shared.availableMediaKeys()
             recomputeNow()
         }
     }
@@ -207,6 +216,9 @@ final class BookmarksViewModel: ObservableObject {
                 await LocalMediaLibrary.shared.register(
                     root: completedExport.destination
                 )
+                localFileMediaKeys =
+                    await LocalMediaLibrary.shared.availableMediaKeys()
+                recomputeNow()
             } catch is CancellationError {
                 // User cancellation is intentionally silent.
             } catch {
@@ -276,12 +288,19 @@ final class BookmarksViewModel: ObservableObject {
         }
 
         let allMedia = deduplicatedMedia(from: filtered)
-        alreadySavedCount = allMedia.filter {
-            savedMediaKeys.contains($0.mediaKey)
-        }.count
+        let photoNewMedia = allMedia.filter {
+            !savedMediaKeys.contains($0.mediaKey)
+        }
+        let filesNewMedia = allMedia.filter {
+            !localFileMediaKeys.contains($0.mediaKey)
+        }
+        alreadySavedCount = allMedia.count - photoNewMedia.count
+        selectedStorageEstimate = MediaStorageEstimate(media: allMedia)
+        photoNewStorageEstimate = MediaStorageEstimate(media: photoNewMedia)
+        filesNewStorageEstimate = MediaStorageEstimate(media: filesNewMedia)
         selectedMediaCount = allowResaving
             ? allMedia.count
-            : allMedia.count - alreadySavedCount
+            : photoNewMedia.count
     }
 
     private func calculateFilteredPosts(

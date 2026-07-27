@@ -260,6 +260,37 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertEqual(candidates[0].media[0].sizeProbeCompleted, true)
     }
 
+    func testStorageEstimateSumsKnownMediaAndCountsUnknownValues() {
+        let known = BookmarkedMedia(
+            mediaKey: "known",
+            type: .photo,
+            url: nil,
+            previewImageURL: nil,
+            variants: [],
+            width: nil,
+            height: nil,
+            durationMilliseconds: nil,
+            byteSize: 12_345,
+            sizeProbeCompleted: true
+        )
+        let unknown = BookmarkedMedia(
+            mediaKey: "unknown",
+            type: .video,
+            url: nil,
+            previewImageURL: nil,
+            variants: [],
+            width: nil,
+            height: nil,
+            durationMilliseconds: nil
+        )
+
+        let estimate = MediaStorageEstimate(media: [known, unknown])
+
+        XCTAssertEqual(estimate.itemCount, 2)
+        XCTAssertEqual(estimate.knownBytes, 12_345)
+        XCTAssertEqual(estimate.unknownSizeCount, 1)
+    }
+
     private func makePost(
         id: String,
         date: Date?,

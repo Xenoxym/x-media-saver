@@ -41,6 +41,16 @@ actor LocalMediaLibrary {
         return url
     }
 
+    func availableMediaKeys() -> Set<String> {
+        if !hasLoaded {
+            reload()
+        }
+        localURLsByMediaKey = localURLsByMediaKey.filter {
+            FileManager.default.fileExists(atPath: $0.value.path)
+        }
+        return Set(localURLsByMediaKey.keys)
+    }
+
     private func loadState(from root: URL) {
         let stateURL = root.appendingPathComponent("export-state.jsonl")
         guard let data = try? Data(contentsOf: stateURL) else { return }

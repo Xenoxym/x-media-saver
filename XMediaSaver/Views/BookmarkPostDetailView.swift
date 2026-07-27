@@ -128,10 +128,34 @@ struct BookmarkPostDetailView: View {
 private struct InlineVideoPreview: View {
     let media: BookmarkedMedia
     @State private var player: AVPlayer?
+    @State private var isFullScreen = false
 
     var body: some View {
-        VideoPlayer(player: player)
+        ZStack(alignment: .topTrailing) {
+            VideoPlayer(player: player)
+
+            Button {
+                isFullScreen = true
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .padding(10)
+                    .background(.black.opacity(0.6), in: Circle())
+            }
+            .padding(10)
+            .disabled(player == nil)
+            .accessibilityLabel("全屏播放")
+        }
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .onEnded { scale in
+                        if scale > 1.12, player != nil {
+                            isFullScreen = true
+                        }
+                    }
+            )
             .task(id: media.mediaKey) {
                 if player == nil {
                     let localURL = await LocalMediaLibrary.shared.localURL(
@@ -143,7 +167,42 @@ private struct InlineVideoPreview: View {
                 }
             }
             .onDisappear {
-                player?.pause()
+                if !isFullScreen {
+                    player?.pause()
+                }
             }
+            .fullScreenCover(isPresented: $isFullScreen) {
+                FullScreenVideoPlayer(player: player)
+            }
+    }
+}
+
+private struct FullScreenVideoPlayer: View {
+    let player: AVPlayer?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black
+                .ignoresSafeArea()
+
+            VideoPlayer(player: player)
+                .ignoresSafeArea()
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(12)
+                    .background(.black.opacity(0.6), in: Circle())
+            }
+            .padding()
+            .accessibilityLabel("退出全屏")
+        }
+        .onAppear {
+            player?.play()
+        }
     }
 }

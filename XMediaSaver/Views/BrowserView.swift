@@ -12,8 +12,7 @@ struct BrowserView: View {
                 Divider()
                 BrowserWebView(session: session)
             }
-            .navigationTitle("X 浏览器")
-            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
             .onAppear {
                 session.browserDidAppear()
             }
@@ -33,8 +32,8 @@ struct BrowserView: View {
     }
 
     private var controls: some View {
-        VStack(spacing: 7) {
-            HStack(spacing: 14) {
+        VStack(spacing: 4) {
+            HStack(spacing: 8) {
                 Button {
                     session.goBack()
                 } label: {
@@ -50,16 +49,56 @@ struct BrowserView: View {
                 Button {
                     session.openBookmarks()
                 } label: {
-                    Label("书签", systemImage: "bookmark")
+                    Image(systemName: "bookmark")
                 }
 
-                Spacer()
+                Label(
+                    "\(session.capturedPosts.count)",
+                    systemImage: "tray.full"
+                )
+                .font(.caption.weight(.semibold).monospacedDigit())
+
+                if session.sizeAnalysisRemaining > 0 {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("\(session.sizeAnalysisRemaining)")
+                            .font(.caption2.monospacedDigit())
+                    }
+                    .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
 
                 if session.isLoading {
                     ProgressView()
+                        .controlSize(.small)
                 }
 
+                Button {
+                    if session.isAutoCapturing {
+                        session.stopAutoCapture()
+                    } else {
+                        session.startAutoCapture()
+                    }
+                } label: {
+                    Label(
+                        session.isAutoCapturing ? "停止" : "同步",
+                        systemImage: session.isAutoCapturing
+                            ? "stop.fill"
+                            : "arrow.down.to.line"
+                    )
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .accessibilityLabel(
+                    session.isAutoCapturing ? "停止滚动" : "同步书签"
+                )
+
                 Menu {
+                    if let status = session.syncStatusText {
+                        Text(status)
+                    }
                     Button("清空已抓取列表") {
                         session.clearCapturedData()
                     }
@@ -71,51 +110,6 @@ struct BrowserView: View {
                 }
             }
             .buttonStyle(.bordered)
-
-            HStack(spacing: 10) {
-                Label(
-                    "\(session.capturedPosts.count)",
-                    systemImage: "tray.full"
-                )
-                .font(.caption.weight(.semibold).monospacedDigit())
-
-                if session.sizeAnalysisRemaining > 0 {
-                    HStack(spacing: 4) {
-                        ProgressView()
-                            .controlSize(.mini)
-                        Text("大小 \(session.sizeAnalysisRemaining)")
-                            .font(.caption2.monospacedDigit())
-                    }
-                    .foregroundStyle(.secondary)
-                }
-
-                if let status = session.syncStatusText {
-                    Text(status)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Spacer()
-                }
-
-                Button {
-                    if session.isAutoCapturing {
-                        session.stopAutoCapture()
-                    } else {
-                        session.startAutoCapture()
-                    }
-                } label: {
-                    Label(
-                        session.isAutoCapturing ? "停止" : "同步书签",
-                        systemImage: session.isAutoCapturing
-                            ? "stop.fill"
-                            : "arrow.down.to.line"
-                    )
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
 
             if let error = session.captureError {
                 HStack {
@@ -131,8 +125,8 @@ struct BrowserView: View {
                 }
             }
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
         .background(.bar)
     }
 }

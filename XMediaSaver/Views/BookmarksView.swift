@@ -333,10 +333,33 @@ struct BookmarksView: View {
                 Label("保存与导出", systemImage: "square.and.arrow.down")
                     .font(.headline)
                 Spacer()
-                Text("\(viewModel.selectedMediaCount) 项待处理")
+                Text(
+                    "\(viewModel.selectedStorageEstimate.itemCount) 项筛选结果"
+                )
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Label(
+                    "筛选合计：\(storageEstimateText(viewModel.selectedStorageEstimate))",
+                    systemImage: "externaldrive"
+                )
+                .font(.subheadline.weight(.semibold))
+
+                Text(
+                    "去重后预计新增：照片 \(storageEstimateText(viewModel.photoNewStorageEstimate))；App 资料库 \(storageEstimateText(viewModel.filesNewStorageEstimate))"
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Text("这是已分析媒体文件大小的加和；Photos 的实际磁盘占用可能因系统处理略有差异，另选 Files 文件夹则以该文件夹已有内容为准。")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(10)
+            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
 
             if viewModel.alreadySavedCount > 0 {
                 Toggle(
@@ -459,6 +482,19 @@ struct BookmarksView: View {
         )
         .font(.subheadline.weight(.semibold))
         .foregroundStyle(failed == 0 ? Color.green : Color.orange)
+    }
+
+    private func storageEstimateText(
+        _ estimate: MediaStorageEstimate
+    ) -> String {
+        var value = Self.byteFormatter.string(
+            fromByteCount: estimate.knownBytes
+        )
+        value += " / \(estimate.itemCount) 项"
+        if estimate.unknownSizeCount > 0 {
+            value += "（另 \(estimate.unknownSizeCount) 项大小未知）"
+        }
+        return value
     }
 
     private var browseCard: some View {

@@ -395,6 +395,30 @@ struct BatchSaveResult: Equatable {
     let issues: [String]
 }
 
+struct MediaStorageEstimate: Equatable {
+    let itemCount: Int
+    let knownBytes: Int64
+    let unknownSizeCount: Int
+
+    static let zero = MediaStorageEstimate(
+        itemCount: 0,
+        knownBytes: 0,
+        unknownSizeCount: 0
+    )
+
+    init(media: [BookmarkedMedia]) {
+        itemCount = media.count
+        knownBytes = media.compactMap(\.byteSize).reduce(0, +)
+        unknownSizeCount = media.filter { $0.byteSize == nil }.count
+    }
+
+    init(itemCount: Int, knownBytes: Int64, unknownSizeCount: Int) {
+        self.itemCount = itemCount
+        self.knownBytes = knownBytes
+        self.unknownSizeCount = unknownSizeCount
+    }
+}
+
 struct BrowserCapture: Equatable {
     let posts: [BookmarkedPost]
     let bottomCursor: String?
