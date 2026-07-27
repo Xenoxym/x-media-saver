@@ -321,10 +321,19 @@ enum MediaPlaybackAudioSession {
         media: BookmarkedMedia,
         url: URL
     ) async -> Bool {
+        await isSilent(
+            media: media,
+            asset: AVURLAsset(url: url)
+        )
+    }
+
+    static func isSilent(
+        media: BookmarkedMedia,
+        asset: AVAsset
+    ) async -> Bool {
         if media.type == .animatedGIF {
             return true
         }
-        let asset = AVURLAsset(url: url)
         guard let tracks = try? await asset.loadTracks(
             withMediaType: .audio
         ) else {

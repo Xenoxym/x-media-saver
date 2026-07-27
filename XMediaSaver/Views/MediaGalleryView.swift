@@ -554,9 +554,26 @@ private struct GalleryFullScreenViewer: View {
             items.indices.contains(index) ? items[index].media : nil
         }
         await preloadCovers(
-            media,
+            media.filter { $0.type == .photo },
             maximumPixelSize: 1_280
         )
+
+        let motionIndices = [
+            currentIndex + 1,
+            currentIndex - 1,
+            currentIndex + 2,
+            currentIndex + 3
+        ]
+        let motionMedia = motionIndices.compactMap {
+            index -> BookmarkedMedia? in
+            guard items.indices.contains(index),
+                  items[index].media.type != .photo
+            else {
+                return nil
+            }
+            return items[index].media
+        }
+        await GalleryVideoAssetPreloader.shared.update(media: motionMedia)
     }
 
     private func preloadCovers(
@@ -728,16 +745,9 @@ private struct GalleryVideoPlayer: View {
         ZStack {
             Color.black
 
-            LocalMediaThumbnailView(
-                media: media,
-                maximumPixelSize: 1_280,
-                contentMode: .fit,
-                remoteImageName: "orig",
-                showsPlaceholder: false
-            )
-
             if let player {
                 VideoPlayer(player: player)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
             }
         }
@@ -751,7 +761,11 @@ private struct GalleryVideoPlayer: View {
                     return
                 }
 
-                let item = AVPlayerItem(url: url)
+                let asset = await GalleryVideoAssetPreloader.shared.asset(
+                    mediaKey: media.mediaKey,
+                    url: url
+                )
+                let item = AVPlayerItem(asset: asset)
                 let newPlayer = AVQueuePlayer()
                 let newLooper = AVPlayerLooper(
                     player: newPlayer,
@@ -759,7 +773,7 @@ private struct GalleryVideoPlayer: View {
                 )
                 let silent = await MediaPlaybackAudioSession.isSilent(
                     media: media,
-                    url: url
+                    asset: asset
                 )
                 newPlayer.isMuted = silent
                 audioSessionActive = MediaPlaybackAudioSession.activate(
@@ -773,6 +787,20 @@ private struct GalleryVideoPlayer: View {
                 player = newPlayer
                 newPlayer.play()
             }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: .AVPlayerItemDidPlayToEndTime
+                )
+            ) { notification in
+                guard let endedItem = notification.object as? AVPlayerItem,
+                      let currentItem = player?.currentItem,
+                      endedItem === currentItem
+                else {
+                    return
+                }
+                player?.seek(to: .zero)
+                player?.play()
+            }
             .onDisappear {
                 player?.pause()
                 looper?.disableLooping()
@@ -782,6 +810,54 @@ private struct GalleryVideoPlayer: View {
                     audioSessionActive = false
                 }
             }
+    }
+}
+
+@MainActor
+private final class GalleryVideoAssetPreloader {
+    static let shared = GalleryVideoAssetPreloader()
+
+    private var assets: [String: AVURLAsset] = [:]
+    private var tasks: [String: Task<Void, Never>] = [:]
+
+    func update(media: [BookmarkedMedia]) {
+        let retainedKeys = Set(media.map(\.mediaKey))
+        let expiredKeys = assets.keys.filter {
+            !retainedKeys.contains($0)
+        }
+        for key in expiredKeys {
+            tasks[key]?.cancel()
+            tasks[key] = nil
+            assets[key] = nil
+        }
+
+        for item in media {
+            guard assets[item.mediaKey] == nil,
+                  let url = item.bestMP4Variant?.url
+            else {
+                continue
+            }
+            let asset = AVURLAsset(url: url)
+            assets[item.mediaKey] = asset
+            tasks[item.mediaKey] = Task {
+                _ = try? await asset.load(.isPlayable)
+                guard !Task.isCancelled else { return }
+                _ = try? await asset.load(.duration)
+                guard !Task.isCancelled else { return }
+                _ = try? await asset.loadTracks(withMediaType: .audio)
+            }
+        }
+    }
+
+    func asset(mediaKey: String, url: URL) -> AVURLAsset {
+        if let asset = assets[mediaKey], asset.url == url {
+            return asset
+        }
+        tasks[mediaKey]?.cancel()
+        tasks[mediaKey] = nil
+        let asset = AVURLAsset(url: url)
+        assets[mediaKey] = asset
+        return asset
     }
 }
 
