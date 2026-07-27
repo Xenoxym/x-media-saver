@@ -5,8 +5,11 @@ final class DownloadClient: NSObject, URLSessionDownloadDelegate, @unchecked Sen
     private var progressHandler: (@Sendable (Double) -> Void)?
     private var activeTask: URLSessionDownloadTask?
     private var downloadedFileURL: URL?
+    private var destinationExtension = "mp4"
     private lazy var session: URLSession = {
-        let configuration = URLSessionConfiguration.default
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.waitsForConnectivity = true
         configuration.timeoutIntervalForRequest = 60
         configuration.timeoutIntervalForResource = 60 * 60
@@ -19,11 +22,21 @@ final class DownloadClient: NSObject, URLSessionDownloadDelegate, @unchecked Sen
 
     func download(
         from url: URL,
+        fileExtension: String = "mp4",
         progress: @escaping @Sendable (Double) -> Void
     ) async throws -> URL {
         guard continuation == nil else {
             throw AppError.downloadFailed
         }
+        guard url.scheme?.lowercased() == "https",
+              let host = url.host?.lowercased(),
+              host == "video.twimg.com"
+                || host == "pbs.twimg.com"
+                || host.hasSuffix(".twimg.com")
+        else {
+            throw AppError.downloadFailed
+        }
+        destinationExtension = Self.safeExtension(fileExtension)
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
                 self.continuation = continuation
@@ -87,7 +100,7 @@ final class DownloadClient: NSObject, URLSessionDownloadDelegate, @unchecked Sen
 
         let destination = FileManager.default.temporaryDirectory
             .appendingPathComponent("XMediaSaver-\(UUID().uuidString)")
-            .appendingPathExtension("mp4")
+            .appendingPathExtension(destinationExtension)
         do {
             try FileManager.default.moveItem(at: location, to: destination)
             downloadedFileURL = destination
@@ -122,6 +135,7 @@ final class DownloadClient: NSObject, URLSessionDownloadDelegate, @unchecked Sen
         progressHandler = nil
         activeTask = nil
         downloadedFileURL = nil
+        destinationExtension = "mp4"
 
         switch result {
         case .success(let url):
@@ -129,5 +143,12 @@ final class DownloadClient: NSObject, URLSessionDownloadDelegate, @unchecked Sen
         case .failure(let error):
             continuation.resume(throwing: error)
         }
+    }
+
+    private static func safeExtension(_ value: String) -> String {
+        let normalized = value
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+        return normalized.isEmpty ? "dat" : String(normalized.prefix(8))
     }
 }

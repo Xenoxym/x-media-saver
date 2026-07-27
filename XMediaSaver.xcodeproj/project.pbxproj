@@ -20,6 +20,29 @@
 		A1000000000000000000000B /* PostURLParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000C /* PostURLParserTests.swift */; };
 		A1000000000000000000000C /* SyndicationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* SyndicationServiceTests.swift */; };
 		A1000000000000000000000D /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* XCTest.framework */; };
+		A1000000000000000000000E /* BrowserModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* BrowserModels.swift */; };
+		A1000000000000000000000F /* BrowserCaptureParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* BrowserCaptureParser.swift */; };
+		A10000000000000000000010 /* BrowserCaptureScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* BrowserCaptureScript.swift */; };
+		A10000000000000000000011 /* BatchMediaSaver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* BatchMediaSaver.swift */; };
+		A10000000000000000000012 /* BrowserSessionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* BrowserSessionModel.swift */; };
+		A10000000000000000000013 /* BookmarksViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* BookmarksViewModel.swift */; };
+		A10000000000000000000014 /* BrowserView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000017 /* BrowserView.swift */; };
+		A10000000000000000000015 /* BookmarksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* BookmarksView.swift */; };
+		A10000000000000000000016 /* SingleDownloadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* SingleDownloadView.swift */; };
+		A10000000000000000000017 /* ViewStyles.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001A /* ViewStyles.swift */; };
+		A10000000000000000000018 /* BrowserCaptureParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001B /* BrowserCaptureParserTests.swift */; };
+		A10000000000000000000019 /* BookmarkModelsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001C /* BookmarkModelsTests.swift */; };
+		A1000000000000000000001A /* BookmarkPersistenceStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001D /* BookmarkPersistenceStore.swift */; };
+		A1000000000000000000001B /* MediaSaveHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001E /* MediaSaveHistoryStore.swift */; };
+		A1000000000000000000001C /* MediaSizeResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* MediaSizeResolver.swift */; };
+		A1000000000000000000001D /* StorageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* StorageManager.swift */; };
+		A1000000000000000000001E /* FolderMediaExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* FolderMediaExporter.swift */; };
+		A1000000000000000000001F /* StorageManagementView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* StorageManagementView.swift */; };
+		A10000000000000000000020 /* BookmarkPostDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* BookmarkPostDetailView.swift */; };
+		A10000000000000000000021 /* LocalMediaLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* LocalMediaLibrary.swift */; };
+		A10000000000000000000022 /* LocalMediaThumbnailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* LocalMediaThumbnailView.swift */; };
+		A10000000000000000000023 /* MediaGalleryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* MediaGalleryView.swift */; };
+		A10000000000000000000024 /* IndexedPostsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* IndexedPostsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +72,29 @@
 		A2000000000000000000000E /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 		A2000000000000000000000F /* XMediaSaver.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = XMediaSaver.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000010 /* XMediaSaverTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = XMediaSaverTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000011 /* BrowserModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserModels.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* BrowserCaptureParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCaptureParser.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* BrowserCaptureScript.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCaptureScript.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* BatchMediaSaver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatchMediaSaver.swift; sourceTree = "<group>"; };
+		A20000000000000000000015 /* BrowserSessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserSessionModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000016 /* BookmarksViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksViewModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000017 /* BrowserView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserView.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* BookmarksView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarksView.swift; sourceTree = "<group>"; };
+		A20000000000000000000019 /* SingleDownloadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SingleDownloadView.swift; sourceTree = "<group>"; };
+		A2000000000000000000001A /* ViewStyles.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewStyles.swift; sourceTree = "<group>"; };
+		A2000000000000000000001B /* BrowserCaptureParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserCaptureParserTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000001C /* BookmarkModelsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkModelsTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000001D /* BookmarkPersistenceStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkPersistenceStore.swift; sourceTree = "<group>"; };
+		A2000000000000000000001E /* MediaSaveHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSaveHistoryStore.swift; sourceTree = "<group>"; };
+		A2000000000000000000001F /* MediaSizeResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSizeResolver.swift; sourceTree = "<group>"; };
+		A20000000000000000000020 /* StorageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageManager.swift; sourceTree = "<group>"; };
+		A20000000000000000000021 /* FolderMediaExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderMediaExporter.swift; sourceTree = "<group>"; };
+		A20000000000000000000022 /* StorageManagementView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageManagementView.swift; sourceTree = "<group>"; };
+		A20000000000000000000023 /* BookmarkPostDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkPostDetailView.swift; sourceTree = "<group>"; };
+		A20000000000000000000024 /* LocalMediaLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMediaLibrary.swift; sourceTree = "<group>"; };
+		A20000000000000000000025 /* LocalMediaThumbnailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMediaThumbnailView.swift; sourceTree = "<group>"; };
+		A20000000000000000000026 /* MediaGalleryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaGalleryView.swift; sourceTree = "<group>"; };
+		A20000000000000000000027 /* IndexedPostsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IndexedPostsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,6 +144,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000002 /* PostMedia.swift */,
+				A20000000000000000000011 /* BrowserModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -110,6 +157,15 @@
 				A20000000000000000000007 /* PhotoLibrarySaver.swift */,
 				A20000000000000000000003 /* PostURLParser.swift */,
 				A20000000000000000000005 /* SyndicationService.swift */,
+				A20000000000000000000012 /* BrowserCaptureParser.swift */,
+				A20000000000000000000013 /* BrowserCaptureScript.swift */,
+				A20000000000000000000014 /* BatchMediaSaver.swift */,
+				A2000000000000000000001D /* BookmarkPersistenceStore.swift */,
+				A2000000000000000000001E /* MediaSaveHistoryStore.swift */,
+				A2000000000000000000001F /* MediaSizeResolver.swift */,
+				A20000000000000000000020 /* StorageManager.swift */,
+				A20000000000000000000021 /* FolderMediaExporter.swift */,
+				A20000000000000000000024 /* LocalMediaLibrary.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -118,6 +174,8 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000008 /* SaverViewModel.swift */,
+				A20000000000000000000015 /* BrowserSessionModel.swift */,
+				A20000000000000000000016 /* BookmarksViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -126,6 +184,15 @@
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000009 /* ContentView.swift */,
+				A20000000000000000000017 /* BrowserView.swift */,
+				A20000000000000000000018 /* BookmarksView.swift */,
+				A20000000000000000000019 /* SingleDownloadView.swift */,
+				A2000000000000000000001A /* ViewStyles.swift */,
+				A20000000000000000000022 /* StorageManagementView.swift */,
+				A20000000000000000000023 /* BookmarkPostDetailView.swift */,
+				A20000000000000000000025 /* LocalMediaThumbnailView.swift */,
+				A20000000000000000000026 /* MediaGalleryView.swift */,
+				A20000000000000000000027 /* IndexedPostsView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -135,6 +202,8 @@
 			children = (
 				A2000000000000000000000C /* PostURLParserTests.swift */,
 				A2000000000000000000000D /* SyndicationServiceTests.swift */,
+				A2000000000000000000001B /* BrowserCaptureParserTests.swift */,
+				A2000000000000000000001C /* BookmarkModelsTests.swift */,
 			);
 			path = XMediaSaverTests;
 			sourceTree = "<group>";
@@ -272,6 +341,27 @@
 				A10000000000000000000007 /* PhotoLibrarySaver.swift in Sources */,
 				A10000000000000000000008 /* SaverViewModel.swift in Sources */,
 				A10000000000000000000009 /* ContentView.swift in Sources */,
+				A1000000000000000000000E /* BrowserModels.swift in Sources */,
+				A1000000000000000000000F /* BrowserCaptureParser.swift in Sources */,
+				A10000000000000000000010 /* BrowserCaptureScript.swift in Sources */,
+				A10000000000000000000011 /* BatchMediaSaver.swift in Sources */,
+				A10000000000000000000012 /* BrowserSessionModel.swift in Sources */,
+				A10000000000000000000013 /* BookmarksViewModel.swift in Sources */,
+				A10000000000000000000014 /* BrowserView.swift in Sources */,
+				A10000000000000000000015 /* BookmarksView.swift in Sources */,
+				A10000000000000000000016 /* SingleDownloadView.swift in Sources */,
+				A10000000000000000000017 /* ViewStyles.swift in Sources */,
+				A1000000000000000000001A /* BookmarkPersistenceStore.swift in Sources */,
+				A1000000000000000000001B /* MediaSaveHistoryStore.swift in Sources */,
+				A1000000000000000000001C /* MediaSizeResolver.swift in Sources */,
+				A1000000000000000000001D /* StorageManager.swift in Sources */,
+				A1000000000000000000001E /* FolderMediaExporter.swift in Sources */,
+				A1000000000000000000001F /* StorageManagementView.swift in Sources */,
+				A10000000000000000000020 /* BookmarkPostDetailView.swift in Sources */,
+				A10000000000000000000021 /* LocalMediaLibrary.swift in Sources */,
+				A10000000000000000000022 /* LocalMediaThumbnailView.swift in Sources */,
+				A10000000000000000000023 /* MediaGalleryView.swift in Sources */,
+				A10000000000000000000024 /* IndexedPostsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -281,6 +371,8 @@
 			files = (
 				A1000000000000000000000B /* PostURLParserTests.swift in Sources */,
 				A1000000000000000000000C /* SyndicationServiceTests.swift in Sources */,
+				A10000000000000000000018 /* BrowserCaptureParserTests.swift in Sources */,
+				A10000000000000000000019 /* BookmarkModelsTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
