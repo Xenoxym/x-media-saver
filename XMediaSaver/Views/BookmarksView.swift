@@ -878,10 +878,8 @@ private struct DiscreteRangeSlider: View {
     let lowerAccessibilityLabel: String
     let upperAccessibilityLabel: String
 
-    @State private var lowerDragStart: Double?
-    @State private var upperDragStart: Double?
-
     private let thumbDiameter: CGFloat = 28
+    private static let coordinateSpaceName = "DiscreteRangeSliderTrack"
 
     var body: some View {
         VStack(spacing: 4) {
@@ -925,6 +923,7 @@ private struct DiscreteRangeSlider: View {
                     upperThumb(usableWidth: usableWidth)
                         .position(x: upperX, y: proxy.size.height / 2)
                 }
+                .coordinateSpace(name: Self.coordinateSpaceName)
             }
             .frame(height: thumbDiameter + 4)
 
@@ -944,19 +943,17 @@ private struct DiscreteRangeSlider: View {
     private func lowerThumb(usableWidth: CGFloat) -> some View {
         sliderThumb
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(
+                    minimumDistance: 0,
+                    coordinateSpace: .named(Self.coordinateSpaceName)
+                )
                     .onChanged { value in
-                        let start = lowerDragStart ?? lowerValue
-                        lowerDragStart = start
                         lowerValue = clampedLowerValue(
-                            start + translatedValue(
-                                value.translation.width,
+                            trackValue(
+                                at: value.location.x,
                                 usableWidth: usableWidth
                             )
                         )
-                    }
-                    .onEnded { _ in
-                        lowerDragStart = nil
                     }
             )
             .accessibilityLabel(lowerAccessibilityLabel)
@@ -976,19 +973,17 @@ private struct DiscreteRangeSlider: View {
     private func upperThumb(usableWidth: CGFloat) -> some View {
         sliderThumb
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(
+                    minimumDistance: 0,
+                    coordinateSpace: .named(Self.coordinateSpaceName)
+                )
                     .onChanged { value in
-                        let start = upperDragStart ?? upperValue
-                        upperDragStart = start
                         upperValue = clampedUpperValue(
-                            start + translatedValue(
-                                value.translation.width,
+                            trackValue(
+                                at: value.location.x,
                                 usableWidth: usableWidth
                             )
                         )
-                    }
-                    .onEnded { _ in
-                        upperDragStart = nil
                     }
             )
             .accessibilityLabel(upperAccessibilityLabel)
@@ -1026,12 +1021,21 @@ private struct DiscreteRangeSlider: View {
         return thumbDiameter / 2 + usableWidth * CGFloat(progress)
     }
 
-    private func translatedValue(
-        _ translation: CGFloat,
+    private func trackValue(
+        at xPosition: CGFloat,
         usableWidth: CGFloat
     ) -> Double {
         let span = bounds.upperBound - bounds.lowerBound
-        return Double(translation / usableWidth) * span
+        let progress = min(
+            max(
+                Double(
+                    (xPosition - thumbDiameter / 2) / usableWidth
+                ),
+                0
+            ),
+            1
+        )
+        return bounds.lowerBound + progress * span
     }
 
     private func clampedLowerValue(_ value: Double) -> Double {
