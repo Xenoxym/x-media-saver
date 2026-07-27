@@ -9,7 +9,7 @@ struct BookmarkPostDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 authorHeader
 
                 if !post.text.isEmpty {
@@ -36,7 +36,8 @@ struct BookmarkPostDetailView: View {
                     .buttonStyle(.bordered)
                 }
             }
-            .padding()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
         }
         .background(Color(uiColor: .systemGroupedBackground))
         .navigationTitle("Post 预览")
@@ -79,7 +80,7 @@ struct BookmarkPostDetailView: View {
     }
 
     private var authorHeader: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(post.authorName ?? "未知作者")
                 .font(.headline)
             HStack(spacing: 8) {
@@ -92,14 +93,11 @@ struct BookmarkPostDetailView: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-            if let authorID = post.authorID {
-                Text("User ID: \(authorID)")
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.tertiary)
-            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .saverCard()
+        .padding(12)
+        .background(Color(uiColor: .secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
     private func mediaCard(_ media: BookmarkedMedia) -> some View {
@@ -224,10 +222,14 @@ private struct FullScreenPhotoPreview: View {
 private struct FullScreenPhotoView: View {
     let media: BookmarkedMedia
     @Environment(\.dismiss) private var dismiss
+    @State private var scale: CGFloat = 1
+    @State private var settledScale: CGFloat = 1
+    @State private var dragOffset: CGSize = .zero
 
     var body: some View {
         ZStack {
             Color.black
+                .opacity(backgroundOpacity)
 
             LocalMediaThumbnailView(
                 media: media,
@@ -236,15 +238,56 @@ private struct FullScreenPhotoView: View {
                 remoteImageName: "orig"
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scaleEffect(scale)
+            .offset(dragOffset)
         }
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onTapGesture {
             dismiss()
         }
+        .simultaneousGesture(
+            MagnificationGesture()
+                .onChanged { value in
+                    scale = min(max(settledScale * value, 1), 6)
+                }
+                .onEnded { _ in
+                    settledScale = scale
+                }
+        )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 12)
+                .onChanged { value in
+                    guard value.translation.height > 0,
+                          abs(value.translation.height)
+                            > abs(value.translation.width)
+                    else {
+                        return
+                    }
+                    dragOffset = CGSize(
+                        width: value.translation.width * 0.25,
+                        height: value.translation.height
+                    )
+                }
+                .onEnded { value in
+                    let predicted = value.predictedEndTranslation.height
+                    if dragOffset.height > 90 || predicted > 180 {
+                        dismiss()
+                    } else {
+                        withAnimation(.spring(response: 0.3)) {
+                            dragOffset = .zero
+                        }
+                    }
+                }
+        )
         .accessibilityAddTraits(.isButton)
         .accessibilityLabel("退出全屏图片")
         .statusBarHidden(true)
+    }
+
+    private var backgroundOpacity: Double {
+        let progress = min(max(Double(dragOffset.height / 360), 0), 0.45)
+        return 1 - progress
     }
 }
 

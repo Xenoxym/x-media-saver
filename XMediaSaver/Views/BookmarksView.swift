@@ -13,6 +13,7 @@ struct BookmarksView: View {
     @State private var showsStorage = false
     @State private var choosesExportFolder = false
     @State private var showsRangeFilters = false
+    @State private var dateRange: BookmarkDateRange = .all
     @AppStorage("bookmarkPostPreviewMode")
     private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
 
@@ -336,23 +337,41 @@ struct BookmarksView: View {
                 }
             }
 
-            Toggle("设置起始日期", isOn: $viewModel.filter.useStartDate)
-            if viewModel.filter.useStartDate {
+            Divider()
+
+            HStack {
+                Text("时间范围")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Menu {
+                    ForEach(BookmarkDateRange.allCases) { range in
+                        Button {
+                            applyDateRange(range)
+                        } label: {
+                            if dateRange == range {
+                                Label(range.title, systemImage: "checkmark")
+                            } else {
+                                Text(range.title)
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(dateRange.title)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                    }
+                }
+            }
+
+            if dateRange == .custom {
                 DatePicker(
-                    "从",
+                    "起始日期",
                     selection: $viewModel.filter.startDate,
                     displayedComponents: .date
                 )
             }
-            Toggle("设置结束日期", isOn: $viewModel.filter.useEndDate)
-            if viewModel.filter.useEndDate {
-                DatePicker(
-                    "到",
-                    selection: $viewModel.filter.endDate,
-                    displayedComponents: .date
-                )
-            }
-            Text("日期按 Post 发布时间；媒体大小是该 Post 内全部媒体的合计。")
+            Text("时间范围按 Post 发布时间筛选至今天；媒体大小是该 Post 内全部媒体的合计。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -361,6 +380,24 @@ struct BookmarksView: View {
 
     private var rangeFiltersSummary: String {
         "时长 \(viewModel.filter.minimumDuration.title)–\(viewModel.filter.maximumDuration.title) · 大小 \(viewModel.filter.minimumSize.title)–\(viewModel.filter.maximumSize.title)"
+    }
+
+    private func applyDateRange(_ range: BookmarkDateRange) {
+        dateRange = range
+        viewModel.filter.useEndDate = false
+        switch range {
+        case .all:
+            viewModel.filter.useStartDate = false
+        case .oneDay, .threeDays, .sevenDays:
+            viewModel.filter.useStartDate = true
+            viewModel.filter.startDate = Calendar.current.date(
+                byAdding: .day,
+                value: -(range.dayCount - 1),
+                to: Date()
+            ) ?? Date()
+        case .custom:
+            viewModel.filter.useStartDate = true
+        }
     }
 
     private func compactRangeFilter(
@@ -866,6 +903,35 @@ struct BookmarksView: View {
         formatter.countStyle = .file
         return formatter
     }()
+}
+
+private enum BookmarkDateRange: String, CaseIterable, Identifiable {
+    case all
+    case oneDay
+    case threeDays
+    case sevenDays
+    case custom
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "不限"
+        case .oneDay: return "最近一天"
+        case .threeDays: return "最近三天"
+        case .sevenDays: return "最近七天"
+        case .custom: return "自定义起始日期"
+        }
+    }
+
+    var dayCount: Int {
+        switch self {
+        case .oneDay: return 1
+        case .threeDays: return 3
+        case .sevenDays: return 7
+        case .all, .custom: return 0
+        }
+    }
 }
 
 private struct DiscreteRangeSlider: View {

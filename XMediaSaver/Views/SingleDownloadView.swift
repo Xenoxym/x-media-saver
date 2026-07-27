@@ -35,7 +35,10 @@ struct SingleDownloadView: View {
                             isURLFieldFocused = false
                             viewModel.clear()
                         }
-                        .disabled(viewModel.isDownloading)
+                        .disabled(
+                            viewModel.isDownloading
+                                || viewModel.isSavingPhotos
+                        )
                     }
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -74,9 +77,9 @@ struct SingleDownloadView: View {
                 .font(.system(size: 42, weight: .bold))
                 .foregroundStyle(.cyan, .purple)
                 .symbolRenderingMode(.palette)
-            Text("单链接保存视频与动图")
+            Text("单链接保存帖子媒体")
                 .font(.title2.bold())
-            Text("登录一次后，粘贴链接即可自动使用同一个 X 浏览器会话解析并保存视频或动图。")
+            Text("登录一次后，粘贴链接即可解析帖子中的图片、视频或动图，并选择需要保存的媒体。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -136,7 +139,7 @@ struct SingleDownloadView: View {
                     if viewModel.isResolving {
                         ProgressView()
                     } else {
-                        Label("查找视频", systemImage: "magnifyingglass")
+                        Label("查找帖子", systemImage: "magnifyingglass")
                     }
                 }
                 .buttonStyle(.borderedProminent)
@@ -164,6 +167,91 @@ struct SingleDownloadView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
             }
+
+            if !post.photos.isEmpty {
+                photoSection(post.photos)
+            }
+
+            if !post.items.isEmpty {
+                Divider()
+                videoSection(post)
+            }
+
+            if let success = viewModel.successMessage {
+                Label(success, systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.subheadline.weight(.semibold))
+            }
+        }
+        .saverCard()
+    }
+
+    private func photoSection(
+        _ photos: [BookmarkedMedia]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("图片", systemImage: "photo.on.rectangle.angled")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(photos.count) 张 · 原始画质")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.flexible(), spacing: 6),
+                    count: min(photos.count, 2)
+                ),
+                spacing: 6
+            ) {
+                ForEach(photos) { photo in
+                    LocalMediaThumbnailView(
+                        media: photo,
+                        maximumPixelSize: 640,
+                        remoteImageName: "large"
+                    )
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+            }
+
+            if viewModel.isSavingPhotos {
+                ProgressView(
+                    value: Double(viewModel.photoSaveProgress.completed)
+                        + viewModel.photoSaveProgress.currentFraction,
+                    total: Double(max(viewModel.photoSaveProgress.total, 1))
+                )
+                HStack {
+                    Text(
+                        "\(viewModel.photoSaveProgress.completed)/\(viewModel.photoSaveProgress.total)"
+                    )
+                    .font(.caption.monospacedDigit())
+                    Spacer()
+                    Button("取消", role: .cancel) {
+                        viewModel.cancelPhotoSave()
+                    }
+                }
+            } else {
+                Button {
+                    Task { await viewModel.saveAllPhotos() }
+                } label: {
+                    Label(
+                        "保存全部 \(photos.count) 张图片到照片",
+                        systemImage: "photo.badge.arrow.down"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+
+    private func videoSection(_ post: PostMedia) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("视频与动图", systemImage: "play.rectangle")
+                .font(.subheadline.weight(.semibold))
 
             if post.items.count > 1 {
                 Picker(
@@ -234,13 +322,7 @@ struct SingleDownloadView: View {
                 .controlSize(.large)
             }
 
-            if let success = viewModel.successMessage {
-                Label(success, systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.subheadline.weight(.semibold))
-            }
         }
-        .saverCard()
     }
 
     private var sessionNote: some View {

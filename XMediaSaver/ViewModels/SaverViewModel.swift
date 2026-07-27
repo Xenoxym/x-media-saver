@@ -9,13 +9,21 @@ final class SaverViewModel: ObservableObject {
     @Published var selectedVariantID: String?
     @Published private(set) var isResolving = false
     @Published private(set) var isDownloading = false
+    @Published private(set) var isSavingPhotos = false
     @Published private(set) var downloadProgress = 0.0
+    @Published private(set) var photoSaveProgress = BatchSaveProgress(
+        completed: 0,
+        total: 0,
+        currentFraction: 0,
+        currentType: nil
+    )
     @Published private(set) var successMessage: String?
     @Published var presentedError: PresentedError?
 
     private let metadataService: SyndicationService
     private let downloadClient: DownloadClient
     private let photoSaver: PhotoLibrarySaver
+    private let photoBatchSaver = BatchMediaSaver()
 
     init(
         metadataService: SyndicationService = SyndicationService(),
@@ -43,6 +51,7 @@ final class SaverViewModel: ObservableObject {
         !postURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !isResolving
             && !isDownloading
+            && !isSavingPhotos
     }
 
     func resolve(
@@ -127,8 +136,54 @@ final class SaverViewModel: ObservableObject {
         }
     }
 
+    func saveAllPhotos() async {
+        guard let photos = post?.photos,
+              !photos.isEmpty,
+              !isSavingPhotos
+        else {
+            return
+        }
+        successMessage = nil
+        isSavingPhotos = true
+        photoSaveProgress = BatchSaveProgress(
+            completed: 0,
+            total: photos.count,
+            currentFraction: 0,
+            currentType: .photo
+        )
+        defer { isSavingPhotos = false }
+
+        do {
+            let result = try await photoBatchSaver.save(
+                photos,
+                didSave: { _, _ in },
+                progress: { update in
+                    Task { @MainActor [weak self] in
+                        self?.photoSaveProgress = update
+                    }
+                }
+            )
+            successMessage =
+                "图片保存 \(result.saved) 张，跳过 \(result.skipped) 张，失败 \(result.failed) 张。"
+            if result.failed > 0, let issue = result.issues.first {
+                presentedError = PresentedError(
+                    message: issue,
+                    offersSettings: false
+                )
+            }
+        } catch is CancellationError {
+            successMessage = "图片保存已取消。"
+        } catch {
+            show(error)
+        }
+    }
+
     func cancelDownload() {
         downloadClient.cancel()
+    }
+
+    func cancelPhotoSave() {
+        photoBatchSaver.cancel()
     }
 
     func clear() {
@@ -137,6 +192,12 @@ final class SaverViewModel: ObservableObject {
         selectedItemID = nil
         selectedVariantID = nil
         successMessage = nil
+        photoSaveProgress = BatchSaveProgress(
+            completed: 0,
+            total: 0,
+            currentFraction: 0,
+            currentType: nil
+        )
     }
 
     private func show(_ error: Error) {
@@ -166,13 +227,15 @@ final class SaverViewModel: ObservableObject {
                 variants: variants
             )
         }
-        guard !items.isEmpty else { return nil }
+        let photos = post.media.filter { $0.type == .photo }
+        guard !items.isEmpty || !photos.isEmpty else { return nil }
         return PostMedia(
             postID: post.id,
             authorName: post.authorName,
             authorHandle: post.authorUsername,
             text: post.text,
             items: items,
+            photos: photos,
             cameFromQuotedPost: false
         )
     }

@@ -66,8 +66,17 @@ actor SyndicationService {
             prefix: "\(postID)-quoted"
         )
         let items = directItems.isEmpty ? quotedItems : directItems
+        let directPhotos = photoItems(
+            from: response.mediaDetails,
+            prefix: postID
+        )
+        let quotedPhotos = photoItems(
+            from: response.quotedTweet?.mediaDetails,
+            prefix: "\(postID)-quoted"
+        )
+        let photos = directPhotos.isEmpty ? quotedPhotos : directPhotos
 
-        guard !items.isEmpty else {
+        guard !items.isEmpty || !photos.isEmpty else {
             throw AppError.noVideo
         }
 
@@ -77,8 +86,39 @@ actor SyndicationService {
             authorHandle: response.user?.screenName,
             text: response.text,
             items: items,
-            cameFromQuotedPost: directItems.isEmpty && !quotedItems.isEmpty
+            photos: photos,
+            cameFromQuotedPost:
+                (directItems.isEmpty && !quotedItems.isEmpty)
+                || (directPhotos.isEmpty && !quotedPhotos.isEmpty)
         )
+    }
+
+    private static func photoItems(
+        from details: [SyndicationMedia]?,
+        prefix: String
+    ) -> [BookmarkedMedia] {
+        (details ?? []).enumerated().compactMap { index, media in
+            guard media.type == "photo",
+                  let value = media.mediaURLHTTPS,
+                  var components = URLComponents(string: value),
+                  components.scheme?.lowercased() == "https",
+                  components.host?.lowercased() == "pbs.twimg.com"
+            else {
+                return nil
+            }
+            components.queryItems = [URLQueryItem(name: "name", value: "orig")]
+            guard let url = components.url else { return nil }
+            return BookmarkedMedia(
+                mediaKey: "\(prefix)-photo-\(index)",
+                type: .photo,
+                url: url,
+                previewImageURL: url,
+                variants: [],
+                width: nil,
+                height: nil,
+                durationMilliseconds: nil
+            )
+        }
     }
 
     private static func videoItems(
@@ -141,10 +181,12 @@ private struct SyndicationUser: Decodable {
 private struct SyndicationMedia: Decodable {
     let type: String
     let videoInfo: SyndicationVideoInfo?
+    let mediaURLHTTPS: String?
 
     enum CodingKeys: String, CodingKey {
         case type
         case videoInfo = "video_info"
+        case mediaURLHTTPS = "media_url_https"
     }
 }
 

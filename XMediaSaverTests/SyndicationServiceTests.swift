@@ -95,7 +95,7 @@ final class SyndicationServiceTests: XCTestCase {
         XCTAssertEqual(result.items[0].bestVariant?.resolution, "640×360")
     }
 
-    func testRejectsPhotoOnlyResponse() {
+    func testResolvesPhotoOnlyResponseAtOriginalQuality() throws {
         let json = """
         {
           "mediaDetails": [{
@@ -105,14 +105,18 @@ final class SyndicationServiceTests: XCTestCase {
         }
         """
 
-        XCTAssertThrowsError(
-            try SyndicationService.parseResponse(
-                Data(json.utf8),
-                postID: "12345"
-            )
-        ) { error in
-            XCTAssertEqual(error as? AppError, .noVideo)
-        }
+        let result = try SyndicationService.parseResponse(
+            Data(json.utf8),
+            postID: "12345"
+        )
+
+        XCTAssertTrue(result.items.isEmpty)
+        XCTAssertEqual(result.photos.count, 1)
+        XCTAssertEqual(result.photos[0].type, .photo)
+        XCTAssertEqual(
+            result.photos[0].url?.absoluteString,
+            "https://pbs.twimg.com/media/example.jpg?name=orig"
+        )
     }
 
     func testRejectsTombstoneAndEmptyResponsesAsUnavailable() {

@@ -6,7 +6,26 @@ struct PostMedia: Equatable {
     let authorHandle: String?
     let text: String?
     let items: [VideoMediaItem]
+    let photos: [BookmarkedMedia]
     let cameFromQuotedPost: Bool
+
+    init(
+        postID: String,
+        authorName: String?,
+        authorHandle: String?,
+        text: String?,
+        items: [VideoMediaItem],
+        photos: [BookmarkedMedia] = [],
+        cameFromQuotedPost: Bool
+    ) {
+        self.postID = postID
+        self.authorName = authorName
+        self.authorHandle = authorHandle
+        self.text = text
+        self.items = items
+        self.photos = photos
+        self.cameFromQuotedPost = cameFromQuotedPost
+    }
 }
 
 struct VideoMediaItem: Identifiable, Equatable {

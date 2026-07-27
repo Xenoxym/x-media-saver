@@ -22,7 +22,7 @@ enum AppError: LocalizedError, Equatable {
         case .unsupportedOrUnavailablePost:
             return "当前 X 会话和快捷解析都无法读取这条帖子。请确认登录仍有效，并且该账号有权访问。"
         case .noVideo:
-            return "没有找到可下载的 MP4 视频或动图。"
+            return "没有找到可下载的图片、MP4 视频或动图。"
         case .metadataServiceChanged:
             return "X 的快捷解析格式已经变化或暂时不可用。你可以改用内置浏览器打开帖子。"
         case .httpError(let code):
