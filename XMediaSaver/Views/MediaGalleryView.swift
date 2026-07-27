@@ -554,48 +554,22 @@ private struct GalleryFullScreenViewer: View {
             items.indices.contains(index) ? items[index].media : nil
         }
         await preloadCovers(
-            media.filter { $0.type == .photo },
-            maximumPixelSize: 1_280,
-            batchSize: 4
-        )
-        await preloadCovers(
-            media.filter { $0.type != .photo },
-            maximumPixelSize: 1_280,
-            batchSize: 1
+            media,
+            maximumPixelSize: 1_280
         )
     }
 
     private func preloadCovers(
         _ media: [BookmarkedMedia],
-        maximumPixelSize: Int,
-        batchSize: Int
+        maximumPixelSize: Int
     ) async {
-        if batchSize == 1 {
-            for item in media {
-                guard !Task.isCancelled else { return }
-                await LocalMediaThumbnailLoader.preload(
-                    media: item,
-                    maximumPixelSize: maximumPixelSize,
-                    remoteImageName: "orig"
-                )
-            }
-            return
-        }
-
-        for start in stride(from: 0, to: media.count, by: batchSize) {
+        for item in media {
             guard !Task.isCancelled else { return }
-            let end = min(start + batchSize, media.count)
-            await withTaskGroup(of: Void.self) { group in
-                for item in media[start..<end] {
-                    group.addTask {
-                        await LocalMediaThumbnailLoader.preload(
-                            media: item,
-                            maximumPixelSize: maximumPixelSize,
-                            remoteImageName: "orig"
-                        )
-                    }
-                }
-            }
+            await LocalMediaThumbnailLoader.preload(
+                media: item,
+                maximumPixelSize: maximumPixelSize,
+                remoteImageName: "orig"
+            )
         }
     }
 }
