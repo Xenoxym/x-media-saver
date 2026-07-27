@@ -726,7 +726,8 @@ private struct ZoomableGalleryPhoto: View {
 
 private struct GalleryVideoPlayer: View {
     let media: BookmarkedMedia
-    @State private var player: AVPlayer?
+    @State private var player: AVQueuePlayer?
+    @State private var looper: AVPlayerLooper?
     @State private var audioSessionActive = false
 
     var body: some View {
@@ -742,6 +743,12 @@ private struct GalleryVideoPlayer: View {
         .ignoresSafeArea()
             .task(id: media.mediaKey) {
                 player?.pause()
+                player = nil
+                looper = nil
+                if audioSessionActive {
+                    MediaPlaybackAudioSession.deactivate()
+                    audioSessionActive = false
+                }
                 let localURL = await LocalMediaLibrary.shared.localURL(
                     for: media.mediaKey
                 )
@@ -751,39 +758,34 @@ private struct GalleryVideoPlayer: View {
 
                 let asset = AVURLAsset(url: url)
                 let item = AVPlayerItem(asset: asset)
-                let newPlayer = AVPlayer(playerItem: item)
-                newPlayer.actionAtItemEnd = .none
+                let newPlayer = AVQueuePlayer()
+                newPlayer.allowsExternalPlayback = false
+                let newLooper = AVPlayerLooper(
+                    player: newPlayer,
+                    templateItem: item
+                )
+                looper = newLooper
+                player = newPlayer
+                newPlayer.play()
+
+                // Audio-track inspection can require a network round trip. Keep it
+                // off the page-switch path so the next video appears immediately.
                 let silent = await MediaPlaybackAudioSession.isSilent(
                     media: media,
                     asset: asset
                 )
+                guard !Task.isCancelled, player === newPlayer else {
+                    return
+                }
                 newPlayer.isMuted = silent
                 audioSessionActive = MediaPlaybackAudioSession.activate(
                     silent: silent
                 )
-                guard !Task.isCancelled else {
-                    newPlayer.pause()
-                    return
-                }
-                player = newPlayer
-                newPlayer.play()
-            }
-            .onReceive(
-                NotificationCenter.default.publisher(
-                    for: .AVPlayerItemDidPlayToEndTime
-                )
-            ) { notification in
-                guard let endedItem = notification.object as? AVPlayerItem,
-                      let currentItem = player?.currentItem,
-                      endedItem === currentItem
-                else {
-                    return
-                }
-                player?.seek(to: .zero)
-                player?.play()
             }
             .onDisappear {
                 player?.pause()
+                player = nil
+                looper = nil
                 if audioSessionActive {
                     MediaPlaybackAudioSession.deactivate()
                     audioSessionActive = false

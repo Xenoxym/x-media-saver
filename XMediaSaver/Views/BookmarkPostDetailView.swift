@@ -373,12 +373,17 @@ private struct InlineVideoPreview: View {
     let media: BookmarkedMedia
     @State private var player: AVPlayer?
     @State private var audioSessionActive = false
+    @State private var isSilent: Bool?
+    @State private var pictureInPictureActive = false
     @AppStorage("postVideoBackgroundPlaybackEnabled")
     private var backgroundPlaybackEnabled = false
 
     var body: some View {
         VStack(spacing: 8) {
-            SystemVideoPlayerView(player: player)
+            SystemVideoPlayerView(
+                player: player,
+                isPictureInPictureActive: $pictureInPictureActive
+            )
                 .aspectRatio(mediaAspectRatio, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .background(Color.black)
@@ -409,25 +414,50 @@ private struct InlineVideoPreview: View {
                         newPlayer.actionAtItemEnd = .none
                         updateBackgroundPolicy(
                             for: newPlayer,
-                            enabled: backgroundPlaybackEnabled
+                            enabled: false
                         )
+                        player = newPlayer
+                        newPlayer.play()
+
+                        // Do not delay the first frame while AVFoundation checks
+                        // whether this remote asset contains an audio track.
                         let silent = await MediaPlaybackAudioSession.isSilent(
                             media: media,
                             url: url
                         )
+                        guard !Task.isCancelled, player === newPlayer else {
+                            return
+                        }
+                        isSilent = silent
                         newPlayer.isMuted = silent
                         audioSessionActive =
                             MediaPlaybackAudioSession.activate(
                                 silent: silent
                             )
-                        player = newPlayer
-                        newPlayer.play()
+                        updateBackgroundPolicy(
+                            for: newPlayer,
+                            enabled:
+                                backgroundPlaybackEnabled && !silent
+                        )
                     }
                 }
             }
             .onChange(of: backgroundPlaybackEnabled) { enabled in
                 guard let player else { return }
-                updateBackgroundPolicy(for: player, enabled: enabled)
+                updateBackgroundPolicy(
+                    for: player,
+                    enabled: enabled && isSilent == false
+                )
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: UIApplication.didEnterBackgroundNotification
+                )
+            ) { _ in
+                guard !pictureInPictureActive else { return }
+                if !backgroundPlaybackEnabled || isSilent != false {
+                    player?.pause()
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
@@ -437,8 +467,10 @@ private struct InlineVideoPreview: View {
                 loopIfCurrentItemEnded(notification)
             }
             .onDisappear {
-                player?.pause()
-                if audioSessionActive {
+                if !pictureInPictureActive {
+                    player?.pause()
+                }
+                if audioSessionActive && !pictureInPictureActive {
                     MediaPlaybackAudioSession.deactivate()
                     audioSessionActive = false
                 }
@@ -479,14 +511,16 @@ private struct InlineVideoPreview: View {
 
 private struct SystemVideoPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer?
+    @Binding var isPictureInPictureActive: Bool
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
+        controller.delegate = context.coordinator
         controller.player = player
         controller.showsPlaybackControls = true
         controller.videoGravity = .resizeAspect
         controller.allowsPictureInPicturePlayback = true
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = false
         return controller
     }
 
@@ -499,10 +533,35 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         }
     }
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator(isPictureInPictureActive: $isPictureInPictureActive)
+    }
+
     static func dismantleUIViewController(
         _ controller: AVPlayerViewController,
-        coordinator: ()
+        coordinator: Coordinator
     ) {
+        controller.delegate = nil
         controller.player = nil
+    }
+
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
+        private var isPictureInPictureActive: Binding<Bool>
+
+        init(isPictureInPictureActive: Binding<Bool>) {
+            self.isPictureInPictureActive = isPictureInPictureActive
+        }
+
+        func playerViewControllerWillStartPictureInPicture(
+            _ playerViewController: AVPlayerViewController
+        ) {
+            isPictureInPictureActive.wrappedValue = true
+        }
+
+        func playerViewControllerDidStopPictureInPicture(
+            _ playerViewController: AVPlayerViewController
+        ) {
+            isPictureInPictureActive.wrappedValue = false
+        }
     }
 }
