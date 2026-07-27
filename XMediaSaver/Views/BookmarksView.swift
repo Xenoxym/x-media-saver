@@ -528,9 +528,6 @@ struct BookmarksView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-                Text("这是已分析媒体文件大小的加和；Photos 的实际磁盘占用可能因系统处理略有差异，另选 Files 文件夹则以该文件夹已有内容为准。")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
             .padding(10)
             .background(Color(uiColor: .tertiarySystemGroupedBackground))
@@ -563,10 +560,12 @@ struct BookmarksView: View {
                     viewModel.startExporting(posts: session.capturedPosts)
                 } label: {
                     Label(
-                        "流式保存到“我的 iPhone/X Media Saver”",
+                        "保存到 X Media Saver 文件夹",
                         systemImage: "folder.badge.plus"
                     )
                     .frame(maxWidth: .infinity)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 }
                 .buttonStyle(.bordered)
 
@@ -603,8 +602,8 @@ struct BookmarksView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            Menu("已有旧版照片？") {
-                Button("将当前筛选标记为已保存（不下载）") {
+            Menu("旧版已保存内容去重") {
+                Button("将当前筛选结果记为已保存（不下载）") {
                     Task {
                         await viewModel.markCurrentSelectionAsSaved(
                             posts: session.capturedPosts
