@@ -497,9 +497,12 @@ private struct GalleryFullScreenViewer: View {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("关闭") {
                                 presentedPost = nil
-                            }
-                        }
-                    }
+                }
+            }
+        }
+        .onDisappear {
+            MediaPlaybackAudioSession.deactivate()
+        }
             }
         }
     }
@@ -726,9 +729,8 @@ private struct ZoomableGalleryPhoto: View {
 
 private struct GalleryVideoPlayer: View {
     let media: BookmarkedMedia
-    @State private var player: AVQueuePlayer?
+    @State private var player: AVPlayer?
     @State private var looper: AVPlayerLooper?
-    @State private var audioSessionActive = false
 
     var body: some View {
         ZStack {
@@ -745,10 +747,6 @@ private struct GalleryVideoPlayer: View {
                 player?.pause()
                 player = nil
                 looper = nil
-                if audioSessionActive {
-                    MediaPlaybackAudioSession.deactivate()
-                    audioSessionActive = false
-                }
                 let localURL = await LocalMediaLibrary.shared.localURL(
                     for: media.mediaKey
                 )
@@ -758,38 +756,61 @@ private struct GalleryVideoPlayer: View {
 
                 let asset = AVURLAsset(url: url)
                 let item = AVPlayerItem(asset: asset)
-                let newPlayer = AVQueuePlayer()
+                let newPlayer: AVPlayer
+
+                if media.type == .animatedGIF {
+                    let gifPlayer = AVPlayer(playerItem: item)
+                    gifPlayer.actionAtItemEnd = .none
+                    gifPlayer.isMuted = true
+                    MediaPlaybackAudioSession.activate(silent: true)
+                    newPlayer = gifPlayer
+                } else {
+                    let videoPlayer = AVQueuePlayer()
+                    videoPlayer.allowsExternalPlayback = false
+                    looper = AVPlayerLooper(
+                        player: videoPlayer,
+                        templateItem: item
+                    )
+                    newPlayer = videoPlayer
+                }
+
                 newPlayer.allowsExternalPlayback = false
-                let newLooper = AVPlayerLooper(
-                    player: newPlayer,
-                    templateItem: item
-                )
-                looper = newLooper
                 player = newPlayer
                 newPlayer.play()
 
-                // Audio-track inspection can require a network round trip. Keep it
-                // off the page-switch path so the next video appears immediately.
-                let silent = await MediaPlaybackAudioSession.isSilent(
-                    media: media,
-                    asset: asset
+                if media.type == .video {
+                    // Audio-track inspection can require a network round trip.
+                    // Playback and page replacement must not wait for it.
+                    let silent = await MediaPlaybackAudioSession.isSilent(
+                        media: media,
+                        asset: asset
+                    )
+                    guard !Task.isCancelled, player === newPlayer else {
+                        return
+                    }
+                    newPlayer.isMuted = silent
+                    MediaPlaybackAudioSession.activate(silent: silent)
+                }
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: .AVPlayerItemDidPlayToEndTime
                 )
-                guard !Task.isCancelled, player === newPlayer else {
+            ) { notification in
+                guard media.type == .animatedGIF,
+                      let endedItem = notification.object as? AVPlayerItem,
+                      let currentItem = player?.currentItem,
+                      endedItem === currentItem
+                else {
                     return
                 }
-                newPlayer.isMuted = silent
-                audioSessionActive = MediaPlaybackAudioSession.activate(
-                    silent: silent
-                )
+                player?.seek(to: .zero)
+                player?.play()
             }
             .onDisappear {
                 player?.pause()
                 player = nil
                 looper = nil
-                if audioSessionActive {
-                    MediaPlaybackAudioSession.deactivate()
-                    audioSessionActive = false
-                }
             }
     }
 }
