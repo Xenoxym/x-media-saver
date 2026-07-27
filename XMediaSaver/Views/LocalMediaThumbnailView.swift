@@ -8,6 +8,7 @@ struct LocalMediaThumbnailView: View {
     var maximumPixelSize: Int = 600
     var contentMode: ContentMode = .fill
     var remoteImageName = "small"
+    var showsPlaceholder = true
     @StateObject private var loader = LocalMediaThumbnailLoader()
 
     var body: some View {
@@ -18,14 +19,22 @@ struct LocalMediaThumbnailView: View {
                         .resizable()
                         .aspectRatio(contentMode: contentMode)
                 } else if loader.failed {
-                    Color(uiColor: .tertiarySystemGroupedBackground)
-                        .overlay {
-                            Image(systemName: "photo.badge.exclamationmark")
-                                .foregroundStyle(.secondary)
-                        }
+                    if showsPlaceholder {
+                        Color(uiColor: .tertiarySystemGroupedBackground)
+                            .overlay {
+                                Image(systemName: "photo.badge.exclamationmark")
+                                    .foregroundStyle(.secondary)
+                            }
+                    } else {
+                        Color.clear
+                    }
                 } else {
-                    Color(uiColor: .tertiarySystemGroupedBackground)
-                        .overlay { ProgressView() }
+                    if showsPlaceholder {
+                        Color(uiColor: .tertiarySystemGroupedBackground)
+                            .overlay { ProgressView() }
+                    } else {
+                        Color.clear
+                    }
                 }
             }
 
@@ -59,7 +68,7 @@ struct LocalMediaThumbnailView: View {
 }
 
 @MainActor
-private final class LocalMediaThumbnailLoader: ObservableObject {
+final class LocalMediaThumbnailLoader: ObservableObject {
     @Published private(set) var image: UIImage?
     @Published private(set) var isLocal = false
     @Published private(set) var failed = false
@@ -67,7 +76,7 @@ private final class LocalMediaThumbnailLoader: ObservableObject {
     private static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 240
-        cache.totalCostLimit = 80 * 1_048_576
+        cache.totalCostLimit = 120 * 1_048_576
         return cache
     }()
 
@@ -153,6 +162,19 @@ private final class LocalMediaThumbnailLoader: ObservableObject {
         } else {
             failed = true
         }
+    }
+
+    static func preload(
+        media: BookmarkedMedia,
+        maximumPixelSize: Int,
+        remoteImageName: String
+    ) async {
+        let loader = LocalMediaThumbnailLoader()
+        await loader.load(
+            media: media,
+            maximumPixelSize: maximumPixelSize,
+            remoteImageName: remoteImageName
+        )
     }
 
     nonisolated private static func previewURL(

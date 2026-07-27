@@ -13,34 +13,40 @@ struct MediaGalleryView: View {
     @State private var dragSelects = true
     @State private var selectionBeforeDrag: Set<String> = []
     @State private var viewerSelection: GalleryViewerSelection?
+    @State private var sort = BookmarkPostSort.bookmarkNewest
+    @State private var galleryItems: [GalleryMediaItem]
+    @State private var indexByMediaKey: [String: Int]
     @StateObject private var mediaSaver = GalleryMediaSaveModel()
-    private let galleryItems: [GalleryMediaItem]
-    private let indexByMediaKey: [String: Int]
+    private let baseGalleryItems: [GalleryMediaItem]
     private static let gridCoordinateSpace = "MediaGalleryGrid"
 
     init(posts: [BookmarkedPost], mediaType: BookmarkMediaType?) {
         self.mediaType = mediaType
         var seen: Set<String> = []
-        let items: [GalleryMediaItem] = posts
-            .sorted {
-                ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast)
-            }
-            .flatMap { post -> [GalleryMediaItem] in
-                post.media.compactMap { media -> GalleryMediaItem? in
+        let items: [GalleryMediaItem] = posts.enumerated()
+            .flatMap { postOffset, post -> [GalleryMediaItem] in
+                post.media.enumerated().compactMap {
+                    mediaOffset, media -> GalleryMediaItem? in
                     guard mediaType == nil || media.type == mediaType,
                           seen.insert(media.mediaKey).inserted
                     else {
                         return nil
                     }
-                    return GalleryMediaItem(post: post, media: media)
+                    return GalleryMediaItem(
+                        post: post,
+                        media: media,
+                        postOrder: postOffset,
+                        mediaOrder: mediaOffset
+                    )
                 }
             }
-        self.galleryItems = items
-        self.indexByMediaKey = Dictionary(
+        self.baseGalleryItems = items
+        _galleryItems = State(initialValue: items)
+        _indexByMediaKey = State(initialValue: Dictionary(
             uniqueKeysWithValues: items.enumerated().map {
                 ($0.element.id, $0.offset)
             }
-        )
+        ))
     }
 
     var body: some View {
@@ -98,8 +104,20 @@ struct MediaGalleryView: View {
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: sort) { value in
+            applySort(value)
+        }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Menu {
+                    Picker("媒体排序", selection: $sort) {
+                        ForEach(BookmarkPostSort.allCases) {
+                            Text($0.title).tag($0)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
                 Text("\(galleryItems.count)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -188,6 +206,57 @@ struct MediaGalleryView: View {
     private func resetSelectionDrag() {
         dragAnchorIndex = nil
         selectionBeforeDrag.removeAll()
+    }
+
+    private func applySort(_ value: BookmarkPostSort) {
+        galleryItems = baseGalleryItems.sorted {
+            Self.isOrderedBefore($0, $1, sort: value)
+        }
+        indexByMediaKey = Dictionary(
+            uniqueKeysWithValues: galleryItems.enumerated().map {
+                ($0.element.id, $0.offset)
+            }
+        )
+        visibleLimit = 90
+        cellFrames = [:]
+        selectedMediaKeys.removeAll()
+        resetSelectionDrag()
+    }
+
+    private static func isOrderedBefore(
+        _ lhs: GalleryMediaItem,
+        _ rhs: GalleryMediaItem,
+        sort: BookmarkPostSort
+    ) -> Bool {
+        if lhs.post.id == rhs.post.id {
+            return lhs.mediaOrder < rhs.mediaOrder
+        }
+        switch sort {
+        case .bookmarkNewest:
+            return lhs.postOrder < rhs.postOrder
+        case .bookmarkOldest:
+            return lhs.postOrder > rhs.postOrder
+        case .newest:
+            return postIsNewer(lhs.post, rhs.post)
+        case .oldest:
+            return postIsNewer(rhs.post, lhs.post)
+        }
+    }
+
+    private static func postIsNewer(
+        _ lhs: BookmarkedPost,
+        _ rhs: BookmarkedPost
+    ) -> Bool {
+        switch (lhs.createdAt, rhs.createdAt) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return lhs.id > rhs.id
+        }
     }
 
     private func galleryCell(_ item: GalleryMediaItem) -> some View {
@@ -342,6 +411,8 @@ private struct GalleryViewerSelection: Identifiable {
 private struct GalleryMediaItem: Identifiable {
     let post: BookmarkedPost
     let media: BookmarkedMedia
+    let postOrder: Int
+    let mediaOrder: Int
     var id: String { media.mediaKey }
 }
 
@@ -412,6 +483,9 @@ private struct GalleryFullScreenViewer: View {
             .simultaneousGesture(navigationDragGesture)
         }
         .statusBarHidden(true)
+        .task(id: currentIndex) {
+            await preloadNearbyPhotos()
+        }
         .sheet(item: $presentedPost) { post in
             NavigationStack {
                 BookmarkPostDetailView(post: post)
@@ -465,6 +539,36 @@ private struct GalleryFullScreenViewer: View {
             currentIndex = candidate
         }
     }
+
+    private func preloadNearbyPhotos() async {
+        let candidateIndices =
+            (1...12).map { currentIndex + $0 }
+            + (1...3).map { currentIndex - $0 }
+        let media = candidateIndices.compactMap { index -> BookmarkedMedia? in
+            guard items.indices.contains(index),
+                  items[index].media.type == .photo
+            else {
+                return nil
+            }
+            return items[index].media
+        }
+
+        for start in stride(from: 0, to: media.count, by: 4) {
+            guard !Task.isCancelled else { return }
+            let end = min(start + 4, media.count)
+            await withTaskGroup(of: Void.self) { group in
+                for item in media[start..<end] {
+                    group.addTask {
+                        await LocalMediaThumbnailLoader.preload(
+                            media: item,
+                            maximumPixelSize: 1_280,
+                            remoteImageName: "orig"
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 private struct GalleryViewerMediaPage: View {
@@ -502,12 +606,22 @@ private struct ZoomableGalleryPhoto: View {
             Color.black
                 .opacity(backgroundOpacity)
 
-            LocalMediaThumbnailView(
-                media: media,
-                maximumPixelSize: 4_096,
-                contentMode: .fit,
-                remoteImageName: "orig"
-            )
+            ZStack {
+                LocalMediaThumbnailView(
+                    media: media,
+                    maximumPixelSize: 1_280,
+                    contentMode: .fit,
+                    remoteImageName: "orig"
+                )
+
+                LocalMediaThumbnailView(
+                    media: media,
+                    maximumPixelSize: 4_096,
+                    contentMode: .fit,
+                    remoteImageName: "orig",
+                    showsPlaceholder: false
+                )
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scaleEffect(scale)
             .offset(combinedOffset)

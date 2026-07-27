@@ -250,13 +250,23 @@ final class BookmarksViewModel: ObservableObject {
     private func calculateFilteredPosts(
         _ posts: [BookmarkedPost]
     ) -> [BookmarkedPost] {
-        posts
-            .filter { filter.contains($0) && matchesSearch($0) }
-            .sorted {
-                postSort == .newest
-                    ? Self.newestFirst($0, $1)
-                    : Self.newestFirst($1, $0)
+        let filtered = posts.filter {
+            filter.contains($0) && matchesSearch($0)
+        }
+        switch postSort {
+        case .bookmarkNewest:
+            return filtered
+        case .bookmarkOldest:
+            return Array(filtered.reversed())
+        case .newest:
+            return filtered.sorted {
+                Self.newestFirst($0, $1)
             }
+        case .oldest:
+            return filtered.sorted {
+                Self.newestFirst($1, $0)
+            }
+        }
     }
 
     private func calculateAccountGroups(

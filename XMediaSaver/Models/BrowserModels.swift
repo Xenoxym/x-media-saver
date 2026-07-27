@@ -154,11 +154,20 @@ enum BookmarkSearchField: String, CaseIterable, Identifiable {
 }
 
 enum BookmarkPostSort: String, CaseIterable, Identifiable {
+    case bookmarkNewest
+    case bookmarkOldest
     case newest
     case oldest
 
     var id: String { rawValue }
-    var title: String { self == .newest ? "最新优先" : "最早优先" }
+    var title: String {
+        switch self {
+        case .bookmarkNewest: return "最近加入书签"
+        case .bookmarkOldest: return "最早加入书签"
+        case .newest: return "最新发布"
+        case .oldest: return "最早发布"
+        }
+    }
 }
 
 enum BookmarkHashtagSort: String, CaseIterable, Identifiable {

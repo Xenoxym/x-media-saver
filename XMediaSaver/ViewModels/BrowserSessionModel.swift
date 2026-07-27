@@ -20,10 +20,12 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     private var postsByID: [String: BookmarkedPost] = [:]
     private var allPostsByID: [String: BookmarkedPost] = [:]
     private var postOrder: [String] = []
+    private var syncBookmarkPageOrders: [Int: [String]] = [:]
     private var autoCaptureTask: Task<Void, Never>?
     private var navigationTimeoutTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
     private var messageHandlerProxy: WeakScriptMessageHandler?
+    private var backgroundWebViewHost: UIView?
     private let persistenceStore = BookmarkPersistenceStore()
     private let sizeResolver = MediaSizeResolver()
     private let storageManager = StorageManager()
@@ -112,6 +114,11 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     }
 
     func browserDidAppear() {
+        if webView.superview === backgroundWebViewHost {
+            webView.removeFromSuperview()
+        }
+        backgroundWebViewHost?.removeFromSuperview()
+        backgroundWebViewHost = nil
         prepareBrowser()
     }
 
@@ -147,6 +154,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         postsByID = [:]
         allPostsByID = [:]
         postOrder = []
+        syncBookmarkPageOrders = [:]
         syncPageCount = 0
         syncNewPostCount = 0
         syncStatusText = nil
@@ -184,10 +192,12 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     func startAutoCapture() {
         guard !isAutoCapturing else { return }
 
+        attachWebViewForBackgroundSyncIfNeeded()
         captureError = nil
         isAutoCapturing = true
         syncPageCount = 0
         syncNewPostCount = 0
+        syncBookmarkPageOrders = [:]
         syncStatusText = "正在打开书签页面…"
         autoCaptureTask = Task { [weak self] in
             guard let self else { return }
@@ -201,20 +211,18 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 }
             }
 
-            if !isOnBookmarksPage {
-                openBookmarks()
-                for _ in 0..<80 {
-                    guard !Task.isCancelled else { return }
-                    if isOnBookmarksPage && !isLoading {
-                        break
-                    }
-                    if currentURL?.path.lowercased().contains("/login") == true
-                        || currentURL?.path.lowercased().contains("/i/flow/login") == true {
-                        captureError = "登录会话已失效，请先到“X 浏览器”重新登录。"
-                        return
-                    }
-                    try? await Task.sleep(nanoseconds: 250_000_000)
+            openBookmarks()
+            for _ in 0..<80 {
+                guard !Task.isCancelled else { return }
+                if isOnBookmarksPage && !isLoading {
+                    break
                 }
+                if currentURL?.path.lowercased().contains("/login") == true
+                    || currentURL?.path.lowercased().contains("/i/flow/login") == true {
+                    captureError = "登录会话已失效，请先到“X 浏览器”重新登录。"
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 250_000_000)
             }
 
             guard isOnBookmarksPage else {
@@ -266,6 +274,38 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         autoCaptureTask?.cancel()
         autoCaptureTask = nil
         isAutoCapturing = false
+    }
+
+    private func attachWebViewForBackgroundSyncIfNeeded() {
+        guard webView.superview == nil,
+              let window = UIApplication.shared.connectedScenes
+                .compactMap({ $0 as? UIWindowScene })
+                .flatMap({ $0.windows })
+                .first(where: \.isKeyWindow)
+        else {
+            return
+        }
+
+        let size = CGSize(
+            width: max(window.bounds.width, 390),
+            height: max(window.bounds.height, 844)
+        )
+        let host = UIView(
+            frame: CGRect(
+                x: -size.width - 20,
+                y: 0,
+                width: size.width,
+                height: size.height
+            )
+        )
+        host.isUserInteractionEnabled = false
+        host.accessibilityElementsHidden = true
+        host.clipsToBounds = true
+        webView.frame = host.bounds
+        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        host.addSubview(webView)
+        window.addSubview(host)
+        backgroundWebViewHost = host
     }
 
     func analyzeMissingMediaSizes(retryUnavailable: Bool = false) {
@@ -345,8 +385,12 @@ final class BrowserSessionModel: NSObject, ObservableObject {
 
         let isBookmarkCapture = url.contains("Bookmarks")
             || url.contains("BookmarkFolderTimeline")
+        let bookmarkSequence: Int?
         if isBookmarkCapture {
             bookmarkResponseSequence += 1
+            bookmarkSequence = bookmarkResponseSequence
+        } else {
+            bookmarkSequence = nil
         }
 
         Task {
@@ -359,7 +403,8 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 }.value
                 let newCount = merge(
                     capture.posts,
-                    isBookmarkCapture: isBookmarkCapture
+                    isBookmarkCapture: isBookmarkCapture,
+                    bookmarkSequence: bookmarkSequence
                 )
                 if isBookmarkCapture {
                     syncNewPostCount += newCount
@@ -391,9 +436,16 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     @discardableResult
     private func merge(
         _ posts: [BookmarkedPost],
-        isBookmarkCapture: Bool
+        isBookmarkCapture: Bool,
+        bookmarkSequence: Int?
     ) -> Int {
-        var newCount = 0
+        let pageIDs = posts.map(\.id)
+        var seenNewIDs: Set<String> = []
+        let newIDs = isBookmarkCapture
+            ? pageIDs.filter {
+                postsByID[$0] == nil && seenNewIDs.insert($0).inserted
+            }
+            : []
         for post in posts {
             let mergedPost = preservingLocalMetadata(
                 incoming: post,
@@ -401,18 +453,65 @@ final class BrowserSessionModel: NSObject, ObservableObject {
             )
             allPostsByID[post.id] = mergedPost
             if isBookmarkCapture {
-                if postsByID[post.id] == nil {
-                    postOrder.append(post.id)
-                    newCount += 1
-                }
                 postsByID[post.id] = mergedPost
             }
+        }
+        if isBookmarkCapture {
+            mergeBookmarkOrder(
+                pageIDs: pageIDs,
+                newIDs: newIDs,
+                bookmarkSequence: bookmarkSequence
+            )
         }
         capturedPosts = postOrder.compactMap { postsByID[$0] }
         if isBookmarkCapture {
             schedulePersistence()
         }
-        return newCount
+        return newIDs.count
+    }
+
+    private func mergeBookmarkOrder(
+        pageIDs: [String],
+        newIDs: [String],
+        bookmarkSequence: Int?
+    ) {
+        let uniqueNewIDs = newIDs.reduce(into: [String]()) {
+            if !$0.contains($1) && !postOrder.contains($1) {
+                $0.append($1)
+            }
+        }
+
+        if isAutoCapturing, let bookmarkSequence {
+            syncBookmarkPageOrders[bookmarkSequence] = pageIDs
+            var observed: [String] = []
+            var observedSet: Set<String> = []
+            for sequence in syncBookmarkPageOrders.keys.sorted() {
+                for id in syncBookmarkPageOrders[sequence] ?? []
+                    where observedSet.insert(id).inserted {
+                    observed.append(id)
+                }
+            }
+            postOrder = observed + postOrder.filter {
+                !observedSet.contains($0)
+            }
+            return
+        }
+
+        guard !uniqueNewIDs.isEmpty else { return }
+        if isAutoCapturing || postOrder.isEmpty {
+            postOrder.append(contentsOf: uniqueNewIDs)
+            return
+        }
+
+        let newIDSet = Set(uniqueNewIDs)
+        if let anchorID = pageIDs.first(where: {
+            !newIDSet.contains($0) && postOrder.contains($0)
+        }),
+           let anchorIndex = postOrder.firstIndex(of: anchorID) {
+            postOrder.insert(contentsOf: uniqueNewIDs, at: anchorIndex)
+        } else {
+            postOrder.insert(contentsOf: uniqueNewIDs, at: 0)
+        }
     }
 
     private func restore(_ posts: [BookmarkedPost]) {

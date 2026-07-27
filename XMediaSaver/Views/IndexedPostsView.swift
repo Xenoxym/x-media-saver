@@ -3,7 +3,7 @@ import SwiftUI
 struct IndexedPostsView: View {
     @ObservedObject var session: BrowserSessionModel
     @State private var searchText = ""
-    @State private var sort = BookmarkPostSort.newest
+    @State private var sort = BookmarkPostSort.bookmarkNewest
     @State private var visibleLimit = 100
     @AppStorage("bookmarkPostPreviewMode")
     private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
@@ -16,13 +16,23 @@ struct IndexedPostsView: View {
         let query = searchText.trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        return session.capturedPosts
-            .filter { matches($0, query: query) }
-            .sorted {
-                sort == .newest
-                    ? Self.newestFirst($0, $1)
-                    : Self.newestFirst($1, $0)
+        let filtered = session.capturedPosts.filter {
+            matches($0, query: query)
+        }
+        switch sort {
+        case .bookmarkNewest:
+            return filtered
+        case .bookmarkOldest:
+            return Array(filtered.reversed())
+        case .newest:
+            return filtered.sorted {
+                Self.newestFirst($0, $1)
             }
+        case .oldest:
+            return filtered.sorted {
+                Self.newestFirst($1, $0)
+            }
+        }
     }
 
     var body: some View {
