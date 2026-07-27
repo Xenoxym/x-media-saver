@@ -444,24 +444,28 @@ private struct FullScreenVideoPlayer: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
+        ZStack {
             Color.black
                 .ignoresSafeArea()
 
             VideoPlayer(player: player)
                 .ignoresSafeArea()
 
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
-                    .padding(12)
-                    .background(.black.opacity(0.6), in: Circle())
+            VStack {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(12)
+                        .background(.black.opacity(0.6), in: Circle())
+                }
+                .padding(.top, 8)
+                .accessibilityLabel("退出全屏")
+
+                Spacer()
             }
-            .padding()
-            .accessibilityLabel("退出全屏")
         }
         .onAppear {
             player?.play()

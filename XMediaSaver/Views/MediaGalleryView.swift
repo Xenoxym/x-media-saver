@@ -560,64 +560,9 @@ private struct GalleryFullScreenViewer: View {
         )
         await preloadCovers(
             media.filter { $0.type != .photo },
-            maximumPixelSize: 640,
-            batchSize: 2
+            maximumPixelSize: 1_280,
+            batchSize: 1
         )
-
-        let nearbyIndices = [
-            currentIndex + 1,
-            currentIndex - 1,
-            currentIndex + 2,
-            currentIndex + 3
-        ]
-        let nearbyVideoMedia = nearbyIndices.compactMap {
-            index -> BookmarkedMedia? in
-            guard items.indices.contains(index),
-                  items[index].media.type != .photo
-            else {
-                return nil
-            }
-            return items[index].media
-        }
-        let retainedIndices = [
-            currentIndex,
-            currentIndex - 1,
-            currentIndex + 1,
-            currentIndex + 2,
-            currentIndex + 3
-        ]
-        let retainedMedia = retainedIndices.compactMap {
-            index -> BookmarkedMedia? in
-            guard items.indices.contains(index),
-                  items[index].media.type != .photo
-            else {
-                return nil
-            }
-            return items[index].media
-        }
-        await GalleryMediaFilePreloadCache.shared.updateWindow(
-            candidates: nearbyVideoMedia,
-            retained: retainedMedia
-        )
-
-        let largeFileLimit: Int64 = 5 * 1_048_576
-        var nextLargeMedia: BookmarkedMedia?
-        for index in (1...3).map({ currentIndex + $0 }) {
-            guard items.indices.contains(index) else { continue }
-            let candidate = items[index].media
-            guard candidate.type != .photo,
-                  candidate.byteSize == nil
-                    || candidate.byteSize! > largeFileLimit,
-                  await LocalMediaLibrary.shared.localURL(
-                    for: candidate.mediaKey
-                  ) == nil
-            else {
-                continue
-            }
-            nextLargeMedia = candidate
-            break
-        }
-        await GalleryVideoPrewarmStore.shared.update(media: nextLargeMedia)
     }
 
     private func preloadCovers(
@@ -625,6 +570,18 @@ private struct GalleryFullScreenViewer: View {
         maximumPixelSize: Int,
         batchSize: Int
     ) async {
+        if batchSize == 1 {
+            for item in media {
+                guard !Task.isCancelled else { return }
+                await LocalMediaThumbnailLoader.preload(
+                    media: item,
+                    maximumPixelSize: maximumPixelSize,
+                    remoteImageName: "orig"
+                )
+            }
+            return
+        }
+
         for start in stride(from: 0, to: media.count, by: batchSize) {
             guard !Task.isCancelled else { return }
             let end = min(start + batchSize, media.count)
@@ -789,7 +746,8 @@ private struct ZoomableGalleryPhoto: View {
 
 private struct GalleryVideoPlayer: View {
     let media: BookmarkedMedia
-    @State private var player: AVPlayer?
+    @State private var player: AVQueuePlayer?
+    @State private var looper: AVPlayerLooper?
     @State private var audioSessionActive = false
 
     var body: some View {
@@ -798,7 +756,7 @@ private struct GalleryVideoPlayer: View {
 
             LocalMediaThumbnailView(
                 media: media,
-                maximumPixelSize: 640,
+                maximumPixelSize: 1_280,
                 contentMode: .fit,
                 remoteImageName: "orig",
                 showsPlaceholder: false
@@ -815,23 +773,16 @@ private struct GalleryVideoPlayer: View {
                 let localURL = await LocalMediaLibrary.shared.localURL(
                     for: media.mediaKey
                 )
-                let cachedURL = await GalleryMediaFilePreloadCache.shared
-                    .cachedURL(for: media.mediaKey)
-                guard let url = localURL
-                    ?? cachedURL
-                    ?? media.bestMP4Variant?.url
-                else {
+                guard let url = localURL ?? media.bestMP4Variant?.url else {
                     return
                 }
 
-                let preparedPlayer: AVPlayer?
-                if localURL == nil, cachedURL == nil {
-                    preparedPlayer = await GalleryVideoPrewarmStore.shared
-                        .claim(mediaKey: media.mediaKey)
-                } else {
-                    preparedPlayer = nil
-                }
-                let newPlayer = preparedPlayer ?? AVPlayer(url: url)
+                let item = AVPlayerItem(url: url)
+                let newPlayer = AVQueuePlayer()
+                let newLooper = AVPlayerLooper(
+                    player: newPlayer,
+                    templateItem: item
+                )
                 let silent = await MediaPlaybackAudioSession.isSilent(
                     media: media,
                     url: url
@@ -840,257 +791,23 @@ private struct GalleryVideoPlayer: View {
                 audioSessionActive = MediaPlaybackAudioSession.activate(
                     silent: silent
                 )
-                await Self.preroll(newPlayer)
                 guard !Task.isCancelled else {
                     newPlayer.pause()
                     return
                 }
+                looper = newLooper
                 player = newPlayer
                 newPlayer.play()
             }
-            .onReceive(
-                NotificationCenter.default.publisher(
-                    for: .AVPlayerItemDidPlayToEndTime
-                )
-            ) { notification in
-                guard let endedItem = notification.object as? AVPlayerItem,
-                      let currentItem = player?.currentItem,
-                      endedItem === currentItem
-                else {
-                    return
-                }
-                player?.seek(to: .zero)
-                player?.play()
-            }
             .onDisappear {
                 player?.pause()
+                looper?.disableLooping()
+                looper = nil
                 if audioSessionActive {
                     MediaPlaybackAudioSession.deactivate()
                     audioSessionActive = false
                 }
             }
-    }
-
-    private static func preroll(_ player: AVPlayer) async {
-        await withCheckedContinuation {
-            (continuation: CheckedContinuation<Void, Never>) in
-            player.preroll(atRate: 1) { _ in
-                continuation.resume()
-            }
-        }
-    }
-}
-
-private actor GalleryMediaFilePreloadCache {
-    static let shared = GalleryMediaFilePreloadCache()
-
-    private struct CachedFile {
-        let url: URL
-        let byteSize: Int64
-    }
-
-    private static let individualLimit: Int64 = 5 * 1_048_576
-    private static let totalLimit: Int64 = 20 * 1_048_576
-    private let directory: URL
-    private let session: URLSession
-    private var files: [String: CachedFile] = [:]
-    private var downloads: [String: Task<CachedFile?, Never>] = [:]
-    private var downloadSizes: [String: Int64] = [:]
-    private var retainedKeys: Set<String> = []
-
-    init() {
-        directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent(
-                "XMediaSaver-GalleryPreload",
-                isDirectory: true
-            )
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.urlCache = nil
-        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 120
-        session = URLSession(configuration: configuration)
-
-        try? FileManager.default.removeItem(at: directory)
-        try? FileManager.default.createDirectory(
-            at: directory,
-            withIntermediateDirectories: true
-        )
-    }
-
-    func updateWindow(
-        candidates: [BookmarkedMedia],
-        retained: [BookmarkedMedia]
-    ) {
-        retainedKeys = Set(retained.map(\.mediaKey))
-
-        let expiredFileKeys = files.keys.filter {
-            !retainedKeys.contains($0)
-        }
-        for key in expiredFileKeys {
-            if let file = files[key] {
-                try? FileManager.default.removeItem(at: file.url)
-            }
-            files[key] = nil
-        }
-        let expiredDownloadKeys = downloads.keys.filter {
-            !retainedKeys.contains($0)
-        }
-        for key in expiredDownloadKeys {
-            downloads[key]?.cancel()
-            downloads[key] = nil
-            downloadSizes[key] = nil
-        }
-
-        var reservedBytes = files.values.reduce(Int64(0)) {
-            $0 + $1.byteSize
-        }
-        reservedBytes += downloadSizes.values.reduce(0, +)
-
-        for media in candidates {
-            guard retainedKeys.contains(media.mediaKey),
-                  files[media.mediaKey] == nil,
-                  downloads[media.mediaKey] == nil,
-                  let byteSize = media.byteSize,
-                  byteSize > 0,
-                  byteSize <= Self.individualLimit,
-                  reservedBytes + byteSize <= Self.totalLimit,
-                  let url = media.bestMP4Variant?.url
-            else {
-                continue
-            }
-            reservedBytes += byteSize
-            startDownload(
-                mediaKey: media.mediaKey,
-                expectedByteSize: byteSize,
-                url: url
-            )
-        }
-    }
-
-    func cachedURL(for mediaKey: String) async -> URL? {
-        if let file = files[mediaKey],
-           FileManager.default.fileExists(atPath: file.url.path) {
-            return file.url
-        }
-        guard let task = downloads[mediaKey] else { return nil }
-        return await task.value?.url
-    }
-
-    private func startDownload(
-        mediaKey: String,
-        expectedByteSize: Int64,
-        url: URL
-    ) {
-        guard url.scheme?.lowercased() == "https",
-              let host = url.host?.lowercased(),
-              host == "video.twimg.com" || host.hasSuffix(".twimg.com")
-        else {
-            return
-        }
-
-        let session = session
-        let directory = directory
-        let task = Task.detached(priority: .utility) {
-            () -> CachedFile? in
-            do {
-                let (temporaryURL, response) = try await session.download(
-                    from: url
-                )
-                guard !Task.isCancelled,
-                      let response = response as? HTTPURLResponse,
-                      (200...299).contains(response.statusCode)
-                else {
-                    return nil
-                }
-                let attributes = try FileManager.default.attributesOfItem(
-                    atPath: temporaryURL.path
-                )
-                let actualSize =
-                    (attributes[.size] as? NSNumber)?.int64Value
-                    ?? expectedByteSize
-                guard actualSize > 0,
-                      actualSize <= GalleryMediaFilePreloadCache
-                        .individualLimit
-                else {
-                    return nil
-                }
-                try? FileManager.default.createDirectory(
-                    at: directory,
-                    withIntermediateDirectories: true
-                )
-                let destination = directory
-                    .appendingPathComponent(UUID().uuidString)
-                    .appendingPathExtension("mp4")
-                try FileManager.default.moveItem(
-                    at: temporaryURL,
-                    to: destination
-                )
-                return CachedFile(url: destination, byteSize: actualSize)
-            } catch {
-                return nil
-            }
-        }
-        downloads[mediaKey] = task
-        downloadSizes[mediaKey] = expectedByteSize
-
-        Task { [weak self] in
-            let result = await task.value
-            await self?.finishDownload(
-                mediaKey: mediaKey,
-                result: result
-            )
-        }
-    }
-
-    private func finishDownload(
-        mediaKey: String,
-        result: CachedFile?
-    ) {
-        downloads[mediaKey] = nil
-        downloadSizes[mediaKey] = nil
-        guard let result else { return }
-        guard retainedKeys.contains(mediaKey) else {
-            try? FileManager.default.removeItem(at: result.url)
-            return
-        }
-        files[mediaKey] = result
-    }
-}
-
-@MainActor
-private final class GalleryVideoPrewarmStore {
-    static let shared = GalleryVideoPrewarmStore()
-
-    private var players: [String: AVPlayer] = [:]
-
-    func update(media: BookmarkedMedia?) {
-        let retainedKey = media?.mediaKey
-        let expiredKeys = players.keys.filter { $0 != retainedKey }
-        for key in expiredKeys {
-            players[key]?.cancelPendingPrerolls()
-            players[key]?.pause()
-            players[key] = nil
-        }
-
-        guard let media,
-              players[media.mediaKey] == nil,
-              let url = media.bestMP4Variant?.url
-        else {
-            return
-        }
-        let item = AVPlayerItem(url: url)
-        item.preferredForwardBufferDuration = 2
-        let player = AVPlayer(playerItem: item)
-        player.isMuted = true
-        players[media.mediaKey] = player
-        player.preroll(atRate: 1) { _ in }
-    }
-
-    func claim(mediaKey: String) -> AVPlayer? {
-        let player = players.removeValue(forKey: mediaKey)
-        player?.cancelPendingPrerolls()
-        return player
     }
 }
 
