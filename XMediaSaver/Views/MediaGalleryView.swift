@@ -437,8 +437,6 @@ private struct GalleryFullScreenViewer: View {
             move(by: -1)
         } else if location.x > width * 2 / 3 {
             move(by: 1)
-        } else {
-            dismiss()
         }
     }
 
@@ -452,6 +450,9 @@ private struct GalleryFullScreenViewer: View {
                     move(by: horizontal < 0 ? 1 : -1)
                 } else if vertical < -80, let currentItem {
                     presentedPost = currentItem.post
+                } else if vertical > 80,
+                          currentItem?.media.type != .photo {
+                    dismiss()
                 }
             }
     }
@@ -601,7 +602,8 @@ private struct ZoomableGalleryPhoto: View {
 
 private struct GalleryVideoPlayer: View {
     let media: BookmarkedMedia
-    @State private var player: AVPlayer?
+    @State private var player: AVQueuePlayer?
+    @State private var looper: AVPlayerLooper?
 
     var body: some View {
         VideoPlayer(player: player)
@@ -612,7 +614,12 @@ private struct GalleryVideoPlayer: View {
                     for: media.mediaKey
                 )
                 if let url = localURL ?? media.bestMP4Variant?.url {
-                    let newPlayer = AVPlayer(url: url)
+                    let item = AVPlayerItem(url: url)
+                    let newPlayer = AVQueuePlayer()
+                    looper = AVPlayerLooper(
+                        player: newPlayer,
+                        templateItem: item
+                    )
                     player = newPlayer
                     newPlayer.play()
                 }
