@@ -553,22 +553,16 @@ private struct GalleryFullScreenViewer: View {
         let media = candidateIndices.compactMap { index in
             items.indices.contains(index) ? items[index].media : nil
         }
-
-        for start in stride(from: 0, to: media.count, by: 4) {
-            guard !Task.isCancelled else { return }
-            let end = min(start + 4, media.count)
-            await withTaskGroup(of: Void.self) { group in
-                for item in media[start..<end] {
-                    group.addTask {
-                        await LocalMediaThumbnailLoader.preload(
-                            media: item,
-                            maximumPixelSize: 1_280,
-                            remoteImageName: "orig"
-                        )
-                    }
-                }
-            }
-        }
+        await preloadCovers(
+            media.filter { $0.type == .photo },
+            maximumPixelSize: 1_280,
+            batchSize: 4
+        )
+        await preloadCovers(
+            media.filter { $0.type != .photo },
+            maximumPixelSize: 640,
+            batchSize: 2
+        )
 
         let nearbyIndices = [
             currentIndex + 1,
@@ -624,6 +618,28 @@ private struct GalleryFullScreenViewer: View {
             break
         }
         await GalleryVideoPrewarmStore.shared.update(media: nextLargeMedia)
+    }
+
+    private func preloadCovers(
+        _ media: [BookmarkedMedia],
+        maximumPixelSize: Int,
+        batchSize: Int
+    ) async {
+        for start in stride(from: 0, to: media.count, by: batchSize) {
+            guard !Task.isCancelled else { return }
+            let end = min(start + batchSize, media.count)
+            await withTaskGroup(of: Void.self) { group in
+                for item in media[start..<end] {
+                    group.addTask {
+                        await LocalMediaThumbnailLoader.preload(
+                            media: item,
+                            maximumPixelSize: maximumPixelSize,
+                            remoteImageName: "orig"
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -782,7 +798,7 @@ private struct GalleryVideoPlayer: View {
 
             LocalMediaThumbnailView(
                 media: media,
-                maximumPixelSize: 1_280,
+                maximumPixelSize: 640,
                 contentMode: .fit,
                 remoteImageName: "orig",
                 showsPlaceholder: false

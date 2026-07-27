@@ -444,7 +444,7 @@ private struct FullScreenVideoPlayer: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .topLeading) {
             Color.black
                 .ignoresSafeArea()
 
