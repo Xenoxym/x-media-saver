@@ -115,6 +115,7 @@ struct BookmarkedPost: Identifiable, Codable, Equatable, Hashable {
 }
 
 enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
+    case posts
     case accounts
     case hashtags
 
@@ -122,6 +123,7 @@ enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .posts: return "帖子"
         case .accounts: return "账号"
         case .hashtags: return "标签"
         }
@@ -169,83 +171,69 @@ enum BookmarkHashtagSort: String, CaseIterable, Identifiable {
     }
 }
 
-enum MediaDurationRange: String, CaseIterable, Identifiable {
-    case all
-    case underOneMinute
-    case oneToTenMinutes
-    case tenToThirtyMinutes
-    case thirtyToSixtyMinutes
-    case overOneHour
-    case unknown
+enum MediaDurationLimit: Int, CaseIterable, Identifiable {
+    case zero
+    case oneMinute
+    case tenMinutes
+    case thirtyMinutes
+    case oneHour
+    case unlimited
 
-    var id: String { rawValue }
+    var id: Int { rawValue }
 
     var title: String {
         switch self {
-        case .all: return "不限时长"
-        case .underOneMinute: return "1 分钟以内"
-        case .oneToTenMinutes: return "1–10 分钟"
-        case .tenToThirtyMinutes: return "10–30 分钟"
-        case .thirtyToSixtyMinutes: return "30–60 分钟"
-        case .overOneHour: return "1 小时以上"
-        case .unknown: return "时长未知"
+        case .zero: return "0"
+        case .oneMinute: return "1 分钟"
+        case .tenMinutes: return "10 分钟"
+        case .thirtyMinutes: return "30 分钟"
+        case .oneHour: return "1 小时"
+        case .unlimited: return "不限制"
         }
     }
 
-    func contains(milliseconds: Int?) -> Bool {
-        guard self != .all else { return true }
-        guard let milliseconds else { return self == .unknown }
-        let minute = 60_000
+    var milliseconds: Int? {
         switch self {
-        case .all, .unknown: return false
-        case .underOneMinute: return milliseconds < minute
-        case .oneToTenMinutes:
-            return milliseconds >= minute && milliseconds < 10 * minute
-        case .tenToThirtyMinutes:
-            return milliseconds >= 10 * minute && milliseconds < 30 * minute
-        case .thirtyToSixtyMinutes:
-            return milliseconds >= 30 * minute && milliseconds < 60 * minute
-        case .overOneHour: return milliseconds >= 60 * minute
+        case .zero: return 0
+        case .oneMinute: return 60_000
+        case .tenMinutes: return 10 * 60_000
+        case .thirtyMinutes: return 30 * 60_000
+        case .oneHour: return 60 * 60_000
+        case .unlimited: return nil
         }
     }
 }
 
-enum MediaSizeRange: String, CaseIterable, Identifiable {
-    case all
-    case underTenMB
-    case tenToFiftyMB
-    case fiftyToTwoHundredMB
-    case twoHundredToFiveHundredMB
-    case overFiveHundredMB
-    case unknown
+enum MediaSizeLimit: Int, CaseIterable, Identifiable {
+    case zero
+    case tenMB
+    case fiftyMB
+    case twoHundredMB
+    case fiveHundredMB
+    case unlimited
 
-    var id: String { rawValue }
+    var id: Int { rawValue }
 
     var title: String {
         switch self {
-        case .all: return "不限大小"
-        case .underTenMB: return "10 MB 以下"
-        case .tenToFiftyMB: return "10–50 MB"
-        case .fiftyToTwoHundredMB: return "50–200 MB"
-        case .twoHundredToFiveHundredMB: return "200–500 MB"
-        case .overFiveHundredMB: return "500 MB 以上"
-        case .unknown: return "大小未知"
+        case .zero: return "0"
+        case .tenMB: return "10 MB"
+        case .fiftyMB: return "50 MB"
+        case .twoHundredMB: return "200 MB"
+        case .fiveHundredMB: return "500 MB"
+        case .unlimited: return "不限制"
         }
     }
 
-    func contains(bytes: Int64?) -> Bool {
-        guard self != .all else { return true }
-        guard let bytes else { return self == .unknown }
+    var bytes: Int64? {
         let mb: Int64 = 1_048_576
         switch self {
-        case .all, .unknown: return false
-        case .underTenMB: return bytes < 10 * mb
-        case .tenToFiftyMB: return bytes >= 10 * mb && bytes < 50 * mb
-        case .fiftyToTwoHundredMB:
-            return bytes >= 50 * mb && bytes < 200 * mb
-        case .twoHundredToFiveHundredMB:
-            return bytes >= 200 * mb && bytes < 500 * mb
-        case .overFiveHundredMB: return bytes >= 500 * mb
+        case .zero: return 0
+        case .tenMB: return 10 * mb
+        case .fiftyMB: return 50 * mb
+        case .twoHundredMB: return 200 * mb
+        case .fiveHundredMB: return 500 * mb
+        case .unlimited: return nil
         }
     }
 }
@@ -297,8 +285,10 @@ struct BookmarkFilter: Equatable {
     ) ?? Date()
     var useEndDate = false
     var endDate = Date()
-    var durationRange = MediaDurationRange.all
-    var sizeRange = MediaSizeRange.all
+    var minimumDuration = MediaDurationLimit.zero
+    var maximumDuration = MediaDurationLimit.unlimited
+    var minimumSize = MediaSizeLimit.zero
+    var maximumSize = MediaSizeLimit.unlimited
 
     var selectedTypes: Set<BookmarkMediaType> {
         var result: Set<BookmarkMediaType> = []
@@ -328,7 +318,7 @@ struct BookmarkFilter: Equatable {
                 return false
             }
         }
-        guard sizeRange.contains(bytes: post.totalKnownByteSize) else {
+        guard matchesSize(post.totalKnownByteSize) else {
             return false
         }
         return !media(in: post, checksPostRange: false).isEmpty
@@ -343,18 +333,45 @@ struct BookmarkFilter: Equatable {
         in post: BookmarkedPost,
         checksPostRange: Bool
     ) -> [BookmarkedMedia] {
-        if checksPostRange && !sizeRange.contains(bytes: post.totalKnownByteSize) {
+        if checksPostRange && !matchesSize(post.totalKnownByteSize) {
             return []
         }
         return post.media.filter { media in
             guard selectedTypes.contains(media.type) else { return false }
             if media.type == .video || media.type == .animatedGIF {
-                return durationRange.contains(
-                    milliseconds: media.durationMilliseconds
-                )
+                return matchesDuration(media.durationMilliseconds)
             }
-            return durationRange == .all
+            return true
         }
+    }
+
+    private func matchesDuration(_ milliseconds: Int?) -> Bool {
+        guard let milliseconds else {
+            return minimumDuration == .zero
+                && maximumDuration == .unlimited
+        }
+        guard let minimum = minimumDuration.milliseconds,
+              milliseconds >= minimum
+        else {
+            return false
+        }
+        guard let maximum = maximumDuration.milliseconds else {
+            return true
+        }
+        return milliseconds < maximum
+    }
+
+    private func matchesSize(_ bytes: Int64?) -> Bool {
+        guard let bytes else {
+            return minimumSize == .zero && maximumSize == .unlimited
+        }
+        guard let minimum = minimumSize.bytes, bytes >= minimum else {
+            return false
+        }
+        guard let maximum = maximumSize.bytes else {
+            return true
+        }
+        return bytes < maximum
     }
 }
 

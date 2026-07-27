@@ -12,12 +12,12 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 - **In-app X browser:** Sign in on the real X website inside a persistent `WKWebView`.
 - **Fast incremental bookmark sync:** Bookmark scrolling starts only after the user taps **Sync bookmarks** in X Browser. The approximately one-second scroll loop observes every bookmark response; existing post IDs are updated in place, new IDs are appended, and locally indexed posts are not deleted merely because they disappeared from X.
 - **Local post index:** Each captured post, its author/text/date, and its media metadata are stored on-device and restored after relaunch. Media files are downloaded only when Save is used.
-- **Browse and search:** Group by account or hashtag; search handle, display name, numeric user ID, post text, or hashtag; sort account groups by size or name.
+- **Browse and search:** Browse the current filtered posts directly or group them by account or hashtag; search handle, display name, numeric user ID, post text, or hashtag.
 - **Native post preview and saving:** Open a captured post to read its full text, preview original photos or highest-quality MP4 media, and save that post's deduplicated media directly to Photos.
 - **Indexed-post timeline:** The Indexed Posts statistic opens a live, X-like stream of every locally indexed post. It defaults to media, supports newest/oldest sorting and search, and offers a remembered text-only mode.
 - **Media galleries:** The All media, Photos, Animated GIFs, and Videos counters open three-column lazy galleries.
 - **Local-first playback:** Preview lookup uses `media_key` to open an existing Files-library item first and falls back to the unchanged X CDN URL only when no local file exists.
-- **Duration and size filters:** Filter video/GIF duration with presets and filter the aggregate media size of a post after its CDN size has been resolved.
+- **Duration and size range sliders:** Choose discrete minimum and maximum bounds for video/GIF duration and aggregate Post media size. The rightmost maximum step means unlimited.
 - **Batch storage estimates:** Sum the deduplicated known bytes for the current filter, report unknown-size items, and show separate estimated additions for Photos history and the app-owned Files Library.
 - **Streaming Files export:** Save one media item at a time into a visible `Images / Animated GIFs / Videos` folder tree and write a line-oriented `posts.jsonl` manifest. No ZIP or whole-batch memory buffer is used.
 - **Persistent duplicate protection:** Successful Photos saves and Files exports keep separate on-device `media_key` ledgers and skip completed media by default.

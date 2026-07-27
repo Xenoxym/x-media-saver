@@ -2,10 +2,10 @@ import XCTest
 @testable import XMediaSaver
 
 final class BookmarkModelsTests: XCTestCase {
-    func testBrowseModesKeepOnlyAccountAndHashtagAggregation() {
+    func testBrowseModesIncludeFilteredPostsAndAggregations() {
         XCTAssertEqual(
             BookmarkBrowseMode.allCases.map(\.rawValue),
-            ["accounts", "hashtags"]
+            ["posts", "accounts", "hashtags"]
         )
     }
 
@@ -143,11 +143,43 @@ final class BookmarkModelsTests: XCTestCase {
         var filter = BookmarkFilter()
         filter.includePhotos = false
         filter.includeGIFs = false
-        filter.durationRange = .tenToThirtyMinutes
-        filter.sizeRange = .fiftyToTwoHundredMB
+        filter.minimumDuration = .tenMinutes
+        filter.maximumDuration = .thirtyMinutes
+        filter.minimumSize = .fiftyMB
+        filter.maximumSize = .twoHundredMB
 
         XCTAssertTrue(filter.contains(post))
-        filter.durationRange = .underOneMinute
+        filter.minimumDuration = .zero
+        filter.maximumDuration = .oneMinute
+        XCTAssertFalse(filter.contains(post))
+    }
+
+    func testConstrainedRangesExcludeUnknownMetadata() {
+        let unknownVideo = BookmarkedMedia(
+            mediaKey: "unknown",
+            type: .video,
+            url: nil,
+            previewImageURL: nil,
+            variants: [],
+            width: nil,
+            height: nil,
+            durationMilliseconds: nil
+        )
+        let post = BookmarkedPost(
+            id: "unknown",
+            text: "",
+            createdAt: Date(),
+            authorID: nil,
+            authorName: nil,
+            authorUsername: nil,
+            media: [unknownVideo]
+        )
+        var filter = BookmarkFilter()
+        filter.includePhotos = false
+        filter.includeGIFs = false
+
+        XCTAssertTrue(filter.contains(post))
+        filter.minimumDuration = .oneMinute
         XCTAssertFalse(filter.contains(post))
     }
 

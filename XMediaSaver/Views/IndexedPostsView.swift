@@ -49,6 +49,7 @@ struct IndexedPostsView: View {
                             showsAuthor: true,
                             previewMode: previewMode
                         )
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal)
                         .padding(.vertical, 10)
                         .contentShape(Rectangle())
@@ -148,23 +149,31 @@ struct BookmarkPostRowView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 if showsAuthor {
-                    HStack(spacing: 5) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(post.authorName ?? "未知作者")
                             .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         if let username = post.authorUsername {
                             Text("@\(username)")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
                         }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                Spacer()
+                if !showsAuthor {
+                    Spacer(minLength: 0)
+                }
                 if let date = post.createdAt {
                     Text(date, style: .date)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 Image(systemName: "chevron.right")
                     .font(.caption2)
@@ -176,6 +185,7 @@ struct BookmarkPostRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(previewMode == .media ? nil : 3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if previewMode == .media, !post.media.isEmpty {
@@ -199,16 +209,23 @@ struct BookmarkPostRowView: View {
             .font(.caption)
             .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
     private func postMediaGrid(_ media: [BookmarkedMedia]) -> some View {
         if media.count == 1, let item = media.first {
-            LocalMediaThumbnailView(
-                media: item,
-                maximumPixelSize: 900
-            )
-            .frame(maxWidth: .infinity)
+            GeometryReader { geometry in
+                LocalMediaThumbnailView(
+                    media: item,
+                    maximumPixelSize: 900
+                )
+                .frame(
+                    width: geometry.size.width,
+                    height: geometry.size.height
+                )
+                .clipped()
+            }
             .frame(height: 260)
             .clipShape(RoundedRectangle(cornerRadius: 12))
         } else {

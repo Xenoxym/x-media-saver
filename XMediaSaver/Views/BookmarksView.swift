@@ -9,6 +9,7 @@ struct BookmarksView: View {
     @State private var expandedAccounts: Set<String> = []
     @State private var expandedHashtags: Set<String> = []
     @State private var groupLimits: [String: Int] = [:]
+    @State private var postLimit = 100
     @State private var showsStorage = false
     @State private var choosesExportFolder = false
     @AppStorage("bookmarkPostPreviewMode")
@@ -296,15 +297,44 @@ struct BookmarksView: View {
 
             Divider()
 
-            Picker("视频/动图时长", selection: $viewModel.filter.durationRange) {
-                ForEach(MediaDurationRange.allCases) {
-                    Text($0.title).tag($0)
-                }
+            VStack(alignment: .leading, spacing: 10) {
+                Text("视频/动图时长")
+                    .font(.subheadline.weight(.semibold))
+                steppedSlider(
+                    title: "最短",
+                    selectedTitle: viewModel.filter.minimumDuration.title,
+                    value: minimumDurationBinding,
+                    range: 0...4,
+                    labels: ["0", "1m", "10m", "30m", "1h"]
+                )
+                steppedSlider(
+                    title: "最长",
+                    selectedTitle: viewModel.filter.maximumDuration.title,
+                    value: maximumDurationBinding,
+                    range: 1...5,
+                    labels: ["1m", "10m", "30m", "1h", "不限"]
+                )
             }
-            Picker("Post 媒体总大小", selection: $viewModel.filter.sizeRange) {
-                ForEach(MediaSizeRange.allCases) {
-                    Text($0.title).tag($0)
-                }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Post 媒体总大小")
+                    .font(.subheadline.weight(.semibold))
+                steppedSlider(
+                    title: "最小",
+                    selectedTitle: viewModel.filter.minimumSize.title,
+                    value: minimumSizeBinding,
+                    range: 0...4,
+                    labels: ["0", "10M", "50M", "200M", "500M"]
+                )
+                steppedSlider(
+                    title: "最大",
+                    selectedTitle: viewModel.filter.maximumSize.title,
+                    value: maximumSizeBinding,
+                    range: 1...5,
+                    labels: ["10M", "50M", "200M", "500M", "不限"]
+                )
             }
 
             Toggle("设置起始日期", isOn: $viewModel.filter.useStartDate)
@@ -323,11 +353,114 @@ struct BookmarksView: View {
                     displayedComponents: .date
                 )
             }
-            Text("日期按 Post 发布时间；媒体大小是该 Post 内全部媒体的合计。")
+            Text("滑杆按档位选择包含下限和不包含上限；右端“不限”表示不设置上限。日期按 Post 发布时间，媒体大小是该 Post 内全部媒体的合计；设置范围后，大小或时长未知的项目不会匹配。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .saverCard()
+    }
+
+    private func steppedSlider(
+        title: String,
+        selectedTitle: String,
+        value: Binding<Double>,
+        range: ClosedRange<Double>,
+        labels: [String]
+    ) -> some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(selectedTitle)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .font(.caption)
+
+            Slider(value: value, in: range, step: 1)
+
+            HStack(spacing: 0) {
+                ForEach(Array(labels.enumerated()), id: \.offset) { _, label in
+                    Text(label)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .minimumScaleFactor(0.7)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    private var minimumDurationBinding: Binding<Double> {
+        Binding(
+            get: { Double(viewModel.filter.minimumDuration.rawValue) },
+            set: { value in
+                let rawValue = Int(value.rounded())
+                guard let limit = MediaDurationLimit(rawValue: rawValue) else {
+                    return
+                }
+                viewModel.filter.minimumDuration = limit
+                let maximum = viewModel.filter.maximumDuration
+                if maximum != .unlimited,
+                   maximum.rawValue <= rawValue,
+                   let adjusted = MediaDurationLimit(rawValue: rawValue + 1) {
+                    viewModel.filter.maximumDuration = adjusted
+                }
+            }
+        )
+    }
+
+    private var maximumDurationBinding: Binding<Double> {
+        Binding(
+            get: { Double(viewModel.filter.maximumDuration.rawValue) },
+            set: { value in
+                let rawValue = Int(value.rounded())
+                guard let limit = MediaDurationLimit(rawValue: rawValue) else {
+                    return
+                }
+                viewModel.filter.maximumDuration = limit
+                if rawValue <= viewModel.filter.minimumDuration.rawValue,
+                   let adjusted = MediaDurationLimit(rawValue: rawValue - 1) {
+                    viewModel.filter.minimumDuration = adjusted
+                }
+            }
+        )
+    }
+
+    private var minimumSizeBinding: Binding<Double> {
+        Binding(
+            get: { Double(viewModel.filter.minimumSize.rawValue) },
+            set: { value in
+                let rawValue = Int(value.rounded())
+                guard let limit = MediaSizeLimit(rawValue: rawValue) else {
+                    return
+                }
+                viewModel.filter.minimumSize = limit
+                let maximum = viewModel.filter.maximumSize
+                if maximum != .unlimited,
+                   maximum.rawValue <= rawValue,
+                   let adjusted = MediaSizeLimit(rawValue: rawValue + 1) {
+                    viewModel.filter.maximumSize = adjusted
+                }
+            }
+        )
+    }
+
+    private var maximumSizeBinding: Binding<Double> {
+        Binding(
+            get: { Double(viewModel.filter.maximumSize.rawValue) },
+            set: { value in
+                let rawValue = Int(value.rounded())
+                guard let limit = MediaSizeLimit(rawValue: rawValue) else {
+                    return
+                }
+                viewModel.filter.maximumSize = limit
+                if rawValue <= viewModel.filter.minimumSize.rawValue,
+                   let adjusted = MediaSizeLimit(rawValue: rawValue - 1) {
+                    viewModel.filter.minimumSize = adjusted
+                }
+            }
+        )
     }
 
     private var saveCard: some View {
@@ -524,7 +657,7 @@ struct BookmarksView: View {
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            Text("按账号或 Hashtag 聚合；展开后的 Post 可切换媒体或纯文字。搜索范围请直接在顶部搜索栏选择。")
+            Text("“帖子”显示当前筛选结果；账号和 Hashtag 用于聚合浏览。搜索范围请直接在顶部搜索栏选择。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -539,6 +672,7 @@ struct BookmarksView: View {
             Divider()
 
             switch viewModel.browseMode {
+            case .posts: postResults
             case .accounts: accountResults
             case .hashtags: hashtagResults
             }
@@ -551,6 +685,12 @@ struct BookmarksView: View {
         HStack {
             Spacer()
             switch viewModel.browseMode {
+            case .posts:
+                Picker("Post 排序", selection: $viewModel.postSort) {
+                    ForEach(BookmarkPostSort.allCases) {
+                        Text($0.title).tag($0)
+                    }
+                }
             case .accounts:
                 Picker("账号排序", selection: $viewModel.accountSort) {
                     ForEach(BookmarkAccountSort.allCases) {
@@ -566,6 +706,24 @@ struct BookmarksView: View {
             }
         }
         .font(.subheadline)
+    }
+
+    @ViewBuilder
+    private var postResults: some View {
+        if viewModel.visiblePosts.isEmpty {
+            noResults("没有符合条件的 Post")
+        } else {
+            ForEach(Array(viewModel.visiblePosts.prefix(postLimit))) {
+                postLink($0, showsAuthor: true)
+                Divider()
+            }
+            if viewModel.visiblePosts.count > postLimit {
+                Button("再显示 100 条") {
+                    postLimit += 100
+                }
+                .font(.caption)
+            }
+        }
     }
 
     @ViewBuilder
