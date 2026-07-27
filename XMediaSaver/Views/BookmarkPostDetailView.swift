@@ -409,6 +409,7 @@ private struct InlineVideoPreview: View {
                     )
                     if let url = localURL ?? media.bestMP4Variant?.url {
                         let newPlayer = AVPlayer(url: url)
+                        newPlayer.actionAtItemEnd = .none
                         let silent = await MediaPlaybackAudioSession.isSilent(
                             media: media,
                             url: url
@@ -424,6 +425,14 @@ private struct InlineVideoPreview: View {
                     }
                 }
             }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: .AVPlayerItemDidPlayToEndTime
+                )
+            ) { notification in
+                guard !isFullScreen else { return }
+                loopIfCurrentItemEnded(notification)
+            }
             .onDisappear {
                 if !isFullScreen {
                     player?.pause()
@@ -436,6 +445,17 @@ private struct InlineVideoPreview: View {
             .fullScreenCover(isPresented: $isFullScreen) {
                 FullScreenVideoPlayer(player: player)
             }
+    }
+
+    private func loopIfCurrentItemEnded(_ notification: Notification) {
+        guard let endedItem = notification.object as? AVPlayerItem,
+              let currentItem = player?.currentItem,
+              endedItem === currentItem
+        else {
+            return
+        }
+        player?.seek(to: .zero)
+        player?.play()
     }
 }
 
@@ -469,6 +489,23 @@ private struct FullScreenVideoPlayer: View {
         }
         .onAppear {
             player?.play()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .AVPlayerItemDidPlayToEndTime
+            )
+        ) { notification in
+            guard let endedItem = notification.object as? AVPlayerItem,
+                  let currentItem = player?.currentItem,
+                  endedItem === currentItem
+            else {
+                return
+            }
+            player?.seek(to: .zero)
+            player?.play()
+        }
+        .onDisappear {
+            player?.pause()
         }
     }
 }

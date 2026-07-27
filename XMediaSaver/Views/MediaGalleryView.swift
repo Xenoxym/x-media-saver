@@ -488,7 +488,7 @@ private struct GalleryFullScreenViewer: View {
         }
         .statusBarHidden(true)
         .task(id: currentIndex) {
-            await preloadNearbyMedia()
+            await preloadNearbyPhotos()
         }
         .sheet(item: $presentedPost) { post in
             NavigationStack {
@@ -546,34 +546,23 @@ private struct GalleryFullScreenViewer: View {
         }
     }
 
-    private func preloadNearbyMedia() async {
+    private func preloadNearbyPhotos() async {
         let candidateIndices =
             (1...12).map { currentIndex + $0 }
             + (1...3).map { currentIndex - $0 }
-        let media = candidateIndices.compactMap { index in
-            items.indices.contains(index) ? items[index].media : nil
-        }
-        await preloadCovers(
-            media.filter { $0.type == .photo },
-            maximumPixelSize: 1_280
-        )
-
-        let motionIndices = [
-            currentIndex + 1,
-            currentIndex - 1,
-            currentIndex + 2,
-            currentIndex + 3
-        ]
-        let motionMedia = motionIndices.compactMap {
+        let photos = candidateIndices.compactMap {
             index -> BookmarkedMedia? in
             guard items.indices.contains(index),
-                  items[index].media.type != .photo
+                  items[index].media.type == .photo
             else {
                 return nil
             }
             return items[index].media
         }
-        await GalleryVideoAssetPreloader.shared.update(media: motionMedia)
+        await preloadCovers(
+            photos,
+            maximumPixelSize: 1_280
+        )
     }
 
     private func preloadCovers(
@@ -737,8 +726,7 @@ private struct ZoomableGalleryPhoto: View {
 
 private struct GalleryVideoPlayer: View {
     let media: BookmarkedMedia
-    @State private var player: AVQueuePlayer?
-    @State private var looper: AVPlayerLooper?
+    @State private var player: AVPlayer?
     @State private var audioSessionActive = false
 
     var body: some View {
@@ -761,16 +749,10 @@ private struct GalleryVideoPlayer: View {
                     return
                 }
 
-                let asset = await GalleryVideoAssetPreloader.shared.asset(
-                    mediaKey: media.mediaKey,
-                    url: url
-                )
+                let asset = AVURLAsset(url: url)
                 let item = AVPlayerItem(asset: asset)
-                let newPlayer = AVQueuePlayer()
-                let newLooper = AVPlayerLooper(
-                    player: newPlayer,
-                    templateItem: item
-                )
+                let newPlayer = AVPlayer(playerItem: item)
+                newPlayer.actionAtItemEnd = .none
                 let silent = await MediaPlaybackAudioSession.isSilent(
                     media: media,
                     asset: asset
@@ -783,7 +765,6 @@ private struct GalleryVideoPlayer: View {
                     newPlayer.pause()
                     return
                 }
-                looper = newLooper
                 player = newPlayer
                 newPlayer.play()
             }
@@ -803,61 +784,11 @@ private struct GalleryVideoPlayer: View {
             }
             .onDisappear {
                 player?.pause()
-                looper?.disableLooping()
-                looper = nil
                 if audioSessionActive {
                     MediaPlaybackAudioSession.deactivate()
                     audioSessionActive = false
                 }
             }
-    }
-}
-
-@MainActor
-private final class GalleryVideoAssetPreloader {
-    static let shared = GalleryVideoAssetPreloader()
-
-    private var assets: [String: AVURLAsset] = [:]
-    private var tasks: [String: Task<Void, Never>] = [:]
-
-    func update(media: [BookmarkedMedia]) {
-        let retainedKeys = Set(media.map(\.mediaKey))
-        let expiredKeys = assets.keys.filter {
-            !retainedKeys.contains($0)
-        }
-        for key in expiredKeys {
-            tasks[key]?.cancel()
-            tasks[key] = nil
-            assets[key] = nil
-        }
-
-        for item in media {
-            guard assets[item.mediaKey] == nil,
-                  let url = item.bestMP4Variant?.url
-            else {
-                continue
-            }
-            let asset = AVURLAsset(url: url)
-            assets[item.mediaKey] = asset
-            tasks[item.mediaKey] = Task {
-                _ = try? await asset.load(.isPlayable)
-                guard !Task.isCancelled else { return }
-                _ = try? await asset.load(.duration)
-                guard !Task.isCancelled else { return }
-                _ = try? await asset.loadTracks(withMediaType: .audio)
-            }
-        }
-    }
-
-    func asset(mediaKey: String, url: URL) -> AVURLAsset {
-        if let asset = assets[mediaKey], asset.url == url {
-            return asset
-        }
-        tasks[mediaKey]?.cancel()
-        tasks[mediaKey] = nil
-        let asset = AVURLAsset(url: url)
-        assets[mediaKey] = asset
-        return asset
     }
 }
 
