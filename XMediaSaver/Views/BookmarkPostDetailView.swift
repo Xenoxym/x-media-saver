@@ -108,7 +108,6 @@ struct BookmarkPostDetailView: View {
             case .animatedGIF, .video:
                 if media.bestMP4Variant?.url != nil {
                     InlineVideoPreview(media: media)
-                        .frame(minHeight: 220)
                 } else {
                     Label("没有可播放的 MP4 变体", systemImage: "video.slash")
                         .frame(maxWidth: .infinity, minHeight: 120)
@@ -373,35 +372,33 @@ private final class PostMediaSaveModel: ObservableObject {
 private struct InlineVideoPreview: View {
     let media: BookmarkedMedia
     @State private var player: AVPlayer?
-    @State private var isFullScreen = false
     @State private var audioSessionActive = false
+    @AppStorage("postVideoBackgroundPlaybackEnabled")
+    private var backgroundPlaybackEnabled = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VideoPlayer(player: player)
+        VStack(spacing: 8) {
+            SystemVideoPlayerView(player: player)
+                .aspectRatio(mediaAspectRatio, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .background(Color.black)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
-            Button {
-                isFullScreen = true
-            } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .padding(10)
-                    .background(.black.opacity(0.6), in: Circle())
+            HStack(spacing: 8) {
+                Label("画中画", systemImage: "pip")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("后台播放")
+                    .foregroundStyle(.secondary)
+                Toggle(
+                    "后台播放",
+                    isOn: $backgroundPlaybackEnabled
+                )
+                .labelsHidden()
+                .controlSize(.small)
             }
-            .padding(10)
-            .disabled(player == nil)
-            .accessibilityLabel("全屏播放")
+            .font(.caption)
         }
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .simultaneousGesture(
-                MagnificationGesture()
-                    .onEnded { scale in
-                        if scale > 1.12, player != nil {
-                            isFullScreen = true
-                        }
-                    }
-            )
             .task(id: media.mediaKey) {
                 if player == nil {
                     let localURL = await LocalMediaLibrary.shared.localURL(
@@ -410,41 +407,62 @@ private struct InlineVideoPreview: View {
                     if let url = localURL ?? media.bestMP4Variant?.url {
                         let newPlayer = AVPlayer(url: url)
                         newPlayer.actionAtItemEnd = .none
+                        updateBackgroundPolicy(
+                            for: newPlayer,
+                            enabled: backgroundPlaybackEnabled
+                        )
                         let silent = await MediaPlaybackAudioSession.isSilent(
                             media: media,
                             url: url
                         )
                         newPlayer.isMuted = silent
-                        if silent {
-                            audioSessionActive =
-                                MediaPlaybackAudioSession.activate(
-                                    silent: true
-                                )
-                        }
+                        audioSessionActive =
+                            MediaPlaybackAudioSession.activate(
+                                silent: silent
+                            )
                         player = newPlayer
+                        newPlayer.play()
                     }
                 }
+            }
+            .onChange(of: backgroundPlaybackEnabled) { enabled in
+                guard let player else { return }
+                updateBackgroundPolicy(for: player, enabled: enabled)
             }
             .onReceive(
                 NotificationCenter.default.publisher(
                     for: .AVPlayerItemDidPlayToEndTime
                 )
             ) { notification in
-                guard !isFullScreen else { return }
                 loopIfCurrentItemEnded(notification)
             }
             .onDisappear {
-                if !isFullScreen {
-                    player?.pause()
-                    if audioSessionActive {
-                        MediaPlaybackAudioSession.deactivate()
-                        audioSessionActive = false
-                    }
+                player?.pause()
+                if audioSessionActive {
+                    MediaPlaybackAudioSession.deactivate()
+                    audioSessionActive = false
                 }
             }
-            .fullScreenCover(isPresented: $isFullScreen) {
-                FullScreenVideoPlayer(player: player)
-            }
+    }
+
+    private var mediaAspectRatio: CGFloat {
+        guard let width = media.width,
+              let height = media.height,
+              width > 0,
+              height > 0
+        else {
+            return 16 / 9
+        }
+        return CGFloat(width) / CGFloat(height)
+    }
+
+    private func updateBackgroundPolicy(
+        for player: AVPlayer,
+        enabled: Bool
+    ) {
+        player.audiovisualBackgroundPlaybackPolicy = enabled
+            ? .continuesIfPossible
+            : .pauses
     }
 
     private func loopIfCurrentItemEnded(_ notification: Notification) {
@@ -459,53 +477,32 @@ private struct InlineVideoPreview: View {
     }
 }
 
-private struct FullScreenVideoPlayer: View {
+private struct SystemVideoPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer?
-    @Environment(\.dismiss) private var dismiss
 
-    var body: some View {
-        ZStack {
-            Color.black
-                .ignoresSafeArea()
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.videoGravity = .resizeAspect
+        controller.allowsPictureInPicturePlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        return controller
+    }
 
-            VideoPlayer(player: player)
-                .ignoresSafeArea()
+    func updateUIViewController(
+        _ controller: AVPlayerViewController,
+        context: Context
+    ) {
+        if controller.player !== player {
+            controller.player = player
+        }
+    }
 
-            VStack {
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(12)
-                        .background(.black.opacity(0.6), in: Circle())
-                }
-                .padding(.top, 8)
-                .accessibilityLabel("退出全屏")
-
-                Spacer()
-            }
-        }
-        .onAppear {
-            player?.play()
-        }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: .AVPlayerItemDidPlayToEndTime
-            )
-        ) { notification in
-            guard let endedItem = notification.object as? AVPlayerItem,
-                  let currentItem = player?.currentItem,
-                  endedItem === currentItem
-            else {
-                return
-            }
-            player?.seek(to: .zero)
-            player?.play()
-        }
-        .onDisappear {
-            player?.pause()
-        }
+    static func dismantleUIViewController(
+        _ controller: AVPlayerViewController,
+        coordinator: ()
+    ) {
+        controller.player = nil
     }
 }
