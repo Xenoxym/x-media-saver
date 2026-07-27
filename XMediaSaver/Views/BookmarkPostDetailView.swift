@@ -374,6 +374,7 @@ private struct InlineVideoPreview: View {
     let media: BookmarkedMedia
     @State private var player: AVPlayer?
     @State private var isFullScreen = false
+    @State private var audioSessionActive = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -407,13 +408,29 @@ private struct InlineVideoPreview: View {
                         for: media.mediaKey
                     )
                     if let url = localURL ?? media.bestMP4Variant?.url {
-                        player = AVPlayer(url: url)
+                        let newPlayer = AVPlayer(url: url)
+                        let silent = await MediaPlaybackAudioSession.isSilent(
+                            media: media,
+                            url: url
+                        )
+                        newPlayer.isMuted = silent
+                        if silent {
+                            audioSessionActive =
+                                MediaPlaybackAudioSession.activate(
+                                    silent: true
+                                )
+                        }
+                        player = newPlayer
                     }
                 }
             }
             .onDisappear {
                 if !isFullScreen {
                     player?.pause()
+                    if audioSessionActive {
+                        MediaPlaybackAudioSession.deactivate()
+                        audioSessionActive = false
+                    }
                 }
             }
             .fullScreenCover(isPresented: $isFullScreen) {

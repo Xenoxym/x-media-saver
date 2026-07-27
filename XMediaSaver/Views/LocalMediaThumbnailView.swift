@@ -1,4 +1,5 @@
 import AVFoundation
+import AVFAudio
 import ImageIO
 import SwiftUI
 import UIKit
@@ -312,5 +313,48 @@ final class LocalMediaThumbnailLoader: ObservableObject {
             return nil
         }
         return UIImage(cgImage: image)
+    }
+}
+
+enum MediaPlaybackAudioSession {
+    static func isSilent(
+        media: BookmarkedMedia,
+        url: URL
+    ) async -> Bool {
+        if media.type == .animatedGIF {
+            return true
+        }
+        let asset = AVURLAsset(url: url)
+        guard let tracks = try? await asset.loadTracks(
+            withMediaType: .audio
+        ) else {
+            return false
+        }
+        return tracks.isEmpty
+    }
+
+    @MainActor
+    @discardableResult
+    static func activate(silent: Bool) -> Bool {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            if silent {
+                try session.setCategory(.ambient, mode: .default)
+            } else {
+                try session.setCategory(.playback, mode: .moviePlayback)
+            }
+            try session.setActive(true)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    @MainActor
+    static func deactivate() {
+        try? AVAudioSession.sharedInstance().setActive(
+            false,
+            options: .notifyOthersOnDeactivation
+        )
     }
 }
