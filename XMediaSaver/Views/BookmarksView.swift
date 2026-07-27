@@ -12,6 +12,7 @@ struct BookmarksView: View {
     @State private var postLimit = 100
     @State private var showsStorage = false
     @State private var choosesExportFolder = false
+    @State private var showsRangeFilters = false
     @AppStorage("bookmarkPostPreviewMode")
     private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
 
@@ -297,44 +298,42 @@ struct BookmarksView: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("视频/动图时长")
-                    .font(.subheadline.weight(.semibold))
-                steppedSlider(
-                    title: "最短",
-                    selectedTitle: viewModel.filter.minimumDuration.title,
-                    value: minimumDurationBinding,
-                    range: 0...4,
-                    labels: ["0", "1m", "10m", "30m", "1h"]
-                )
-                steppedSlider(
-                    title: "最长",
-                    selectedTitle: viewModel.filter.maximumDuration.title,
-                    value: maximumDurationBinding,
-                    range: 1...5,
-                    labels: ["1m", "10m", "30m", "1h", "不限"]
-                )
-            }
+            DisclosureGroup(isExpanded: $showsRangeFilters) {
+                VStack(alignment: .leading, spacing: 16) {
+                    compactRangeFilter(
+                        title: "视频/动图时长",
+                        lowerTitle: viewModel.filter.minimumDuration.title,
+                        upperTitle: viewModel.filter.maximumDuration.title,
+                        lowerValue: minimumDurationBinding,
+                        upperValue: maximumDurationBinding,
+                        labels: ["0", "1m", "10m", "30m", "1h", "不限"]
+                    )
 
-            Divider()
+                    Divider()
 
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Post 媒体总大小")
-                    .font(.subheadline.weight(.semibold))
-                steppedSlider(
-                    title: "最小",
-                    selectedTitle: viewModel.filter.minimumSize.title,
-                    value: minimumSizeBinding,
-                    range: 0...4,
-                    labels: ["0", "10M", "50M", "200M", "500M"]
-                )
-                steppedSlider(
-                    title: "最大",
-                    selectedTitle: viewModel.filter.maximumSize.title,
-                    value: maximumSizeBinding,
-                    range: 1...5,
-                    labels: ["10M", "50M", "200M", "500M", "不限"]
-                )
+                    compactRangeFilter(
+                        title: "Post 媒体总大小",
+                        lowerTitle: viewModel.filter.minimumSize.title,
+                        upperTitle: viewModel.filter.maximumSize.title,
+                        lowerValue: minimumSizeBinding,
+                        upperValue: maximumSizeBinding,
+                        labels: ["0", "10M", "50M", "200M", "500M", "不限"]
+                    )
+
+                    Text("区间包含左端、不包含右端；右端“不限”表示不设置上限。设置范围后，大小或时长未知的项目不会匹配。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 12)
+            } label: {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("时长与大小")
+                        .font(.subheadline.weight(.semibold))
+                    Text(rangeFiltersSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
             }
 
             Toggle("设置起始日期", isOn: $viewModel.filter.useStartDate)
@@ -353,41 +352,44 @@ struct BookmarksView: View {
                     displayedComponents: .date
                 )
             }
-            Text("滑杆按档位选择包含下限和不包含上限；右端“不限”表示不设置上限。日期按 Post 发布时间，媒体大小是该 Post 内全部媒体的合计；设置范围后，大小或时长未知的项目不会匹配。")
+            Text("日期按 Post 发布时间；媒体大小是该 Post 内全部媒体的合计。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
         .saverCard()
     }
 
-    private func steppedSlider(
+    private var rangeFiltersSummary: String {
+        "时长 \(viewModel.filter.minimumDuration.title)–\(viewModel.filter.maximumDuration.title) · 大小 \(viewModel.filter.minimumSize.title)–\(viewModel.filter.maximumSize.title)"
+    }
+
+    private func compactRangeFilter(
         title: String,
-        selectedTitle: String,
-        value: Binding<Double>,
-        range: ClosedRange<Double>,
+        lowerTitle: String,
+        upperTitle: String,
+        lowerValue: Binding<Double>,
+        upperValue: Binding<Double>,
         labels: [String]
     ) -> some View {
-        VStack(spacing: 3) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text(title)
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
-                Text(selectedTitle)
+                Text("\(lowerTitle) – \(upperTitle)")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            .font(.caption)
 
-            Slider(value: value, in: range, step: 1)
-
-            HStack(spacing: 0) {
-                ForEach(Array(labels.enumerated()), id: \.offset) { _, label in
-                    Text(label)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .minimumScaleFactor(0.7)
-                        .frame(maxWidth: .infinity)
-                }
-            }
+            DiscreteRangeSlider(
+                lowerValue: lowerValue,
+                upperValue: upperValue,
+                bounds: 0...5,
+                minimumDistance: 1,
+                labels: labels,
+                lowerAccessibilityLabel: "\(title)下限",
+                upperAccessibilityLabel: "\(title)上限"
+            )
         }
     }
 
@@ -864,4 +866,204 @@ struct BookmarksView: View {
         formatter.countStyle = .file
         return formatter
     }()
+}
+
+private struct DiscreteRangeSlider: View {
+    @Binding var lowerValue: Double
+    @Binding var upperValue: Double
+
+    let bounds: ClosedRange<Double>
+    let minimumDistance: Double
+    let labels: [String]
+    let lowerAccessibilityLabel: String
+    let upperAccessibilityLabel: String
+
+    @State private var lowerDragStart: Double?
+    @State private var upperDragStart: Double?
+
+    private let thumbDiameter: CGFloat = 28
+
+    var body: some View {
+        VStack(spacing: 4) {
+            GeometryReader { proxy in
+                let usableWidth = max(
+                    proxy.size.width - thumbDiameter,
+                    1
+                )
+                let lowerX = xPosition(
+                    for: lowerValue,
+                    usableWidth: usableWidth
+                )
+                let upperX = xPosition(
+                    for: upperValue,
+                    usableWidth: usableWidth
+                )
+
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color(uiColor: .systemFill))
+                        .frame(width: usableWidth, height: 4)
+                        .position(
+                            x: thumbDiameter / 2 + usableWidth / 2,
+                            y: proxy.size.height / 2
+                        )
+
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(
+                            width: max(upperX - lowerX, 0),
+                            height: 4
+                        )
+                        .position(
+                            x: lowerX + max(upperX - lowerX, 0) / 2,
+                            y: proxy.size.height / 2
+                        )
+
+                    lowerThumb(usableWidth: usableWidth)
+                        .position(x: lowerX, y: proxy.size.height / 2)
+
+                    upperThumb(usableWidth: usableWidth)
+                        .position(x: upperX, y: proxy.size.height / 2)
+                }
+            }
+            .frame(height: thumbDiameter + 4)
+
+            HStack(spacing: 0) {
+                ForEach(Array(labels.enumerated()), id: \.offset) {
+                    _, label in
+                    Text(label)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .minimumScaleFactor(0.65)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+        }
+    }
+
+    private func lowerThumb(usableWidth: CGFloat) -> some View {
+        sliderThumb
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let start = lowerDragStart ?? lowerValue
+                        lowerDragStart = start
+                        lowerValue = clampedLowerValue(
+                            start + translatedValue(
+                                value.translation.width,
+                                usableWidth: usableWidth
+                            )
+                        )
+                    }
+                    .onEnded { _ in
+                        lowerDragStart = nil
+                    }
+            )
+            .accessibilityLabel(lowerAccessibilityLabel)
+            .accessibilityValue(accessibilityTitle(for: lowerValue))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment:
+                    lowerValue = clampedLowerValue(lowerValue + 1)
+                case .decrement:
+                    lowerValue = clampedLowerValue(lowerValue - 1)
+                @unknown default:
+                    break
+                }
+            }
+    }
+
+    private func upperThumb(usableWidth: CGFloat) -> some View {
+        sliderThumb
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let start = upperDragStart ?? upperValue
+                        upperDragStart = start
+                        upperValue = clampedUpperValue(
+                            start + translatedValue(
+                                value.translation.width,
+                                usableWidth: usableWidth
+                            )
+                        )
+                    }
+                    .onEnded { _ in
+                        upperDragStart = nil
+                    }
+            )
+            .accessibilityLabel(upperAccessibilityLabel)
+            .accessibilityValue(accessibilityTitle(for: upperValue))
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment:
+                    upperValue = clampedUpperValue(upperValue + 1)
+                case .decrement:
+                    upperValue = clampedUpperValue(upperValue - 1)
+                @unknown default:
+                    break
+                }
+            }
+    }
+
+    private var sliderThumb: some View {
+        Circle()
+            .fill(Color(uiColor: .systemBackground))
+            .overlay {
+                Circle()
+                    .stroke(Color.accentColor, lineWidth: 2)
+            }
+            .shadow(color: .black.opacity(0.16), radius: 3, y: 1)
+            .frame(width: thumbDiameter, height: thumbDiameter)
+            .contentShape(Circle())
+    }
+
+    private func xPosition(
+        for value: Double,
+        usableWidth: CGFloat
+    ) -> CGFloat {
+        let span = max(bounds.upperBound - bounds.lowerBound, 1)
+        let progress = (value - bounds.lowerBound) / span
+        return thumbDiameter / 2 + usableWidth * CGFloat(progress)
+    }
+
+    private func translatedValue(
+        _ translation: CGFloat,
+        usableWidth: CGFloat
+    ) -> Double {
+        let span = bounds.upperBound - bounds.lowerBound
+        return Double(translation / usableWidth) * span
+    }
+
+    private func clampedLowerValue(_ value: Double) -> Double {
+        snapped(
+            min(
+                max(value, bounds.lowerBound),
+                upperValue - minimumDistance
+            )
+        )
+    }
+
+    private func clampedUpperValue(_ value: Double) -> Double {
+        snapped(
+            max(
+                min(value, bounds.upperBound),
+                lowerValue + minimumDistance
+            )
+        )
+    }
+
+    private func snapped(_ value: Double) -> Double {
+        min(
+            max(value.rounded(), bounds.lowerBound),
+            bounds.upperBound
+        )
+    }
+
+    private func accessibilityTitle(for value: Double) -> String {
+        let index = min(
+            max(Int(value.rounded()), 0),
+            labels.count - 1
+        )
+        return labels[index]
+    }
 }
