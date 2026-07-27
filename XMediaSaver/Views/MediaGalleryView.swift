@@ -66,7 +66,6 @@ struct MediaGalleryView: View {
                         galleryCell(item)
                     }
                     .buttonStyle(.plain)
-                    .disabled(isSelecting)
                     .background {
                         GeometryReader { geometry in
                             Color.clear.preference(
@@ -235,7 +234,7 @@ struct MediaGalleryView: View {
     private func selectionIndicator(selected: Bool) -> some View {
         ZStack(alignment: .topTrailing) {
             if selected {
-                Color.accentColor.opacity(0.22)
+                Color.accentColor.opacity(0.10)
             }
             Image(
                 systemName: selected
@@ -410,6 +409,7 @@ private struct GalleryFullScreenViewer: View {
                         )
                     }
             )
+            .simultaneousGesture(navigationDragGesture)
         }
         .statusBarHidden(true)
         .sheet(item: $presentedPost) { post in
@@ -437,9 +437,23 @@ private struct GalleryFullScreenViewer: View {
             move(by: -1)
         } else if location.x > width * 2 / 3 {
             move(by: 1)
-        } else if let currentItem {
-            presentedPost = currentItem.post
+        } else {
+            dismiss()
         }
+    }
+
+    private var navigationDragGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                guard !imageIsZoomed else { return }
+                let horizontal = value.predictedEndTranslation.width
+                let vertical = value.predictedEndTranslation.height
+                if abs(horizontal) > abs(vertical), abs(horizontal) > 70 {
+                    move(by: horizontal < 0 ? 1 : -1)
+                } else if vertical < -80, let currentItem {
+                    presentedPost = currentItem.post
+                }
+            }
     }
 
     private func move(by offset: Int) {
