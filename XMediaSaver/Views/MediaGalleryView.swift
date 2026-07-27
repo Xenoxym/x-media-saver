@@ -21,12 +21,12 @@ struct MediaGalleryView: View {
     init(posts: [BookmarkedPost], mediaType: BookmarkMediaType?) {
         self.mediaType = mediaType
         var seen: Set<String> = []
-        let items = posts
+        let items: [GalleryMediaItem] = posts
             .sorted {
                 ($0.createdAt ?? .distantPast) > ($1.createdAt ?? .distantPast)
             }
-            .flatMap { post in
-                post.media.compactMap { media in
+            .flatMap { post -> [GalleryMediaItem] in
+                post.media.compactMap { media -> GalleryMediaItem? in
                     guard mediaType == nil || media.type == mediaType,
                           seen.insert(media.mediaKey).inserted
                     else {
