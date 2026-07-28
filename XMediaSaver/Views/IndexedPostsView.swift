@@ -81,7 +81,7 @@ struct IndexedPostsView: View {
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(L10n.string("已索引 Post"))
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonDisplayMode(.minimal)
+        .compactBackButton()
         .searchable(text: $searchText, prompt: "搜索账号或正文")
         .onChange(of: searchText) { _ in
             visibleLimit = 100

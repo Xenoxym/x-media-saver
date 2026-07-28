@@ -104,7 +104,7 @@ struct MediaGalleryView: View {
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonDisplayMode(.minimal)
+        .compactBackButton()
         .onChange(of: sort) { value in
             applySort(value)
         }

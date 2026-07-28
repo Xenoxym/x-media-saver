@@ -8,7 +8,7 @@ X Media Saver 是一个供个人侧载使用的 iOS 16+ SwiftUI App。当前版�
 
 当前正式版：**1.1.0（build 2）**。版本记录见 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
 
-当前 `main` 开发版本为 **1.2.0（build 5）**。
+当前 `main` 开发版本为 **1.2.0（build 6）**。
 
 ## 当前功能
 
