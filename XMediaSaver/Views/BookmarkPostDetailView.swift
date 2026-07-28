@@ -725,16 +725,10 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
             }
         }
 
-        func playerViewControllerWillBeginDismissalTransition(
-            _ playerViewController: AVPlayerViewController
+        func presentationControllerWillDismiss(
+            _ presentationController: UIPresentationController
         ) {
             isFullScreenActive.wrappedValue = false
-        }
-
-        func playerViewControllerDidEndDismissalTransition(
-            _ playerViewController: AVPlayerViewController
-        ) {
-            finishFullScreenDismissal()
         }
 
         func presentationControllerDidDismiss(
@@ -751,7 +745,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
                 return
             }
 
-            let controller = AVPlayerViewController()
+            let controller = DismissAwarePlayerViewController()
             controller.player = player
             controller.delegate = self
             controller.showsPlaybackControls = true
@@ -761,6 +755,9 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
                 false
             controller.updatesNowPlayingInfoCenter = false
             controller.modalPresentationStyle = .fullScreen
+            controller.onDismissal = { [weak self] in
+                self?.finishFullScreenDismissal()
+            }
             fullScreenController = controller
 
             isFullScreenActive.wrappedValue = true
@@ -789,5 +786,27 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
                 !inlineAudioEnabled.wrappedValue
             observedPlayer?.play()
         }
+    }
+}
+
+private final class DismissAwarePlayerViewController:
+    AVPlayerViewController {
+    var onDismissal: (() -> Void)?
+    private var hasNotifiedDismissal = false
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        hasNotifiedDismissal = false
+    }
+
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        guard !hasNotifiedDismissal,
+              isBeingDismissed || presentingViewController == nil
+        else {
+            return
+        }
+        hasNotifiedDismissal = true
+        onDismissal?()
     }
 }
