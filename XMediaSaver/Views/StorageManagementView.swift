@@ -129,7 +129,11 @@ struct StorageManagementView: View {
         icon: String
     ) -> some View {
         HStack {
-            Label(title, systemImage: icon)
+            Label {
+                Text(LocalizedStringKey(title))
+            } icon: {
+                Image(systemName: icon)
+            }
             Spacer()
             if let bytes {
                 Text(Self.byteFormatter.string(fromByteCount: bytes))

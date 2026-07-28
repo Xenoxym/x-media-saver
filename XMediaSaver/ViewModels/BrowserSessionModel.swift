@@ -72,8 +72,10 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 let storedPosts = try await self.persistenceStore.load()
                 self.restore(storedPosts)
             } catch {
-                self.captureError =
-                    "无法读取本地书签索引：\(error.localizedDescription)"
+                self.captureError = L10n.format(
+                    "无法读取本地书签索引：%@",
+                    error.localizedDescription
+                )
             }
         }
         Task {
@@ -101,7 +103,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 || host == "twitter.com"
                 || host.hasSuffix(".twitter.com")
         else {
-            captureError = "只允许在内置浏览器中打开 x.com。"
+            captureError = L10n.string("只允许在内置浏览器中打开 x.com。")
             return
         }
         captureError = nil
@@ -198,16 +200,16 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         syncPageCount = 0
         syncNewPostCount = 0
         syncBookmarkPageOrders = [:]
-        syncStatusText = "正在打开书签页面…"
+        syncStatusText = L10n.string("正在打开书签页面…")
         autoCaptureTask = Task { [weak self] in
             guard let self else { return }
             defer {
                 isAutoCapturing = false
                 autoCaptureTask = nil
                 if Task.isCancelled {
-                    syncStatusText = "同步已停止"
+                    syncStatusText = L10n.string("同步已停止")
                 } else if captureError == nil {
-                    syncStatusText = "本轮同步完成"
+                    syncStatusText = L10n.string("本轮同步完成")
                 }
             }
 
@@ -219,18 +221,22 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 }
                 if currentURL?.path.lowercased().contains("/login") == true
                     || currentURL?.path.lowercased().contains("/i/flow/login") == true {
-                    captureError = "登录会话已失效，请先到“X 浏览器”重新登录。"
+                    captureError = L10n.string(
+                        "登录会话已失效，请先到“X 浏览器”重新登录。"
+                    )
                     return
                 }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
 
             guard isOnBookmarksPage else {
-                captureError = "无法打开书签页面，请先到“X 浏览器”确认登录状态。"
+                captureError = L10n.string(
+                    "无法打开书签页面，请先到“X 浏览器”确认登录状态。"
+                )
                 return
             }
 
-            syncStatusText = "正在快速增量同步…"
+            syncStatusText = L10n.string("正在快速增量同步…")
             var idleRounds = 0
             var observedSequence = bookmarkResponseSequence
 
@@ -253,13 +259,20 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                     observedSequence = currentSequence
                     idleRounds = 0
                     syncPageCount += received
-                    syncStatusText =
-                        "已读取 \(syncPageCount) 页，新增 \(syncNewPostCount) 条，总计 \(capturedPosts.count) 条"
+                    syncStatusText = L10n.format(
+                        "已读取 %lld 页，新增 %lld 条，总计 %lld 条",
+                        syncPageCount,
+                        syncNewPostCount,
+                        capturedPosts.count
+                    )
                 } else {
                     idleRounds += 1
                     if idleRounds >= 2 {
-                        syncStatusText =
-                            "等待下一页（\(idleRounds)/6），新增 \(syncNewPostCount) 条…"
+                        syncStatusText = L10n.format(
+                            "等待下一页（%lld/6），新增 %lld 条…",
+                            idleRounds,
+                            syncNewPostCount
+                        )
                     }
                 }
 
@@ -341,7 +354,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                 }
             }
         }
-        syncStatusText = "缓存已清理，X 登录会话已保留"
+        syncStatusText = L10n.string("缓存已清理，X 登录会话已保留")
     }
 
     func post(withID id: String) -> BookmarkedPost? {
@@ -379,7 +392,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
 
     private func receiveCapture(url: String, body: String) {
         guard body.utf8.count <= 30_000_000 else {
-            captureError = "单个浏览器响应过大，已跳过。"
+            captureError = L10n.string("单个浏览器响应过大，已跳过。")
             return
         }
 
@@ -535,8 +548,10 @@ final class BrowserSessionModel: NSObject, ObservableObject {
             do {
                 try await self.persistenceStore.save(snapshot)
             } catch {
-                self.captureError =
-                    "无法保存本地书签索引：\(error.localizedDescription)"
+                self.captureError = L10n.format(
+                    "无法保存本地书签索引：%@",
+                    error.localizedDescription
+                )
             }
         }
     }
@@ -680,7 +695,9 @@ final class BrowserSessionModel: NSObject, ObservableObject {
             guard !Task.isCancelled, let self, isLoading else { return }
             webView.stopLoading()
             isLoading = false
-            captureError = "X 页面加载超过 30 秒。请检查网络后点击“重新加载登录页”。"
+            captureError = L10n.string(
+                "X 页面加载超过 30 秒。请检查网络后点击“重新加载登录页”。"
+            )
         }
     }
 
@@ -701,7 +718,11 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         navigationTimeoutTask?.cancel()
         navigationTimeoutTask = nil
         isLoading = false
-        captureError = "X 页面加载失败：\(error.localizedDescription)（\(nsError.code)）"
+        captureError = L10n.format(
+            "X 页面加载失败：%@（%lld）",
+            error.localizedDescription,
+            nsError.code
+        )
     }
 }
 
@@ -749,7 +770,9 @@ extension BrowserSessionModel: WKNavigationDelegate {
         decisionHandler(isAllowed ? .allow : .cancel)
         if !isAllowed {
             Task { @MainActor [weak self] in
-                self?.captureError = "内置浏览器阻止了不安全的非 HTTPS 跳转。"
+                self?.captureError = L10n.string(
+                    "内置浏览器阻止了不安全的非 HTTPS 跳转。"
+                )
             }
         }
     }
@@ -808,7 +831,9 @@ extension BrowserSessionModel: WKNavigationDelegate {
             guard let self else { return }
             navigationTimeoutTask?.cancel()
             isLoading = false
-            captureError = "X 浏览器进程已被 iOS 终止，请点击“重新加载登录页”。"
+            captureError = L10n.string(
+                "X 浏览器进程已被 iOS 终止，请点击“重新加载登录页”。"
+            )
         }
     }
 }

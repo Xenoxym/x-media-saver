@@ -123,7 +123,7 @@ final class SaverViewModel: ObservableObject {
             }
             try await photoSaver.saveVideo(at: localURL)
             try? FileManager.default.removeItem(at: localURL)
-            successMessage = "已保存到照片。"
+            successMessage = L10n.string("已保存到照片。")
         } catch is CancellationError {
             if let localURL {
                 try? FileManager.default.removeItem(at: localURL)
@@ -163,8 +163,12 @@ final class SaverViewModel: ObservableObject {
                     }
                 }
             )
-            successMessage =
-                "图片保存 \(result.saved) 张，跳过 \(result.skipped) 张，失败 \(result.failed) 张。"
+            successMessage = L10n.format(
+                "图片保存 %lld 张，跳过 %lld 张，失败 %lld 张。",
+                result.saved,
+                result.skipped,
+                result.failed
+            )
             if result.failed > 0, let issue = result.issues.first {
                 presentedError = PresentedError(
                     message: issue,
@@ -172,7 +176,7 @@ final class SaverViewModel: ObservableObject {
                 )
             }
         } catch is CancellationError {
-            successMessage = "图片保存已取消。"
+            successMessage = L10n.string("图片保存已取消。")
         } catch {
             show(error)
         }

@@ -8,6 +8,8 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 
 Current release: **1.1.0 (build 2)**. See [CHANGELOG.md](CHANGELOG.md) for release history.
 
+The current `main` development build is **1.2.0 (build 3)**.
+
 ## Current features
 
 - **Single-link downloads:** Paste an `x.com` or `twitter.com` post URL, select an MP4 variant, and save a video or animated GIF to Photos.
@@ -22,6 +24,8 @@ Current release: **1.1.0 (build 2)**. See [CHANGELOG.md](CHANGELOG.md) for relea
 - **Full-screen media browsing:** Photos support zooming and panning; media galleries support direct previous/next navigation and multi-selection for saving to Photos.
 - **Native video playback:** Post videos autoplay muted in an adaptive inline player, loop at the end, and use the native full-screen player with user-initiated Picture in Picture. Animated GIF MP4s loop silently.
 - **Optional background audio:** Audible video can continue as audio only when the user enables background playback. Silent video does not occupy background audio playback.
+- **English and Simplified Chinese UI:** Follow the system language or override it from the Settings tab. Chinese system languages use Simplified Chinese; all other system languages fall back to English.
+- **Central Settings tab:** Manage language, storage and cache tools, background-audio behavior, the default indexed-Post preview style, and app/version information.
 - **Local-first playback:** Preview lookup uses `media_key` to open an existing Files-library item first and falls back to the unchanged X CDN URL only when no local file exists.
 - **Duration and size range sliders:** Choose discrete minimum and maximum bounds for video/GIF duration and aggregate Post media size. The rightmost maximum step means unlimited.
 - **Batch storage estimates:** Sum the deduplicated known bytes for the current filter, report unknown-size items, and show separate estimated additions for Photos history and the app-owned Files Library.
@@ -129,6 +133,7 @@ Post video previews include an explicit native full-screen control. Picture in P
 - Large batches use foreground `URLSession` downloads; keep the app open.
 - A WebKit session may expire or be cleared after system cleanup or sideloaded-app re-signing.
 - Saving media does not grant redistribution rights. Users remain responsible for applicable law, copyright, consent, and X's terms.
+- The in-app language override applies to app UI. iOS-owned permission dialogs and native system controls continue to follow the device language.
 
 ## Build and run with Xcode
 

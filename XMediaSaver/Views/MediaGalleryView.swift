@@ -330,7 +330,10 @@ struct MediaGalleryView: View {
             HStack {
                 Text(
                     mediaSaver.resultMessage
-                        ?? "已选择 \(selectedMediaKeys.count) 项"
+                        ?? L10n.format(
+                            "已选择 %lld 项",
+                            selectedMediaKeys.count
+                        )
                 )
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -367,10 +370,10 @@ struct MediaGalleryView: View {
 
     private var title: String {
         switch mediaType {
-        case nil: return "全部媒体"
-        case .some(.photo): return "图片"
-        case .some(.animatedGIF): return "动图"
-        case .some(.video): return "视频"
+        case nil: return L10n.string("全部媒体")
+        case .some(.photo): return L10n.string("图片")
+        case .some(.animatedGIF): return L10n.string("动图")
+        case .some(.video): return L10n.string("视频")
         }
     }
 
@@ -896,8 +899,12 @@ private final class GalleryMediaSaveModel: ObservableObject {
                         }
                     }
                 )
-                resultMessage =
-                    "保存 \(result.saved) 项，跳过 \(result.skipped) 项，失败 \(result.failed) 项。"
+                resultMessage = L10n.format(
+                    "保存 %lld 项，跳过 %lld 项，失败 %lld 项。",
+                    result.saved,
+                    result.skipped,
+                    result.failed
+                )
                 if result.failed > 0, let issue = result.issues.first {
                     presentedError = PresentedError(
                         message: issue,
@@ -905,7 +912,7 @@ private final class GalleryMediaSaveModel: ObservableObject {
                     )
                 }
             } catch is CancellationError {
-                resultMessage = "保存已取消。"
+                resultMessage = L10n.string("保存已取消。")
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription

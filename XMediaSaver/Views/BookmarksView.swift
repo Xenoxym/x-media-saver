@@ -10,7 +10,6 @@ struct BookmarksView: View {
     @State private var expandedHashtags: Set<String> = []
     @State private var groupLimits: [String: Int] = [:]
     @State private var postLimit = 100
-    @State private var showsStorage = false
     @State private var choosesExportFolder = false
     @State private var showsRangeFilters = false
     @State private var dateRange: BookmarkDateRange = .all
@@ -54,11 +53,6 @@ struct BookmarksView: View {
             }
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
-                    Button {
-                        showsStorage = true
-                    } label: {
-                        Image(systemName: "internaldrive")
-                    }
                     if session.isAutoCapturing {
                         Button("停止") { session.stopAutoCapture() }
                     } else {
@@ -79,11 +73,6 @@ struct BookmarksView: View {
         }
         .onReceive(session.$capturedPosts) {
             viewModel.update(posts: $0)
-        }
-        .sheet(isPresented: $showsStorage) {
-            StorageManagementView(
-                session: session
-            )
         }
         .fileImporter(
             isPresented: $choosesExportFolder,
@@ -197,7 +186,7 @@ struct BookmarksView: View {
             if session.isAutoCapturing {
                 ProgressView(
                     session.syncStatusText
-                        ?? "正在快速增量同步…"
+                        ?? L10n.string("正在快速增量同步…")
                 )
             } else if let status = session.syncStatusText {
                 Text(status)
@@ -272,7 +261,7 @@ struct BookmarksView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(value, format: .number)
                         .font(.title3.bold().monospacedDigit())
-                    Text(title)
+                    Text(LocalizedStringKey(title))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -409,7 +398,7 @@ struct BookmarksView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 Text("\(lowerTitle) – \(upperTitle)")
@@ -649,9 +638,12 @@ struct BookmarksView: View {
         var value = Self.byteFormatter.string(
             fromByteCount: estimate.knownBytes
         )
-        value += " / \(estimate.itemCount) 项"
+        value += L10n.format(" / %lld 项", estimate.itemCount)
         if estimate.unknownSizeCount > 0 {
-            value += "（另 \(estimate.unknownSizeCount) 项大小未知）"
+            value += L10n.format(
+                "（另 %lld 项大小未知）",
+                estimate.unknownSizeCount
+            )
         }
         return value
     }
@@ -900,11 +892,11 @@ private enum BookmarkDateRange: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .all: return "不限"
-        case .oneDay: return "最近一天"
-        case .threeDays: return "最近三天"
-        case .sevenDays: return "最近七天"
-        case .custom: return "自定义起始日期"
+        case .all: return L10n.string("不限")
+        case .oneDay: return L10n.string("最近一天")
+        case .threeDays: return L10n.string("最近三天")
+        case .sevenDays: return L10n.string("最近七天")
+        case .custom: return L10n.string("自定义起始日期")
         }
     }
 

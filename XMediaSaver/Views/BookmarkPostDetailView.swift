@@ -89,7 +89,15 @@ struct BookmarkPostDetailView: View {
                     Text("@\(username)")
                 }
                 if let date = post.createdAt {
-                    Text(date.formatted(date: .abbreviated, time: .shortened))
+                    Text(
+                        date,
+                        format: .dateTime
+                            .year()
+                            .month(.abbreviated)
+                            .day()
+                            .hour()
+                            .minute()
+                    )
                 }
             }
             .font(.caption)
@@ -346,8 +354,12 @@ private final class PostMediaSaveModel: ObservableObject {
                         }
                     }
                 )
-                resultMessage =
-                    "保存 \(result.saved) 项，跳过 \(result.skipped) 项，失败 \(result.failed) 项。"
+                resultMessage = L10n.format(
+                    "保存 %lld 项，跳过 %lld 项，失败 %lld 项。",
+                    result.saved,
+                    result.skipped,
+                    result.failed
+                )
                 if result.failed > 0, let issue = result.issues.first {
                     presentedError = PresentedError(
                         message: issue,
@@ -355,7 +367,7 @@ private final class PostMediaSaveModel: ObservableObject {
                     )
                 }
             } catch is CancellationError {
-                resultMessage = "保存已取消。"
+                resultMessage = L10n.string("保存已取消。")
             } catch {
                 let message = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription

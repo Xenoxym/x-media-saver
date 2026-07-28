@@ -9,9 +9,9 @@ enum BookmarkMediaType: String, Codable, CaseIterable, Hashable, Identifiable {
 
     var title: String {
         switch self {
-        case .photo: return "图片"
-        case .animatedGIF: return "动图"
-        case .video: return "视频"
+        case .photo: return L10n.string("图片")
+        case .animatedGIF: return L10n.string("动图")
+        case .video: return L10n.string("视频")
         }
     }
 
@@ -123,9 +123,9 @@ enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .posts: return "帖子"
-        case .accounts: return "账号"
-        case .hashtags: return "标签"
+        case .posts: return L10n.string("帖子")
+        case .accounts: return L10n.string("账号")
+        case .hashtags: return L10n.string("标签")
         }
     }
 }
@@ -145,9 +145,9 @@ enum BookmarkSearchField: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .all: return "全部"
-        case .account: return "账号"
-        case .content: return "正文"
+        case .all: return L10n.string("全部")
+        case .account: return L10n.string("账号")
+        case .content: return L10n.string("正文")
         case .hashtag: return "Hashtag"
         }
     }
@@ -162,10 +162,10 @@ enum BookmarkPostSort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .bookmarkNewest: return "最近加入书签"
-        case .bookmarkOldest: return "最早加入书签"
-        case .newest: return "最新发布"
-        case .oldest: return "最早发布"
+        case .bookmarkNewest: return L10n.string("最近加入书签")
+        case .bookmarkOldest: return L10n.string("最早加入书签")
+        case .newest: return L10n.string("最新发布")
+        case .oldest: return L10n.string("最早发布")
         }
     }
 }
@@ -176,7 +176,11 @@ enum BookmarkHashtagSort: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
     var title: String {
-        self == .countDescending ? "帖子数从多到少" : "标签名称排序"
+        L10n.string(
+            self == .countDescending
+                ? "帖子数从多到少"
+                : "标签名称排序"
+        )
     }
 }
 
@@ -193,11 +197,11 @@ enum MediaDurationLimit: Int, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .zero: return "0"
-        case .oneMinute: return "1 分钟"
-        case .tenMinutes: return "10 分钟"
-        case .thirtyMinutes: return "30 分钟"
-        case .oneHour: return "1 小时"
-        case .unlimited: return "不限制"
+        case .oneMinute: return L10n.string("1 分钟")
+        case .tenMinutes: return L10n.string("10 分钟")
+        case .thirtyMinutes: return L10n.string("30 分钟")
+        case .oneHour: return L10n.string("1 小时")
+        case .unlimited: return L10n.string("不限制")
         }
     }
 
@@ -230,7 +234,7 @@ enum MediaSizeLimit: Int, CaseIterable, Identifiable {
         case .fiftyMB: return "50 MB"
         case .twoHundredMB: return "200 MB"
         case .fiveHundredMB: return "500 MB"
-        case .unlimited: return "不限制"
+        case .unlimited: return L10n.string("不限制")
         }
     }
 
@@ -256,9 +260,12 @@ enum BookmarkAccountSort: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .countDescending: return "帖子数从多到少"
-        case .handleAscending: return "@用户名排序"
-        case .nameAscending: return "显示昵称排序"
+        case .countDescending:
+            return L10n.string("帖子数从多到少")
+        case .handleAscending:
+            return L10n.string("@用户名排序")
+        case .nameAscending:
+            return L10n.string("显示昵称排序")
         }
     }
 }

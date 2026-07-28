@@ -262,9 +262,12 @@ struct BookmarkPostRowView: View {
         guard let bytes = post.totalKnownByteSize else {
             let known = post.media.compactMap(\.byteSize).reduce(0, +)
             if known > 0 {
-                return "\(Self.byteFormatter.string(fromByteCount: known)) + 待分析"
+                return L10n.format(
+                    "%@ + 待分析",
+                    Self.byteFormatter.string(fromByteCount: known)
+                )
             }
-            return "大小待分析"
+            return L10n.string("大小待分析")
         }
         return Self.byteFormatter.string(fromByteCount: bytes)
     }

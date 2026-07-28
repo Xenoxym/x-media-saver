@@ -2,6 +2,19 @@
 
 All notable user-facing changes are recorded here. Version numbers follow Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+
+- English and Simplified Chinese UI with System, English, and Simplified Chinese language choices.
+- A fourth Settings tab for language, storage/cache management, background audio, default Post preview style, version information, and the project link.
+- Localized Photos add-only permission text for English and Simplified Chinese system languages.
+
+### Changed
+
+- Non-Chinese system languages now use English by default.
+- Storage management moved from the Bookmarks toolbar into Settings.
+
 ## [1.1.0] - 2026-07-27
 
 ### Added
