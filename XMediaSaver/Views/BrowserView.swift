@@ -16,6 +16,9 @@ struct BrowserView: View {
             .onAppear {
                 session.browserDidAppear()
             }
+            .onDisappear {
+                session.browserDidDisappear()
+            }
             .confirmationDialog(
                 "退出并清除 X 浏览器数据？",
                 isPresented: $confirmLogout,
@@ -57,16 +60,6 @@ struct BrowserView: View {
                     systemImage: "tray.full"
                 )
                 .font(.caption.weight(.semibold).monospacedDigit())
-
-                if session.sizeAnalysisRemaining > 0 {
-                    HStack(spacing: 4) {
-                        ProgressView()
-                            .controlSize(.mini)
-                        Text("\(session.sizeAnalysisRemaining)")
-                            .font(.caption2.monospacedDigit())
-                    }
-                    .foregroundStyle(.secondary)
-                }
 
                 Spacer(minLength: 0)
 

@@ -36,6 +36,7 @@ struct ContentView: View {
                 }
         }
         .environment(\.locale, selectedLanguage.locale)
+        .id(selectedLanguage.resolvedLanguageCode)
     }
 }
 

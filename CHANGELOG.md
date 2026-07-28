@@ -14,6 +14,12 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 - Non-Chinese system languages now use English by default.
 - Storage management moved from the Bookmarks toolbar into Settings.
+- Localized cached navigation/back titles, range summaries, and browse-mode segments when switching languages.
+- Simplified the animated-GIF filter label to “Animated GIFs (MP4)” and removed media-size analysis from the compact X Browser toolbar.
+
+### Fixed
+
+- Background bookmark sync now rehosts a hidden-tab WebView inside the active window, advances the native WebKit scroll view in viewport-sized steps, treats scroll movement as progress, and waits for a genuinely idle timeline before stopping.
 
 ## [1.1.0] - 2026-07-27
 

@@ -39,6 +39,7 @@
 "正在打开书签页面…" = "Opening bookmarks…";
 "已读取 %lld 页，新增 %lld 条，总计 %lld 条" = "Read %lld pages, added %lld, total %lld";
 "等待下一页（%lld/6），新增 %lld 条…" = "Waiting for the next page (%lld/6), added %lld…";
+"等待下一页（%lld/12），新增 %lld 条…" = "Waiting for the next page (%lld/12), added %lld…";
 "同步" = "Sync";
 "同步书签" = "Sync Bookmarks";
 "停止" = "Stop";
@@ -51,6 +52,7 @@
 
 "下载与浏览筛选" = "Download & Browse Filters";
 "动图（最高质量 MP4）" = "Animated GIFs (Highest-quality MP4)";
+"动图（MP4）" = "Animated GIFs (MP4)";
 "视频/动图时长" = "Video/GIF Duration";
 "Post 媒体总大小" = "Total Post Media Size";
 "时长与大小" = "Duration & Size";

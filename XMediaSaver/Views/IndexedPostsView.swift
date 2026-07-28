@@ -79,7 +79,7 @@ struct IndexedPostsView: View {
             }
         }
         .background(Color(uiColor: .systemBackground))
-        .navigationTitle("已索引 Post")
+        .navigationTitle(L10n.string("已索引 Post"))
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, prompt: "搜索账号或正文")
         .onChange(of: searchText) { _ in

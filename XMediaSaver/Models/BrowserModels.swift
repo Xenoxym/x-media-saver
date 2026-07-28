@@ -121,13 +121,15 @@ enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: String {
+    var titleKey: String {
         switch self {
-        case .posts: return L10n.string("帖子")
-        case .accounts: return L10n.string("账号")
-        case .hashtags: return L10n.string("标签")
+        case .posts: return "帖子"
+        case .accounts: return "账号"
+        case .hashtags: return "标签"
         }
     }
+
+    var title: String { L10n.string(titleKey) }
 }
 
 enum BookmarkPostPreviewMode: String {

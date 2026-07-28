@@ -41,7 +41,7 @@ struct BookmarksView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("书签媒体")
+            .navigationTitle(L10n.string("书签媒体"))
             .searchable(
                 text: $viewModel.searchText,
                 prompt: "搜索账号、正文或 #标签"
@@ -282,7 +282,7 @@ struct BookmarksView: View {
             Label("下载与浏览筛选", systemImage: "line.3.horizontal.decrease.circle")
                 .font(.headline)
             Toggle("图片", isOn: $viewModel.filter.includePhotos)
-            Toggle("动图（最高质量 MP4）", isOn: $viewModel.filter.includeGIFs)
+            Toggle("动图（MP4）", isOn: $viewModel.filter.includeGIFs)
             Toggle("视频", isOn: $viewModel.filter.includeVideos)
 
             Divider()
@@ -367,7 +367,13 @@ struct BookmarksView: View {
     }
 
     private var rangeFiltersSummary: String {
-        "时长 \(viewModel.filter.minimumDuration.title)–\(viewModel.filter.maximumDuration.title) · 大小 \(viewModel.filter.minimumSize.title)–\(viewModel.filter.maximumSize.title)"
+        L10n.format(
+            "时长 %@–%@ · 大小 %@–%@",
+            viewModel.filter.minimumDuration.title,
+            viewModel.filter.maximumDuration.title,
+            viewModel.filter.minimumSize.title,
+            viewModel.filter.maximumSize.title
+        )
     }
 
     private func applyDateRange(_ range: BookmarkDateRange) {
@@ -678,7 +684,7 @@ struct BookmarksView: View {
 
             Picker("查看方式", selection: $viewModel.browseMode) {
                 ForEach(BookmarkBrowseMode.allCases) {
-                    Text($0.title).tag($0)
+                    Text(LocalizedStringKey($0.titleKey)).tag($0)
                 }
             }
             .pickerStyle(.segmented)
