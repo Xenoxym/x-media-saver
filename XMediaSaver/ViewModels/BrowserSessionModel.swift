@@ -25,8 +25,6 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     private var navigationTimeoutTask: Task<Void, Never>?
     private var persistenceTask: Task<Void, Never>?
     private var messageHandlerProxy: WeakScriptMessageHandler?
-    private var backgroundWebViewHost: UIView?
-    private var browserIsVisible = false
     private let persistenceStore = BookmarkPersistenceStore()
     private let sizeResolver = MediaSizeResolver()
     private let storageManager = StorageManager()
@@ -117,17 +115,13 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     }
 
     func browserDidAppear() {
-        browserIsVisible = true
-        if webView.superview === backgroundWebViewHost {
-            webView.removeFromSuperview()
-        }
-        backgroundWebViewHost?.removeFromSuperview()
-        backgroundWebViewHost = nil
         prepareBrowser()
     }
 
     func browserDidDisappear() {
-        browserIsVisible = false
+        if isAutoCapturing {
+            stopAutoCapture()
+        }
     }
 
     func retryBrowserLogin() {
@@ -200,7 +194,6 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     func startAutoCapture() {
         guard !isAutoCapturing else { return }
 
-        attachWebViewForBackgroundSyncIfNeeded()
         captureError = nil
         isAutoCapturing = true
         syncPageCount = 0
@@ -249,7 +242,14 @@ final class BrowserSessionModel: NSObject, ObservableObject {
             for _ in 0..<800 {
                 guard !Task.isCancelled else { break }
 
-                let scrollAdvanced = advanceBookmarkTimeline()
+                do {
+                    _ = try await webView.evaluateJavaScript(
+                        "window.scrollTo(0, Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));"
+                    )
+                } catch {
+                    captureError = error.localizedDescription
+                    break
+                }
 
                 try? await Task.sleep(nanoseconds: 950_000_000)
                 let currentSequence = bookmarkResponseSequence
@@ -264,23 +264,18 @@ final class BrowserSessionModel: NSObject, ObservableObject {
                         syncNewPostCount,
                         capturedPosts.count
                     )
-                } else if scrollAdvanced {
-                    // A bookmark page can be several viewports tall. Moving
-                    // through it is useful progress even before the next
-                    // cursor request is emitted.
-                    idleRounds = 0
                 } else {
                     idleRounds += 1
                     if idleRounds >= 2 {
                         syncStatusText = L10n.format(
-                            "等待下一页（%lld/12），新增 %lld 条…",
+                            "等待下一页（%lld/6），新增 %lld 条…",
                             idleRounds,
                             syncNewPostCount
                         )
                     }
                 }
 
-                if idleRounds >= 12 {
+                if idleRounds >= 6 {
                     break
                 }
             }
@@ -291,79 +286,6 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         autoCaptureTask?.cancel()
         autoCaptureTask = nil
         isAutoCapturing = false
-    }
-
-    private func attachWebViewForBackgroundSyncIfNeeded() {
-        guard !browserIsVisible else {
-            return
-        }
-
-        if webView.superview === backgroundWebViewHost {
-            return
-        }
-
-        guard let window = UIApplication.shared.connectedScenes
-                .compactMap({ $0 as? UIWindowScene })
-                .flatMap({ $0.windows })
-                .first(where: \.isKeyWindow)
-        else {
-            return
-        }
-
-        // TabView keeps the browser representable attached to its hidden
-        // tab. Move it explicitly so WebKit is not left in that suspended
-        // hierarchy.
-        webView.removeFromSuperview()
-        backgroundWebViewHost?.removeFromSuperview()
-
-        // Keep WebKit inside the key window's geometry so X's virtualized
-        // timeline continues to receive layout and visibility updates.
-        // It sits below the opaque app root and never intercepts touches.
-        let host = UIView(frame: window.bounds)
-        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        host.isUserInteractionEnabled = false
-        host.accessibilityElementsHidden = true
-        host.clipsToBounds = true
-        webView.frame = host.bounds
-        webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        host.addSubview(webView)
-        window.insertSubview(host, at: 0)
-        host.layoutIfNeeded()
-        webView.layoutIfNeeded()
-        backgroundWebViewHost = host
-    }
-
-    private func advanceBookmarkTimeline() -> Bool {
-        let scrollView = webView.scrollView
-        scrollView.layoutIfNeeded()
-
-        let inset = scrollView.adjustedContentInset
-        let currentY = scrollView.contentOffset.y
-        let minimumY = -inset.top
-        let maximumY = max(
-            minimumY,
-            scrollView.contentSize.height
-                - scrollView.bounds.height
-                + inset.bottom
-        )
-        let viewport = max(
-            scrollView.bounds.height - inset.top - inset.bottom,
-            600
-        )
-        let targetY = min(
-            maximumY,
-            max(minimumY, currentY + viewport * 0.9)
-        )
-
-        guard targetY > currentY + 1 else {
-            return false
-        }
-
-        scrollView.setContentOffset(
-            CGPoint(x: scrollView.contentOffset.x, y: targetY),
-            animated: false
-        )
-        return true
     }
 
     func analyzeMissingMediaSizes(retryUnavailable: Bool = false) {

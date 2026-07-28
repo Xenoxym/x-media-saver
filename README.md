@@ -8,7 +8,7 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 
 Current release: **1.1.0 (build 2)**. See [CHANGELOG.md](CHANGELOG.md) for release history.
 
-The current `main` development build is **1.2.0 (build 4)**.
+The current `main` development build is **1.2.0 (build 5)**.
 
 ## Current features
 
@@ -126,7 +126,7 @@ Post video previews include an explicit native full-screen control. Picture in P
 - The indexed bookmark count is a locally retained loaded count, not a guaranteed server-side total. X does not expose a reliable bookmark-added timestamp here.
 - Bookmark-order sorting preserves the order in which entries were observed in the X bookmark timeline. It is useful for newest/oldest bookmark browsing but is not an exact bookmark-added timestamp.
 - Synchronization captures network responses rather than rendered-cell counts. The faster scroll loop does not intentionally skip cursor pages, but no undocumented web workflow can guarantee a complete server-side inventory.
-- Sync can continue when the WebView is offscreen inside this app. iOS may suspend WebKit after locking the device or switching to another app, so this is not an unrestricted system background task.
+- Bookmark auto-scroll requires the X Browser tab to remain visible. Starting Sync from Bookmarks automatically switches to X Browser; leaving that tab stops the pass so WebKit is never moved into an unsupported hidden-view state.
 - X bookmark JSON usually includes duration but not byte size. The app probes direct media CDN URLs with a limited, low-priority HEAD/range queue; unresolved values remain explicitly marked unknown.
 - The storage screen can remove WebKit disk/memory/fetch caches while retaining cookies. Cookies and browser databases remain private by design and are never exported into Files.
 - The app saves direct X-hosted photos and MP4 variants. It does not assemble HLS streams, live broadcasts, or external card players.

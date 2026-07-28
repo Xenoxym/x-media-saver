@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct BookmarksView: View {
     @ObservedObject var session: BrowserSessionModel
     @ObservedObject var viewModel: BookmarksViewModel
+    let onRequestVisibleSync: () -> Void
     @Environment(\.openURL) private var openURL
     @State private var expandedAccounts: Set<String> = []
     @State private var expandedHashtags: Set<String> = []
@@ -41,7 +42,7 @@ struct BookmarksView: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle(L10n.string("书签媒体"))
+            .navigationTitle("Bookmarks")
             .searchable(
                 text: $viewModel.searchText,
                 prompt: "搜索账号、正文或 #标签"
@@ -57,7 +58,7 @@ struct BookmarksView: View {
                         Button("停止") { session.stopAutoCapture() }
                     } else {
                         Button {
-                            session.startAutoCapture()
+                            onRequestVisibleSync()
                         } label: {
                             Label(
                                 "同步",
@@ -132,7 +133,7 @@ struct BookmarksView: View {
                 ProgressView("正在同步…")
             } else {
                 Button {
-                    session.startAutoCapture()
+                    onRequestVisibleSync()
                 } label: {
                     Label(
                         "同步书签",

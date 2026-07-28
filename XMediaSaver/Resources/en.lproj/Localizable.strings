@@ -199,6 +199,7 @@
 "X 页面加载失败：%@（%lld）" = "X failed to load: %@ (%lld)";
 
 "Settings" = "Settings";
+"Bookmarks" = "Bookmarks";
 "App Language" = "App Language";
 "Language" = "Language";
 "Follow System" = "Follow System";

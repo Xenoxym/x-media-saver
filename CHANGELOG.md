@@ -19,7 +19,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ### Fixed
 
-- Background bookmark sync now rehosts a hidden-tab WebView inside the active window, advances the native WebKit scroll view in viewport-sized steps, treats scroll movement as progress, and waits for a genuinely idle timeline before stopping.
+- Removed the experimental hidden-WebView sync path that could leave X Browser blank. Sync started from Bookmarks now switches to the visible X Browser, auto-scrolls there, and stops after six idle rounds or when the user leaves the tab.
+- Media and indexed-Post pages use a compact chevron-only back button, avoiding stale localized titles and crowded navigation bars.
 
 ## [1.1.0] - 2026-07-27
 

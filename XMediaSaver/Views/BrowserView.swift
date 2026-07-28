@@ -3,6 +3,7 @@ import WebKit
 
 struct BrowserView: View {
     @ObservedObject var session: BrowserSessionModel
+    @Binding var startsSyncOnAppear: Bool
     @State private var confirmLogout = false
 
     var body: some View {
@@ -15,6 +16,11 @@ struct BrowserView: View {
             .toolbar(.hidden, for: .navigationBar)
             .onAppear {
                 session.browserDidAppear()
+                guard startsSyncOnAppear else { return }
+                startsSyncOnAppear = false
+                DispatchQueue.main.async {
+                    session.startAutoCapture()
+                }
             }
             .onDisappear {
                 session.browserDidDisappear()
