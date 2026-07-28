@@ -383,7 +383,6 @@ private struct InlineVideoPreview: View {
     @State private var pictureInPictureActive = false
     @State private var nativeFullScreenActive = false
     @State private var inlineAudioEnabled = false
-    @State private var audioConfigurationTask: Task<Void, Never>?
     @AppStorage("postVideoBackgroundPlaybackEnabled")
     private var backgroundPlaybackEnabled = false
 
@@ -443,8 +442,7 @@ private struct InlineVideoPreview: View {
                         isSilent = silent
                         let activated =
                             await MediaPlaybackAudioSession.activate(
-                                silent:
-                                    silent || !backgroundPlaybackEnabled
+                                silent: silent
                             )
                         guard !Task.isCancelled,
                               player === newPlayer
@@ -466,22 +464,6 @@ private struct InlineVideoPreview: View {
                     for: player,
                     enabled: enabled && isSilent == false
                 )
-                if let isSilent {
-                    audioConfigurationTask?.cancel()
-                    let expectedPlayer = player
-                    audioConfigurationTask = Task {
-                        let activated =
-                            await MediaPlaybackAudioSession.activate(
-                                silent: isSilent || !enabled
-                            )
-                        guard !Task.isCancelled,
-                              self.player === expectedPlayer
-                        else {
-                            return
-                        }
-                        audioSessionActive = activated
-                    }
-                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
@@ -501,8 +483,6 @@ private struct InlineVideoPreview: View {
                 loopIfCurrentItemEnded(notification)
             }
             .onDisappear {
-                audioConfigurationTask?.cancel()
-                audioConfigurationTask = nil
                 if !pictureInPictureActive
                     && !nativeFullScreenActive {
                     player?.pause()
@@ -565,6 +545,11 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = false
         context.coordinator.observe(player: player)
+        Self.disablePinchGestures(in: controller.view)
+        DispatchQueue.main.async { [weak controller] in
+            guard let controller else { return }
+            Self.disablePinchGestures(in: controller.view)
+        }
         return controller
     }
 
@@ -576,6 +561,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
             controller.player = player
         }
         context.coordinator.observe(player: player)
+        Self.disablePinchGestures(in: controller.view)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -673,6 +659,15 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
                 playerViewController?.player?.play()
                 self.isFullScreenActive.wrappedValue = false
             }
+        }
+    }
+
+    private static func disablePinchGestures(in view: UIView) {
+        view.gestureRecognizers?
+            .compactMap { $0 as? UIPinchGestureRecognizer }
+            .forEach { $0.isEnabled = false }
+        view.subviews.forEach {
+            disablePinchGestures(in: $0)
         }
     }
 }
