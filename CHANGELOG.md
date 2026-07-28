@@ -4,6 +4,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-28
+
 ### Added
 
 - English and Simplified Chinese UI with System, English, and Simplified Chinese language choices.
@@ -55,3 +57,5 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 [1.1.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Xenoxym/x-media-saver/releases/tag/v1.0.0
+[Unreleased]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.1.0...v1.2.0

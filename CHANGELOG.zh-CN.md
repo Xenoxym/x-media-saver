@@ -4,6 +4,8 @@
 
 ## [尚未发布]
 
+## [1.2.0] - 2026-07-28
+
 ### 新增
 
 - 支持 English 与简体中文 UI，可选择跟随系统、English 或简体中文。
@@ -16,6 +18,8 @@
 - 存储管理入口从书签工具栏迁移到“设置”分页。
 - 修复语言切换后缓存的导航返回标题、时长/大小摘要和浏览分页仍显示中文的问题。
 - 动图筛选名称缩短为“动图（MP4）”，并从 X 浏览器紧凑工具栏移除媒体大小分析状态。
+- 媒体大小分析由单个串行请求改为三个有上限的并发探测，同时继续使用轻量的 HEAD/Range 元数据请求。
+- 时长和大小区间的无上限刻度改用不受语言影响的无穷符号。
 
 ### 修复
 
@@ -53,3 +57,5 @@
 
 [1.1.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Xenoxym/x-media-saver/releases/tag/v1.0.0
+[尚未发布]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.1.0...v1.2.0
