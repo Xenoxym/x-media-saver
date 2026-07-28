@@ -16,6 +16,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Storage management moved from the Bookmarks toolbar into Settings.
 - Localized cached navigation/back titles, range summaries, and browse-mode segments when switching languages.
 - Simplified the animated-GIF filter label to “Animated GIFs (MP4)” and removed media-size analysis from the compact X Browser toolbar.
+- Media-size analysis now uses three bounded concurrent probes instead of one serial request, while retaining lightweight HEAD/range metadata checks.
+- Duration and size range controls use a language-neutral infinity symbol for an unlimited upper bound.
 
 ### Fixed
 

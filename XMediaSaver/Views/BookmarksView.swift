@@ -296,7 +296,7 @@ struct BookmarksView: View {
                         upperTitle: viewModel.filter.maximumDuration.title,
                         lowerValue: minimumDurationBinding,
                         upperValue: maximumDurationBinding,
-                        labels: ["0", "1m", "10m", "30m", "1h", "不限"]
+                        labels: ["0", "1m", "10m", "30m", "1h", "∞"]
                     )
 
                     Divider()
@@ -307,7 +307,7 @@ struct BookmarksView: View {
                         upperTitle: viewModel.filter.maximumSize.title,
                         lowerValue: minimumSizeBinding,
                         upperValue: maximumSizeBinding,
-                        labels: ["0", "10M", "50M", "200M", "500M", "不限"]
+                        labels: ["0", "10M", "50M", "200M", "500M", "∞"]
                     )
 
                     Text("区间包含左端、不包含右端；右端“不限”表示不设置上限。设置范围后，大小或时长未知的项目不会匹配。")

@@ -32,6 +32,7 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     private var sizeProbeTask: Task<Void, Never>?
     private var pendingSizeProbes: [SizeProbeRequest] = []
     private var sizeProbeKeys: Set<String> = []
+    private static let sizeProbeWorkerCount = 3
 
     override init() {
         super.init()
@@ -593,26 +594,58 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         guard sizeProbeTask == nil, !pendingSizeProbes.isEmpty else { return }
         sizeProbeTask = Task { [weak self] in
             guard let self else { return }
-            defer {
-                sizeProbeTask = nil
-                sizeAnalysisRemaining = pendingSizeProbes.count
-                if !pendingSizeProbes.isEmpty {
-                    startSizeProbeWorkerIfNeeded()
+
+            var inFlightCount = 0
+            await withTaskGroup(of: SizeProbeResult.self) { group in
+                while !Task.isCancelled
+                    && (!pendingSizeProbes.isEmpty || inFlightCount > 0) {
+                    while !Task.isCancelled,
+                          inFlightCount < Self.sizeProbeWorkerCount,
+                          !pendingSizeProbes.isEmpty {
+                        let request = pendingSizeProbes.removeLast()
+                        inFlightCount += 1
+                        group.addTask { [sizeResolver] in
+                            let byteCount = await sizeResolver.resolve(
+                                request.url
+                            )
+                            return SizeProbeResult(
+                                request: request,
+                                byteCount: byteCount
+                            )
+                        }
+                    }
+
+                    sizeAnalysisRemaining =
+                        pendingSizeProbes.count + inFlightCount
+                    guard inFlightCount > 0,
+                          let result = await group.next()
+                    else {
+                        break
+                    }
+
+                    inFlightCount -= 1
+                    applyResolvedSize(
+                        result.byteCount,
+                        postID: result.request.postID,
+                        mediaKey: result.request.mediaKey
+                    )
+                    sizeProbeKeys.remove(result.request.mediaKey)
+                    sizeAnalysisRemaining =
+                        pendingSizeProbes.count + inFlightCount
+                }
+
+                if Task.isCancelled {
+                    group.cancelAll()
                 }
             }
-            while !pendingSizeProbes.isEmpty {
-                guard !Task.isCancelled else { return }
-                let request = pendingSizeProbes.removeFirst()
-                sizeAnalysisRemaining = pendingSizeProbes.count + 1
-                let size = await sizeResolver.resolve(request.url)
-                applyResolvedSize(
-                    size,
-                    postID: request.postID,
-                    mediaKey: request.mediaKey
-                )
-                sizeProbeKeys.remove(request.mediaKey)
-                sizeAnalysisRemaining = pendingSizeProbes.count
-                try? await Task.sleep(nanoseconds: 150_000_000)
+
+            let wasCancelled = Task.isCancelled
+            sizeProbeTask = nil
+            sizeAnalysisRemaining = wasCancelled
+                ? 0
+                : pendingSizeProbes.count
+            if !wasCancelled, !pendingSizeProbes.isEmpty {
+                startSizeProbeWorkerIfNeeded()
             }
         }
     }
@@ -693,10 +726,15 @@ final class BrowserSessionModel: NSObject, ObservableObject {
     }
 }
 
-private struct SizeProbeRequest {
+private struct SizeProbeRequest: Sendable {
     let postID: String
     let mediaKey: String
     let url: URL
+}
+
+private struct SizeProbeResult: Sendable {
+    let request: SizeProbeRequest
+    let byteCount: Int64?
 }
 
 extension BrowserSessionModel: WKScriptMessageHandler {

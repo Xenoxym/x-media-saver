@@ -7,6 +7,7 @@ actor MediaSizeResolver {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 20
         configuration.timeoutIntervalForResource = 30
+        configuration.httpMaximumConnectionsPerHost = 3
         return URLSession(configuration: configuration)
     }()
 
