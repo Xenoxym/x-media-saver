@@ -383,40 +383,18 @@ private struct InlineVideoPreview: View {
     @State private var pictureInPictureActive = false
     @State private var nativeFullScreenActive = false
     @State private var inlineAudioEnabled = false
-    @State private var fullScreenRequestID = 0
     @State private var audioConfigurationTask: Task<Void, Never>?
     @AppStorage("postVideoBackgroundPlaybackEnabled")
     private var backgroundPlaybackEnabled = false
 
     var body: some View {
         VStack(spacing: 8) {
-            ZStack(alignment: .topLeading) {
-                SystemVideoPlayerView(
-                    player: player,
-                    isPictureInPictureActive: $pictureInPictureActive,
-                    isFullScreenActive: $nativeFullScreenActive,
-                    inlineAudioEnabled: $inlineAudioEnabled,
-                    fullScreenRequestID: fullScreenRequestID,
-                    updatesNowPlayingInfoCenter:
-                        backgroundPlaybackEnabled && isSilent == false
-                )
-
-                Button {
-                    fullScreenRequestID &+= 1
-                } label: {
-                    Image(
-                        systemName:
-                            "arrow.up.left.and.arrow.down.right"
-                    )
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .padding(10)
-                    .background(.black.opacity(0.6), in: Circle())
-                }
-                .padding(10)
-                .disabled(player == nil)
-                .accessibilityLabel("全屏播放")
-            }
+            SystemVideoPlayerView(
+                player: player,
+                isPictureInPictureActive: $pictureInPictureActive,
+                isFullScreenActive: $nativeFullScreenActive,
+                inlineAudioEnabled: $inlineAudioEnabled
+            )
                 .aspectRatio(mediaAspectRatio, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .background(Color.black)
@@ -577,8 +555,6 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
     @Binding var isPictureInPictureActive: Bool
     @Binding var isFullScreenActive: Bool
     @Binding var inlineAudioEnabled: Bool
-    let fullScreenRequestID: Int
-    let updatesNowPlayingInfoCenter: Bool
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
@@ -588,20 +564,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         controller.videoGravity = .resizeAspect
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = false
-        controller.updatesNowPlayingInfoCenter =
-            updatesNowPlayingInfoCenter
-        context.coordinator.attach(to: controller)
         context.coordinator.observe(player: player)
-        context.coordinator.handleFullScreenRequest(
-            fullScreenRequestID
-        )
-
-        let pinchGesture = UIPinchGestureRecognizer(
-            target: context.coordinator,
-            action: #selector(Coordinator.handlePinch(_:))
-        )
-        pinchGesture.cancelsTouchesInView = false
-        controller.view.addGestureRecognizer(pinchGesture)
         return controller
     }
 
@@ -612,12 +575,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         if controller.player !== player {
             controller.player = player
         }
-        controller.updatesNowPlayingInfoCenter =
-            updatesNowPlayingInfoCenter
         context.coordinator.observe(player: player)
-        context.coordinator.handleFullScreenRequest(
-            fullScreenRequestID
-        )
     }
 
     func makeCoordinator() -> Coordinator {
@@ -634,22 +592,15 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
     ) {
         controller.delegate = nil
         controller.player = nil
-        coordinator.attach(to: nil)
         coordinator.stopObservingPlayer()
     }
 
-    final class Coordinator:
-        NSObject,
-        AVPlayerViewControllerDelegate,
-        UIAdaptivePresentationControllerDelegate {
+    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
         private var isPictureInPictureActive: Binding<Bool>
         private var isFullScreenActive: Binding<Bool>
         private var inlineAudioEnabled: Binding<Bool>
         private weak var observedPlayer: AVPlayer?
-        private weak var playerViewController: AVPlayerViewController?
-        private weak var fullScreenController: AVPlayerViewController?
         private var muteObservation: NSKeyValueObservation?
-        private var lastFullScreenRequestID = 0
 
         init(
             isPictureInPictureActive: Binding<Bool>,
@@ -659,16 +610,6 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
             self.isPictureInPictureActive = isPictureInPictureActive
             self.isFullScreenActive = isFullScreenActive
             self.inlineAudioEnabled = inlineAudioEnabled
-        }
-
-        func attach(to controller: AVPlayerViewController?) {
-            playerViewController = controller
-        }
-
-        func handleFullScreenRequest(_ requestID: Int) {
-            guard requestID != lastFullScreenRequestID else { return }
-            lastFullScreenRequestID = requestID
-            presentFullScreen()
         }
 
         func observe(player: AVPlayer?) {
@@ -697,17 +638,6 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
             observedPlayer = nil
         }
 
-        @objc
-        func handlePinch(_ gesture: UIPinchGestureRecognizer) {
-            guard gesture.state == .ended,
-                  gesture.scale > 1.12,
-                  observedPlayer != nil
-            else {
-                return
-            }
-            presentFullScreen()
-        }
-
         func playerViewControllerWillStartPictureInPicture(
             _ playerViewController: AVPlayerViewController
         ) {
@@ -718,95 +648,31 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
             _ playerViewController: AVPlayerViewController
         ) {
             isPictureInPictureActive.wrappedValue = false
-            if !isFullScreenActive.wrappedValue {
-                fullScreenController?.player = nil
-                fullScreenController = nil
-                restoreInlinePlayback()
-            }
         }
 
-        func presentationControllerWillDismiss(
-            _ presentationController: UIPresentationController
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            willBeginFullScreenPresentationWithAnimationCoordinator
+                coordinator: UIViewControllerTransitionCoordinator
         ) {
-            isFullScreenActive.wrappedValue = false
-        }
-
-        func presentationControllerDidDismiss(
-            _ presentationController: UIPresentationController
-        ) {
-            finishFullScreenDismissal()
-        }
-
-        private func presentFullScreen() {
-            guard fullScreenController == nil,
-                  let presentingController = playerViewController,
-                  let player = observedPlayer
-            else {
-                return
-            }
-
-            let controller = DismissAwarePlayerViewController()
-            controller.player = player
-            controller.delegate = self
-            controller.showsPlaybackControls = true
-            controller.videoGravity = .resizeAspect
-            controller.allowsPictureInPicturePlayback = true
-            controller.canStartPictureInPictureAutomaticallyFromInline =
-                false
-            controller.updatesNowPlayingInfoCenter = false
-            controller.modalPresentationStyle = .fullScreen
-            controller.onDismissal = { [weak self] in
-                self?.finishFullScreenDismissal()
-            }
-            fullScreenController = controller
-
             isFullScreenActive.wrappedValue = true
-            player.isMuted = false
-            player.play()
+            playerViewController.player?.isMuted = false
+            playerViewController.player?.play()
+        }
 
-            presentingController.present(
-                controller,
-                animated: true
-            ) { [weak self, weak controller] in
-                controller?.presentationController?.delegate = self
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            willEndFullScreenPresentationWithAnimationCoordinator
+                coordinator: UIViewControllerTransitionCoordinator
+        ) {
+            coordinator.animate(alongsideTransition: nil) {
+                [weak self, weak playerViewController] _ in
+                guard let self else { return }
+                playerViewController?.player?.isMuted =
+                    !self.inlineAudioEnabled.wrappedValue
+                playerViewController?.player?.play()
+                self.isFullScreenActive.wrappedValue = false
             }
         }
-
-        private func finishFullScreenDismissal() {
-            isFullScreenActive.wrappedValue = false
-            if !isPictureInPictureActive.wrappedValue {
-                fullScreenController?.player = nil
-                fullScreenController = nil
-                restoreInlinePlayback()
-            }
-        }
-
-        private func restoreInlinePlayback() {
-            observedPlayer?.isMuted =
-                !inlineAudioEnabled.wrappedValue
-            observedPlayer?.play()
-        }
-    }
-}
-
-private final class DismissAwarePlayerViewController:
-    AVPlayerViewController {
-    var onDismissal: (() -> Void)?
-    private var hasNotifiedDismissal = false
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-        hasNotifiedDismissal = false
-    }
-
-    override func viewDidDisappear(_ animated: Bool) {
-        super.viewDidDisappear(animated)
-        guard !hasNotifiedDismissal,
-              isBeingDismissed || presentingViewController == nil
-        else {
-            return
-        }
-        hasNotifiedDismissal = true
-        onDismissal?()
     }
 }
