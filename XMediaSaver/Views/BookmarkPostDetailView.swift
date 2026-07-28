@@ -4,6 +4,7 @@ import UIKit
 
 struct BookmarkPostDetailView: View {
     let post: BookmarkedPost
+    var preservesAudioSessionOnDismiss = false
     @Environment(\.openURL) private var openURL
     @StateObject private var mediaSaver = PostMediaSaveModel()
 
@@ -375,6 +376,7 @@ private struct InlineVideoPreview: View {
     @State private var audioSessionActive = false
     @State private var isSilent: Bool?
     @State private var pictureInPictureActive = false
+    @State private var audioConfigurationTask: Task<Void, Never>?
     @AppStorage("postVideoBackgroundPlaybackEnabled")
     private var backgroundPlaybackEnabled = false
 
@@ -382,7 +384,9 @@ private struct InlineVideoPreview: View {
         VStack(spacing: 8) {
             SystemVideoPlayerView(
                 player: player,
-                isPictureInPictureActive: $pictureInPictureActive
+                isPictureInPictureActive: $pictureInPictureActive,
+                updatesNowPlayingInfoCenter:
+                    backgroundPlaybackEnabled && isSilent == false
             )
                 .aspectRatio(mediaAspectRatio, contentMode: .fit)
                 .frame(maxWidth: .infinity)
@@ -430,10 +434,17 @@ private struct InlineVideoPreview: View {
                         }
                         isSilent = silent
                         newPlayer.isMuted = silent
-                        audioSessionActive =
-                            MediaPlaybackAudioSession.activate(
-                                silent: silent
+                        let activated =
+                            await MediaPlaybackAudioSession.activate(
+                                silent:
+                                    silent || !backgroundPlaybackEnabled
                             )
+                        guard !Task.isCancelled,
+                              player === newPlayer
+                        else {
+                            return
+                        }
+                        audioSessionActive = activated
                         updateBackgroundPolicy(
                             for: newPlayer,
                             enabled:
@@ -448,6 +459,22 @@ private struct InlineVideoPreview: View {
                     for: player,
                     enabled: enabled && isSilent == false
                 )
+                if let isSilent {
+                    audioConfigurationTask?.cancel()
+                    let expectedPlayer = player
+                    audioConfigurationTask = Task {
+                        let activated =
+                            await MediaPlaybackAudioSession.activate(
+                                silent: isSilent || !enabled
+                            )
+                        guard !Task.isCancelled,
+                              self.player === expectedPlayer
+                        else {
+                            return
+                        }
+                        audioSessionActive = activated
+                    }
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
@@ -467,13 +494,18 @@ private struct InlineVideoPreview: View {
                 loopIfCurrentItemEnded(notification)
             }
             .onDisappear {
+                audioConfigurationTask?.cancel()
+                audioConfigurationTask = nil
                 if !pictureInPictureActive {
                     player?.pause()
                 }
-                if audioSessionActive && !pictureInPictureActive {
-                    MediaPlaybackAudioSession.deactivate()
-                    audioSessionActive = false
+                if !pictureInPictureActive
+                    && !preservesAudioSessionOnDismiss {
+                    Task {
+                        await MediaPlaybackAudioSession.deactivate()
+                    }
                 }
+                audioSessionActive = false
             }
     }
 
@@ -512,6 +544,7 @@ private struct InlineVideoPreview: View {
 private struct SystemVideoPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer?
     @Binding var isPictureInPictureActive: Bool
+    let updatesNowPlayingInfoCenter: Bool
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
@@ -521,6 +554,8 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         controller.videoGravity = .resizeAspect
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = false
+        controller.updatesNowPlayingInfoCenter =
+            updatesNowPlayingInfoCenter
         return controller
     }
 
@@ -531,6 +566,8 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         if controller.player !== player {
             controller.player = player
         }
+        controller.updatesNowPlayingInfoCenter =
+            updatesNowPlayingInfoCenter
     }
 
     func makeCoordinator() -> Coordinator {

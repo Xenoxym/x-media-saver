@@ -1,5 +1,6 @@
 import AVFoundation
 import AVFAudio
+import Dispatch
 import ImageIO
 import SwiftUI
 import UIKit
@@ -317,6 +318,10 @@ final class LocalMediaThumbnailLoader: ObservableObject {
 }
 
 enum MediaPlaybackAudioSession {
+    private static let sessionQueue = DispatchQueue(
+        label: "XMediaSaver.MediaPlaybackAudioSession"
+    )
+
     static func isSilent(
         media: BookmarkedMedia,
         url: URL
@@ -342,28 +347,38 @@ enum MediaPlaybackAudioSession {
         return tracks.isEmpty
     }
 
-    @MainActor
     @discardableResult
-    static func activate(silent: Bool) -> Bool {
-        let session = AVAudioSession.sharedInstance()
-        do {
-            if silent {
-                try session.setCategory(.ambient, mode: .default)
-            } else {
-                try session.setCategory(.playback, mode: .moviePlayback)
+    static func activate(silent: Bool) async -> Bool {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                let session = AVAudioSession.sharedInstance()
+                do {
+                    if silent {
+                        try session.setCategory(.ambient, mode: .default)
+                    } else {
+                        try session.setCategory(
+                            .playback,
+                            mode: .moviePlayback
+                        )
+                    }
+                    try session.setActive(true)
+                    continuation.resume(returning: true)
+                } catch {
+                    continuation.resume(returning: false)
+                }
             }
-            try session.setActive(true)
-            return true
-        } catch {
-            return false
         }
     }
 
-    @MainActor
-    static func deactivate() {
-        try? AVAudioSession.sharedInstance().setActive(
-            false,
-            options: .notifyOthersOnDeactivation
-        )
+    static func deactivate() async {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                try? AVAudioSession.sharedInstance().setActive(
+                    false,
+                    options: .notifyOthersOnDeactivation
+                )
+                continuation.resume()
+            }
+        }
     }
 }

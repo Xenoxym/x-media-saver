@@ -442,6 +442,7 @@ private struct GalleryFullScreenViewer: View {
                     GalleryViewerMediaPage(
                         item: item,
                         imageIsZoomed: $imageIsZoomed,
+                        playbackSuspended: presentedPost != nil,
                         dismissAction: { dismiss() }
                     )
                     .id(item.id)
@@ -492,7 +493,10 @@ private struct GalleryFullScreenViewer: View {
         }
         .sheet(item: $presentedPost) { post in
             NavigationStack {
-                BookmarkPostDetailView(post: post)
+                BookmarkPostDetailView(
+                    post: post,
+                    preservesAudioSessionOnDismiss: true
+                )
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button("关闭") {
@@ -501,7 +505,9 @@ private struct GalleryFullScreenViewer: View {
             }
         }
         .onDisappear {
-            MediaPlaybackAudioSession.deactivate()
+            Task {
+                await MediaPlaybackAudioSession.deactivate()
+            }
         }
             }
         }
@@ -586,6 +592,7 @@ private struct GalleryFullScreenViewer: View {
 private struct GalleryViewerMediaPage: View {
     let item: GalleryMediaItem
     @Binding var imageIsZoomed: Bool
+    let playbackSuspended: Bool
     let dismissAction: () -> Void
 
     var body: some View {
@@ -597,7 +604,10 @@ private struct GalleryViewerMediaPage: View {
                 dismissAction: dismissAction
             )
         case .animatedGIF, .video:
-            GalleryVideoPlayer(media: item.media)
+            GalleryVideoPlayer(
+                media: item.media,
+                playbackSuspended: playbackSuspended
+            )
                 .onAppear { imageIsZoomed = false }
         }
     }
@@ -729,8 +739,10 @@ private struct ZoomableGalleryPhoto: View {
 
 private struct GalleryVideoPlayer: View {
     let media: BookmarkedMedia
+    let playbackSuspended: Bool
     @State private var player: AVPlayer?
     @State private var looper: AVPlayerLooper?
+    @State private var isSilent: Bool?
 
     var body: some View {
         ZStack {
@@ -762,7 +774,7 @@ private struct GalleryVideoPlayer: View {
                     let gifPlayer = AVPlayer(playerItem: item)
                     gifPlayer.actionAtItemEnd = .none
                     gifPlayer.isMuted = true
-                    MediaPlaybackAudioSession.activate(silent: true)
+                    isSilent = true
                     newPlayer = gifPlayer
                 } else {
                     let videoPlayer = AVQueuePlayer()
@@ -776,7 +788,9 @@ private struct GalleryVideoPlayer: View {
 
                 newPlayer.allowsExternalPlayback = false
                 player = newPlayer
-                newPlayer.play()
+                if !playbackSuspended {
+                    newPlayer.play()
+                }
 
                 if media.type == .video {
                     // Audio-track inspection can require a network round trip.
@@ -788,8 +802,25 @@ private struct GalleryVideoPlayer: View {
                     guard !Task.isCancelled, player === newPlayer else {
                         return
                     }
+                    isSilent = silent
                     newPlayer.isMuted = silent
-                    MediaPlaybackAudioSession.activate(silent: silent)
+                    await MediaPlaybackAudioSession.activate(silent: silent)
+                } else {
+                    await MediaPlaybackAudioSession.activate(silent: true)
+                }
+            }
+            .onChange(of: playbackSuspended) { suspended in
+                if suspended {
+                    player?.pause()
+                } else {
+                    player?.play()
+                    if let isSilent {
+                        Task {
+                            await MediaPlaybackAudioSession.activate(
+                                silent: isSilent
+                            )
+                        }
+                    }
                 }
             }
             .onReceive(
