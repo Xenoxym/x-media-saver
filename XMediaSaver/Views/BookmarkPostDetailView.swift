@@ -108,7 +108,11 @@ struct BookmarkPostDetailView: View {
                 FullScreenPhotoPreview(media: media)
             case .animatedGIF, .video:
                 if media.bestMP4Variant?.url != nil {
-                    InlineVideoPreview(media: media)
+                    InlineVideoPreview(
+                        media: media,
+                        preservesAudioSessionOnDismiss:
+                            preservesAudioSessionOnDismiss
+                    )
                 } else {
                     Label("没有可播放的 MP4 变体", systemImage: "video.slash")
                         .frame(maxWidth: .infinity, minHeight: 120)
@@ -372,6 +376,7 @@ private final class PostMediaSaveModel: ObservableObject {
 
 private struct InlineVideoPreview: View {
     let media: BookmarkedMedia
+    let preservesAudioSessionOnDismiss: Bool
     @State private var player: AVPlayer?
     @State private var audioSessionActive = false
     @State private var isSilent: Bool?
