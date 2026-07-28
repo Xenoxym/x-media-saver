@@ -6,6 +6,8 @@ X Media Saver is a personal, sideloadable SwiftUI app for iOS 16 and later. It k
 
 The app has no custom backend, proxy, or third-party download API. It does not use X OAuth, developer API keys, or user bearer tokens.
 
+Current release: **1.1.0 (build 2)**. See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 ## Current features
 
 - **Single-link downloads:** Paste an `x.com` or `twitter.com` post URL, select an MP4 variant, and save a video or animated GIF to Photos.
@@ -16,6 +18,10 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 - **Native post preview and saving:** Open a captured post to read its full text, preview original photos or highest-quality MP4 media, and save that post's deduplicated media directly to Photos.
 - **Indexed-post timeline:** The Indexed Posts statistic opens a live, X-like stream of every locally indexed post. It defaults to media, supports newest/oldest sorting and search, and offers a remembered text-only mode.
 - **Media galleries:** The All media, Photos, Animated GIFs, and Videos counters open three-column lazy galleries.
+- **Bookmark-order sorting:** Indexed posts and media galleries can follow the locally captured bookmark order in either direction, in addition to post publication time.
+- **Full-screen media browsing:** Photos support zooming and panning; media galleries support direct previous/next navigation and multi-selection for saving to Photos.
+- **Native video playback:** Post videos autoplay muted in an adaptive inline player, loop at the end, and use the native full-screen player with user-initiated Picture in Picture. Animated GIF MP4s loop silently.
+- **Optional background audio:** Audible video can continue as audio only when the user enables background playback. Silent video does not occupy background audio playback.
 - **Local-first playback:** Preview lookup uses `media_key` to open an existing Files-library item first and falls back to the unchanged X CDN URL only when no local file exists.
 - **Duration and size range sliders:** Choose discrete minimum and maximum bounds for video/GIF duration and aggregate Post media size. The rightmost maximum step means unlimited.
 - **Batch storage estimates:** Sum the deduplicated known bytes for the current filter, report unknown-size items, and show separate estimated additions for Photos history and the app-owned Files Library.
@@ -107,13 +113,14 @@ Each item is downloaded to a temporary file, moved into its type folder, recorde
 
 The default app-owned Library is indexed on demand for local-first previews. The media gallery uses fixed square, center-cropped cells in a stable three-column grid. Timeline and gallery thumbnails do not create permanent thumbnail files: local images are downsampled from their originals, local videos generate frames only for visible cells, and remote items request a small poster. A bounded in-memory cache is discarded when the app exits, preventing a second thumbnail library from consuming persistent storage.
 
-Post video previews include an explicit full-screen control. A two-finger pinch-out gesture on the inline player also opens the full-screen player.
+Post video previews include an explicit native full-screen control. Picture in Picture starts only when the user chooses the native PiP control; leaving the preview does not automatically enter PiP.
 
 ## Reliability and technical limits
 
 - The browser workflow depends on X's undocumented web response structure. GraphQL operation names, response fields, or page behavior may change and require an app update.
 - Login challenges, verification, and account-risk decisions remain entirely controlled by X.
 - The indexed bookmark count is a locally retained loaded count, not a guaranteed server-side total. X does not expose a reliable bookmark-added timestamp here.
+- Bookmark-order sorting preserves the order in which entries were observed in the X bookmark timeline. It is useful for newest/oldest bookmark browsing but is not an exact bookmark-added timestamp.
 - Synchronization captures network responses rather than rendered-cell counts. The faster scroll loop does not intentionally skip cursor pages, but no undocumented web workflow can guarantee a complete server-side inventory.
 - Sync can continue when the WebView is offscreen inside this app. iOS may suspend WebKit after locking the device or switching to another app, so this is not an unrestricted system background task.
 - X bookmark JSON usually includes duration but not byte size. The app probes direct media CDN URLs with a limited, low-priority HEAD/range queue; unresolved values remain explicitly marked unknown.
@@ -188,6 +195,10 @@ XMediaSaver/
 ```
 
 The app uses Apple frameworks only: SwiftUI, Foundation/URLSession, WebKit, UIKit, and Photos.
+
+## Release history
+
+See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
