@@ -381,6 +381,9 @@ private struct InlineVideoPreview: View {
     @State private var audioSessionActive = false
     @State private var isSilent: Bool?
     @State private var pictureInPictureActive = false
+    @State private var nativeFullScreenActive = false
+    @State private var pinchFullScreenPresented = false
+    @State private var inlineAudioEnabled = false
     @State private var audioConfigurationTask: Task<Void, Never>?
     @AppStorage("postVideoBackgroundPlaybackEnabled")
     private var backgroundPlaybackEnabled = false
@@ -390,6 +393,9 @@ private struct InlineVideoPreview: View {
             SystemVideoPlayerView(
                 player: player,
                 isPictureInPictureActive: $pictureInPictureActive,
+                isFullScreenActive: $nativeFullScreenActive,
+                inlineAudioEnabled: $inlineAudioEnabled,
+                pinchFullScreenPresented: $pinchFullScreenPresented,
                 updatesNowPlayingInfoCenter:
                     backgroundPlaybackEnabled && isSilent == false
             )
@@ -421,6 +427,7 @@ private struct InlineVideoPreview: View {
                     if let url = localURL ?? media.bestMP4Variant?.url {
                         let newPlayer = AVPlayer(url: url)
                         newPlayer.actionAtItemEnd = .none
+                        newPlayer.isMuted = true
                         updateBackgroundPolicy(
                             for: newPlayer,
                             enabled: false
@@ -438,7 +445,6 @@ private struct InlineVideoPreview: View {
                             return
                         }
                         isSilent = silent
-                        newPlayer.isMuted = silent
                         let activated =
                             await MediaPlaybackAudioSession.activate(
                                 silent:
@@ -498,19 +504,43 @@ private struct InlineVideoPreview: View {
             ) { notification in
                 loopIfCurrentItemEnded(notification)
             }
+            .onChange(of: pinchFullScreenPresented) { presented in
+                guard let player else { return }
+                if presented {
+                    player.isMuted = false
+                } else {
+                    player.isMuted =
+                        isSilent == true || !inlineAudioEnabled
+                }
+                player.play()
+            }
             .onDisappear {
                 audioConfigurationTask?.cancel()
                 audioConfigurationTask = nil
-                if !pictureInPictureActive {
+                if !pictureInPictureActive
+                    && !nativeFullScreenActive
+                    && !pinchFullScreenPresented {
                     player?.pause()
                 }
                 if !pictureInPictureActive
+                    && !nativeFullScreenActive
+                    && !pinchFullScreenPresented
                     && !preservesAudioSessionOnDismiss {
                     Task {
                         await MediaPlaybackAudioSession.deactivate()
                     }
                 }
                 audioSessionActive = false
+            }
+            .fullScreenCover(
+                isPresented: $pinchFullScreenPresented
+            ) {
+                PinchFullScreenVideoPlayer(
+                    player: player,
+                    inlineAudioEnabled: inlineAudioEnabled,
+                    isSilent: isSilent == true,
+                    isPresented: $pinchFullScreenPresented
+                )
             }
     }
 
@@ -549,6 +579,9 @@ private struct InlineVideoPreview: View {
 private struct SystemVideoPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer?
     @Binding var isPictureInPictureActive: Bool
+    @Binding var isFullScreenActive: Bool
+    @Binding var inlineAudioEnabled: Bool
+    @Binding var pinchFullScreenPresented: Bool
     let updatesNowPlayingInfoCenter: Bool
 
     func makeUIViewController(context: Context) -> AVPlayerViewController {
@@ -561,6 +594,14 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         controller.canStartPictureInPictureAutomaticallyFromInline = false
         controller.updatesNowPlayingInfoCenter =
             updatesNowPlayingInfoCenter
+        context.coordinator.observe(player: player)
+
+        let pinchGesture = UIPinchGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(Coordinator.handlePinch(_:))
+        )
+        pinchGesture.cancelsTouchesInView = false
+        controller.view.addGestureRecognizer(pinchGesture)
         return controller
     }
 
@@ -573,10 +614,16 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         }
         controller.updatesNowPlayingInfoCenter =
             updatesNowPlayingInfoCenter
+        context.coordinator.observe(player: player)
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(isPictureInPictureActive: $isPictureInPictureActive)
+        Coordinator(
+            isPictureInPictureActive: $isPictureInPictureActive,
+            isFullScreenActive: $isFullScreenActive,
+            inlineAudioEnabled: $inlineAudioEnabled,
+            pinchFullScreenPresented: $pinchFullScreenPresented
+        )
     }
 
     static func dismantleUIViewController(
@@ -585,13 +632,65 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
     ) {
         controller.delegate = nil
         controller.player = nil
+        coordinator.stopObservingPlayer()
     }
 
     final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
         private var isPictureInPictureActive: Binding<Bool>
+        private var isFullScreenActive: Binding<Bool>
+        private var inlineAudioEnabled: Binding<Bool>
+        private var pinchFullScreenPresented: Binding<Bool>
+        private weak var observedPlayer: AVPlayer?
+        private var muteObservation: NSKeyValueObservation?
 
-        init(isPictureInPictureActive: Binding<Bool>) {
+        init(
+            isPictureInPictureActive: Binding<Bool>,
+            isFullScreenActive: Binding<Bool>,
+            inlineAudioEnabled: Binding<Bool>,
+            pinchFullScreenPresented: Binding<Bool>
+        ) {
             self.isPictureInPictureActive = isPictureInPictureActive
+            self.isFullScreenActive = isFullScreenActive
+            self.inlineAudioEnabled = inlineAudioEnabled
+            self.pinchFullScreenPresented = pinchFullScreenPresented
+        }
+
+        func observe(player: AVPlayer?) {
+            guard observedPlayer !== player else { return }
+            stopObservingPlayer()
+            observedPlayer = player
+            muteObservation = player?.observe(
+                \.isMuted,
+                options: [.new]
+            ) { [weak self] player, _ in
+                DispatchQueue.main.async {
+                    guard let self,
+                          !self.isFullScreenActive.wrappedValue,
+                          !self.pinchFullScreenPresented.wrappedValue
+                    else {
+                        return
+                    }
+                    self.inlineAudioEnabled.wrappedValue =
+                        !player.isMuted
+                }
+            }
+        }
+
+        func stopObservingPlayer() {
+            muteObservation?.invalidate()
+            muteObservation = nil
+            observedPlayer = nil
+        }
+
+        @objc
+        func handlePinch(_ gesture: UIPinchGestureRecognizer) {
+            guard gesture.state == .ended,
+                  gesture.scale > 1.12,
+                  observedPlayer != nil
+            else {
+                return
+            }
+            pinchFullScreenPresented.wrappedValue = true
         }
 
         func playerViewControllerWillStartPictureInPicture(
@@ -604,6 +703,66 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
             _ playerViewController: AVPlayerViewController
         ) {
             isPictureInPictureActive.wrappedValue = false
+        }
+
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            willBeginFullScreenPresentationWithAnimationCoordinator
+                coordinator: UIViewControllerTransitionCoordinator
+        ) {
+            isFullScreenActive.wrappedValue = true
+            playerViewController.player?.isMuted = false
+            playerViewController.player?.play()
+        }
+
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            willEndFullScreenPresentationWithAnimationCoordinator
+                coordinator: UIViewControllerTransitionCoordinator
+        ) {
+            coordinator.animate(alongsideTransition: nil) {
+                [weak self, weak playerViewController] _ in
+                guard let self else { return }
+                self.isFullScreenActive.wrappedValue = false
+                playerViewController?.player?.isMuted =
+                    !self.inlineAudioEnabled.wrappedValue
+                playerViewController?.player?.play()
+            }
+        }
+    }
+}
+
+private struct PinchFullScreenVideoPlayer: View {
+    let player: AVPlayer?
+    let inlineAudioEnabled: Bool
+    let isSilent: Bool
+    @Binding var isPresented: Bool
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Color.black
+                .ignoresSafeArea()
+
+            VideoPlayer(player: player)
+                .ignoresSafeArea()
+
+            Button {
+                player?.isMuted =
+                    isSilent || !inlineAudioEnabled
+                isPresented = false
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(12)
+                    .background(.black.opacity(0.6), in: Circle())
+            }
+            .padding()
+            .accessibilityLabel("退出全屏")
+        }
+        .onAppear {
+            player?.isMuted = false
+            player?.play()
         }
     }
 }
