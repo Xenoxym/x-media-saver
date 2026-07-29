@@ -126,9 +126,12 @@ struct IndexedPostsView: View {
                         Image(systemName: "arrow.up.arrow.down")
                     }
 
-                    Button("多选") {
+                    Button {
                         isSelecting = true
+                    } label: {
+                        Image(systemName: "checkmark.circle")
                     }
+                    .accessibilityLabel("多选")
                 }
             }
         }

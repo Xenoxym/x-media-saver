@@ -12,6 +12,11 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 - Browse and Search now defaults to the locally observed newest-bookmark order instead of newest publication date.
 - Media-gallery drag selection requires a horizontal-leading gesture before vertical range selection, allowing ordinary vertical drags to keep scrolling.
+- Indexed Posts uses a compact icon-only selection control in its crowded navigation toolbar.
+
+### Fixed
+
+- Once a horizontal-leading media selection drag activates, the gallery now holds its scroll position so subsequent vertical movement selects adjacent rows instead of scrolling the page.
 
 ## [1.2.0] - 2026-07-28
 

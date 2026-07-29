@@ -102,6 +102,9 @@ struct MediaGalleryView: View {
                 }
             }
         }
+        .scrollDisabled(
+            isSelecting && selectionDragIntent == .selecting
+        )
         .coordinateSpace(name: Self.gridCoordinateSpace)
         .onPreferenceChange(GalleryCellFramePreferenceKey.self) {
             cellFrames = $0

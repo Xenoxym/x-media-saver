@@ -8,7 +8,7 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 
 Current release: **1.2.0 (build 7)**. See [CHANGELOG.md](CHANGELOG.md) for release history.
 
-The current `main` development build is **1.3.0 (build 8)**.
+The current `main` development build is **1.3.0 (build 9)**.
 
 ## Current features
 
