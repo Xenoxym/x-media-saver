@@ -4,6 +4,8 @@
 
 ## [尚未发布]
 
+## [1.2.1] - 2026-07-29
+
 ### 新增
 
 - 已索引 Post 支持多选并从本地 Post 索引移除；不会删除已经导出到 Files 或保存到照片的媒体。
@@ -71,5 +73,6 @@
 
 [1.1.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Xenoxym/x-media-saver/releases/tag/v1.0.0
-[尚未发布]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.0...HEAD
+[尚未发布]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.1.0...v1.2.0

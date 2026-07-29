@@ -4,6 +4,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-29
+
 ### Added
 
 - Indexed Posts now supports multi-select removal from the local Post index without deleting media already exported to Files or saved to Photos.
@@ -71,5 +73,6 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 [1.1.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Xenoxym/x-media-saver/releases/tag/v1.0.0
-[Unreleased]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.1.0...v1.2.0

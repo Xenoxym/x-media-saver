@@ -6,9 +6,7 @@ X Media Saver is a personal, sideloadable SwiftUI app for iOS 16 and later. It k
 
 The app has no custom backend, proxy, or third-party download API. It does not use X OAuth, developer API keys, or user bearer tokens.
 
-Current release: **1.2.0 (build 7)**. See [CHANGELOG.md](CHANGELOG.md) for release history.
-
-The current `main` development build is **1.3.0 (build 9)**.
+Current release: **1.2.1 (build 9)**. See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Current features
 
