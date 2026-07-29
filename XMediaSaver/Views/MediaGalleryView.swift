@@ -2,6 +2,12 @@ import AVKit
 import SwiftUI
 import UIKit
 
+private enum GallerySelectionDragIntent: Equatable {
+    case undecided
+    case scrolling
+    case selecting
+}
+
 struct MediaGalleryView: View {
     let mediaType: BookmarkMediaType?
     @Environment(\.openURL) private var openURL
@@ -12,6 +18,8 @@ struct MediaGalleryView: View {
     @State private var dragAnchorIndex: Int?
     @State private var dragSelects = true
     @State private var selectionBeforeDrag: Set<String> = []
+    @State private var selectionDragIntent =
+        GallerySelectionDragIntent.undecided
     @State private var viewerSelection: GalleryViewerSelection?
     @State private var sort = BookmarkPostSort.bookmarkNewest
     @State private var galleryItems: [GalleryMediaItem]
@@ -60,14 +68,15 @@ struct MediaGalleryView: View {
             ) {
                 ForEach(Array(galleryItems.prefix(visibleLimit))) { item in
                     Button {
-                        guard !isSelecting,
-                              let index = galleryItems.firstIndex(
+                        if isSelecting {
+                            toggleSelection(for: item.id)
+                        } else if let index = galleryItems.firstIndex(
                                 where: { $0.id == item.id }
-                              )
-                        else {
-                            return
+                              ) {
+                            viewerSelection = GalleryViewerSelection(
+                                index: index
+                            )
                         }
-                        viewerSelection = GalleryViewerSelection(index: index)
                     } label: {
                         galleryCell(item)
                     }
@@ -97,7 +106,7 @@ struct MediaGalleryView: View {
         .onPreferenceChange(GalleryCellFramePreferenceKey.self) {
             cellFrames = $0
         }
-        .highPriorityGesture(
+        .simultaneousGesture(
             selectionDragGesture,
             including: isSelecting ? .all : .none
         )
@@ -169,15 +178,41 @@ struct MediaGalleryView: View {
 
     private var selectionDragGesture: some Gesture {
         DragGesture(
-            minimumDistance: 0,
+            minimumDistance: 8,
             coordinateSpace: .named(Self.gridCoordinateSpace)
         )
         .onChanged { value in
-            updateDragSelection(at: value.location)
+            guard isSelecting else { return }
+            let horizontal = abs(value.translation.width)
+            let vertical = abs(value.translation.height)
+
+            if selectionDragIntent == .undecided {
+                if horizontal >= 14,
+                   horizontal > vertical * 1.15 {
+                    selectionDragIntent = .selecting
+                    updateDragSelection(at: value.startLocation)
+                } else if vertical >= 10,
+                          vertical >= horizontal {
+                    selectionDragIntent = .scrolling
+                }
+            }
+
+            if selectionDragIntent == .selecting {
+                updateDragSelection(at: value.location)
+            }
         }
         .onEnded { _ in
             resetSelectionDrag()
         }
+    }
+
+    private func toggleSelection(for key: String) {
+        if selectedMediaKeys.contains(key) {
+            selectedMediaKeys.remove(key)
+        } else {
+            selectedMediaKeys.insert(key)
+        }
+        mediaSaver.clearResult()
     }
 
     private func updateDragSelection(at location: CGPoint) {
@@ -207,6 +242,7 @@ struct MediaGalleryView: View {
     private func resetSelectionDrag() {
         dragAnchorIndex = nil
         selectionBeforeDrag.removeAll()
+        selectionDragIntent = .undecided
     }
 
     private func applySort(_ value: BookmarkPostSort) {

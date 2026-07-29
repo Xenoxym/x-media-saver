@@ -4,6 +4,15 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+### Added
+
+- Indexed Posts now supports multi-select removal from the local Post index without deleting media already exported to Files or saved to Photos.
+
+### Changed
+
+- Browse and Search now defaults to the locally observed newest-bookmark order instead of newest publication date.
+- Media-gallery drag selection requires a horizontal-leading gesture before vertical range selection, allowing ordinary vertical drags to keep scrolling.
+
 ## [1.2.0] - 2026-07-28
 
 ### Added

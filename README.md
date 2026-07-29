@@ -8,6 +8,8 @@ The app has no custom backend, proxy, or third-party download API. It does not u
 
 Current release: **1.2.0 (build 7)**. See [CHANGELOG.md](CHANGELOG.md) for release history.
 
+The current `main` development build is **1.3.0 (build 8)**.
+
 ## Current features
 
 - **Single-link downloads:** Paste an `x.com` or `twitter.com` post URL, select an MP4 variant, and save a video or animated GIF to Photos.
@@ -16,7 +18,7 @@ Current release: **1.2.0 (build 7)**. See [CHANGELOG.md](CHANGELOG.md) for relea
 - **Local post index:** Each captured post, its author/text/date, and its media metadata are stored on-device and restored after relaunch. Media files are downloaded only when Save is used.
 - **Browse and search:** Browse the current filtered posts directly or group them by account or hashtag; search handle, display name, numeric user ID, post text, or hashtag.
 - **Native post preview and saving:** Open a captured post to read its full text, preview original photos or highest-quality MP4 media, and save that post's deduplicated media directly to Photos.
-- **Indexed-post timeline:** The Indexed Posts statistic opens a live, X-like stream of every locally indexed post. It defaults to media, supports newest/oldest sorting and search, and offers a remembered text-only mode.
+- **Indexed-post timeline:** The Indexed Posts statistic opens a live, X-like stream of every locally indexed post. It defaults to media, supports bookmark/publication sorting and search, offers a remembered text-only mode, and can multi-select Posts for removal from the index without deleting exported media.
 - **Media galleries:** The All media, Photos, Animated GIFs, and Videos counters open three-column lazy galleries.
 - **Bookmark-order sorting:** Indexed posts and media galleries can follow the locally captured bookmark order in either direction, in addition to post publication time.
 - **Full-screen media browsing:** Photos support zooming and panning; media galleries support direct previous/next navigation and multi-selection for saving to Photos.

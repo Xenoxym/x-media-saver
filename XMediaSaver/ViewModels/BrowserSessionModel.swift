@@ -169,6 +169,26 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         }
     }
 
+    func removeIndexedPosts(withIDs ids: Set<String>) {
+        let indexedIDs = ids.intersection(Set(postsByID.keys))
+        guard !indexedIDs.isEmpty else { return }
+
+        for id in indexedIDs {
+            postsByID.removeValue(forKey: id)
+            allPostsByID.removeValue(forKey: id)
+        }
+        postOrder.removeAll { indexedIDs.contains($0) }
+        syncBookmarkPageOrders = syncBookmarkPageOrders.mapValues {
+            $0.filter { !indexedIDs.contains($0) }
+        }
+        capturedPosts = postOrder.compactMap { postsByID[$0] }
+        schedulePersistence()
+        syncStatusText = L10n.format(
+            "已从本地索引移除 %lld 条 Post",
+            indexedIDs.count
+        )
+    }
+
     func clearBrowserSession() async {
         stopAutoCapture()
         clearCapturedData()

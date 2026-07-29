@@ -5,6 +5,9 @@ struct IndexedPostsView: View {
     @State private var searchText = ""
     @State private var sort = BookmarkPostSort.bookmarkNewest
     @State private var visibleLimit = 100
+    @State private var isSelecting = false
+    @State private var selectedPostIDs: Set<String> = []
+    @State private var confirmsIndexRemoval = false
     @AppStorage("bookmarkPostPreviewMode")
     private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
 
@@ -51,20 +54,21 @@ struct IndexedPostsView: View {
                 .padding(.vertical, 8)
 
                 ForEach(Array(posts.prefix(visibleLimit))) { post in
-                    NavigationLink {
-                        BookmarkPostDetailView(post: post)
-                    } label: {
-                        BookmarkPostRowView(
-                            post: post,
-                            showsAuthor: true,
-                            previewMode: previewMode
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
+                    if isSelecting {
+                        Button {
+                            toggleSelection(for: post.id)
+                        } label: {
+                            indexedPostRow(post, showsSelection: true)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        NavigationLink {
+                            BookmarkPostDetailView(post: post)
+                        } label: {
+                            indexedPostRow(post, showsSelection: false)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
 
                     Divider()
                         .padding(.leading)
@@ -85,35 +89,138 @@ struct IndexedPostsView: View {
         .searchable(text: $searchText, prompt: "搜索账号或正文")
         .onChange(of: searchText) { _ in
             visibleLimit = 100
+            selectedPostIDs.removeAll()
+        }
+        .onReceive(session.$capturedPosts) { updatedPosts in
+            selectedPostIDs.formIntersection(updatedPosts.map(\.id))
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
-                Button {
-                    previewModeRaw = previewMode == .media
-                        ? BookmarkPostPreviewMode.text.rawValue
-                        : BookmarkPostPreviewMode.media.rawValue
-                } label: {
-                    Image(
-                        systemName: previewMode == .media
-                            ? "photo.on.rectangle"
-                            : "text.alignleft"
-                    )
-                }
-                .accessibilityLabel(
-                    previewMode == .media ? "切换到纯文字" : "切换到媒体"
-                )
-
-                Menu {
-                    Picker("Post 排序", selection: $sort) {
-                        ForEach(BookmarkPostSort.allCases) {
-                            Text($0.title).tag($0)
-                        }
+                if isSelecting {
+                    Button("完成") {
+                        endSelection()
                     }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
+                } else {
+                    Button {
+                        previewModeRaw = previewMode == .media
+                            ? BookmarkPostPreviewMode.text.rawValue
+                            : BookmarkPostPreviewMode.media.rawValue
+                    } label: {
+                        Image(
+                            systemName: previewMode == .media
+                                ? "photo.on.rectangle"
+                                : "text.alignleft"
+                        )
+                    }
+                    .accessibilityLabel(
+                        previewMode == .media ? "切换到纯文字" : "切换到媒体"
+                    )
+
+                    Menu {
+                        Picker("Post 排序", selection: $sort) {
+                            ForEach(BookmarkPostSort.allCases) {
+                                Text($0.title).tag($0)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+
+                    Button("多选") {
+                        isSelecting = true
+                    }
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                selectionBar
+            }
+        }
+        .alert(
+            "从本地索引移除所选 Post？",
+            isPresented: $confirmsIndexRemoval
+        ) {
+            Button("取消", role: .cancel) {}
+            Button("删除索引", role: .destructive) {
+                session.removeIndexedPosts(withIDs: selectedPostIDs)
+                endSelection()
+            }
+        } message: {
+            Text(
+                "所选 Post 会同时从媒体聚合、账号、标签和搜索结果中移除，但不会删除 Files 或照片中的媒体。仍在 X 书签中的 Post 可能在下次同步时重新出现。"
+            )
+        }
+    }
+
+    private func indexedPostRow(
+        _ post: BookmarkedPost,
+        showsSelection: Bool
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            if showsSelection {
+                Image(
+                    systemName: selectedPostIDs.contains(post.id)
+                        ? "checkmark.circle.fill"
+                        : "circle"
+                )
+                .font(.title3)
+                .foregroundStyle(
+                    selectedPostIDs.contains(post.id)
+                        ? Color.accentColor
+                        : Color.secondary
+                )
+                .padding(.top, 2)
+            }
+
+            BookmarkPostRowView(
+                post: post,
+                showsAuthor: true,
+                previewMode: previewMode
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+
+    private var selectionBar: some View {
+        HStack {
+            Text(
+                L10n.format(
+                    "已选择 %lld 项",
+                    selectedPostIDs.count
+                )
+            )
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Button("删除索引", role: .destructive) {
+                confirmsIndexRemoval = true
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .disabled(selectedPostIDs.isEmpty)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .background(.regularMaterial)
+    }
+
+    private func toggleSelection(for postID: String) {
+        if selectedPostIDs.contains(postID) {
+            selectedPostIDs.remove(postID)
+        } else {
+            selectedPostIDs.insert(postID)
+        }
+    }
+
+    private func endSelection() {
+        isSelecting = false
+        selectedPostIDs.removeAll()
     }
 
     private static func newestFirst(

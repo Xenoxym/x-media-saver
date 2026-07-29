@@ -124,6 +124,10 @@
 "媒体排序" = "Media Sort";
 "多选" = "Select";
 "已选择 %lld 项" = "%lld Selected";
+"删除索引" = "Remove from Index";
+"从本地索引移除所选 Post？" = "Remove Selected Posts from the Local Index?";
+"所选 Post 会同时从媒体聚合、账号、标签和搜索结果中移除，但不会删除 Files 或照片中的媒体。仍在 X 书签中的 Post 可能在下次同步时重新出现。" = "Selected Posts will also disappear from media galleries, accounts, tags, and search results. Media in Files or Photos will not be deleted. Posts that remain bookmarked on X may return during the next sync.";
+"已从本地索引移除 %lld 条 Post" = "Removed %lld Posts from the local index";
 "保存到照片" = "Save to Photos";
 "保存未完成" = "Save Incomplete";
 "保存已取消。" = "Save cancelled.";

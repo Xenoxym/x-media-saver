@@ -22,6 +22,10 @@
 "Version" = "版本";
 "Project on GitHub" = "GitHub 项目";
 "X login and captured bookmark data stay on this device. The app has no custom backend and does not export browser cookies." = "X 登录和捕获的书签数据保留在本机。本 App 没有自建后端，也不会导出浏览器 Cookie。";
+"删除索引" = "删除索引";
+"从本地索引移除所选 Post？" = "从本地索引移除所选 Post？";
+"所选 Post 会同时从媒体聚合、账号、标签和搜索结果中移除，但不会删除 Files 或照片中的媒体。仍在 X 书签中的 Post 可能在下次同步时重新出现。" = "所选 Post 会同时从媒体聚合、账号、标签和搜索结果中移除，但不会删除 Files 或照片中的媒体。仍在 X 书签中的 Post 可能在下次同步时重新出现。";
+"已从本地索引移除 %lld 条 Post" = "已从本地索引移除 %lld 条 Post";
 "The server returned HTTP %lld. Please try again later." = "服务器返回 HTTP %lld，请稍后重试。";
 "Photos access is off. Allow “Add Photos Only” access in Settings, then try again." = "照片权限已关闭。请在系统设置中允许“仅添加照片”后重试。";
 "The Photos library is unavailable on this device." = "此设备上的照片图库不可用。";

@@ -18,7 +18,7 @@ final class BookmarksViewModel: ObservableObject {
     @Published var accountSort = BookmarkAccountSort.countDescending {
         didSet { scheduleRecompute() }
     }
-    @Published var postSort = BookmarkPostSort.newest {
+    @Published var postSort = BookmarkPostSort.bookmarkNewest {
         didSet { scheduleRecompute() }
     }
     @Published var hashtagSort = BookmarkHashtagSort.countDescending {
