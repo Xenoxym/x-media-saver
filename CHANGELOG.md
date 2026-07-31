@@ -27,6 +27,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Preserve the locked swipe direction through `onEnded` so a horizontal drag that crosses the paging threshold actually commits; cancelled gestures still reset their offset automatically.
 - After a page swipe, the centered cover remains above the new system player until `isReadyForDisplay` confirms its first frame, then disappears without animation to eliminate the black handoff flash without preloading videos.
 - The first-frame cover now remains for one additional 20-millisecond render handoff, and Picture in Picture cleanup restores the native player control binding while rejecting background-triggered PiP starts.
+- Native video controls now take precedence over edge paging. Video edge taps and double-tap five-second seeking are recognized inside the system player, skip playback controls, and delay the player's single-tap overlay until a double tap fails; seek feedback is centered lower on screen.
 
 ## [1.2.1] - 2026-07-29
 

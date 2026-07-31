@@ -512,6 +512,12 @@ private struct GalleryFullScreenViewer: View {
 
                 if let feedback = playbackController.seekFeedback {
                     GallerySeekFeedbackOverlay(feedback: feedback)
+                        .frame(
+                            maxWidth: .infinity,
+                            maxHeight: .infinity,
+                            alignment: .center
+                        )
+                        .offset(y: 36)
                 }
 
                 HStack {
@@ -551,9 +557,7 @@ private struct GalleryFullScreenViewer: View {
                             width: geometry.size.width
                         )
                     },
-                including: currentItem?.media.type == .video
-                    ? .gesture
-                    : .none
+                including: .none
             )
             .simultaneousGesture(
                 scrubGesture(width: geometry.size.width),
@@ -645,6 +649,12 @@ private struct GalleryFullScreenViewer: View {
                         imageIsZoomed: $imageIsZoomed,
                         playbackSuspended: presentedPost != nil,
                         playbackController: playbackController,
+                        canMovePrevious:
+                            items.indices.contains(currentIndex - 1),
+                        canMoveNext:
+                            items.indices.contains(currentIndex + 1),
+                        movePrevious: { moveImmediately(by: -1) },
+                        moveNext: { moveImmediately(by: 1) },
                         dismissAction: { dismiss() }
                     )
                     .id(item.id)
@@ -682,7 +692,8 @@ private struct GalleryFullScreenViewer: View {
         }
         .padding(.top, topInset)
         .allowsHitTesting(
-            !imageIsZoomed
+            currentItem?.media.type == .photo
+                && !imageIsZoomed
                 && !playbackController.isScrubbing
                 && !playbackController.isPictureInPictureActive
                 && !completesPageTransition
@@ -1295,6 +1306,10 @@ private struct GalleryViewerMediaPage: View {
     @Binding var imageIsZoomed: Bool
     let playbackSuspended: Bool
     @ObservedObject var playbackController: GalleryPlaybackController
+    let canMovePrevious: Bool
+    let canMoveNext: Bool
+    let movePrevious: () -> Void
+    let moveNext: () -> Void
     let dismissAction: () -> Void
 
     var body: some View {
@@ -1309,7 +1324,11 @@ private struct GalleryViewerMediaPage: View {
             GalleryVideoPlayer(
                 media: item.media,
                 playbackSuspended: playbackSuspended,
-                playbackController: playbackController
+                playbackController: playbackController,
+                canMovePrevious: canMovePrevious,
+                canMoveNext: canMoveNext,
+                movePrevious: movePrevious,
+                moveNext: moveNext
             )
                 .onAppear { imageIsZoomed = false }
         }
@@ -1446,6 +1465,10 @@ private struct GalleryVideoPlayer: View {
     let media: BookmarkedMedia
     let playbackSuspended: Bool
     @ObservedObject var playbackController: GalleryPlaybackController
+    let canMovePrevious: Bool
+    let canMoveNext: Bool
+    let movePrevious: () -> Void
+    let moveNext: () -> Void
     @State private var player: AVPlayer?
     @State private var looper: AVPlayerLooper?
     @State private var isSilent: Bool?
@@ -1462,7 +1485,12 @@ private struct GalleryVideoPlayer: View {
                 GallerySystemVideoPlayerView(
                     player: player,
                     isReadyForDisplay: $playerReadyForDisplay,
-                    playbackController: playbackController
+                    playbackController: playbackController,
+                    allowsDoubleTapSeek: media.type == .video,
+                    canMovePrevious: canMovePrevious,
+                    canMoveNext: canMoveNext,
+                    movePrevious: movePrevious,
+                    moveNext: moveNext
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
@@ -1613,6 +1641,11 @@ private struct GallerySystemVideoPlayerView:
     let player: AVPlayer
     @Binding var isReadyForDisplay: Bool
     @ObservedObject var playbackController: GalleryPlaybackController
+    let allowsDoubleTapSeek: Bool
+    let canMovePrevious: Bool
+    let canMoveNext: Bool
+    let movePrevious: () -> Void
+    let moveNext: () -> Void
 
     func makeUIViewController(
         context: Context
@@ -1628,6 +1661,13 @@ private struct GallerySystemVideoPlayerView:
         controller.exitsFullScreenWhenPlaybackEnds = false
         controller.view.backgroundColor = .black
         context.coordinator.attach(to: controller)
+        context.coordinator.updateInteractions(
+            allowsDoubleTapSeek: allowsDoubleTapSeek,
+            canMovePrevious: canMovePrevious,
+            canMoveNext: canMoveNext,
+            movePrevious: movePrevious,
+            moveNext: moveNext
+        )
         context.coordinator.observeDisplayReadiness(of: controller)
         return controller
     }
@@ -1640,6 +1680,13 @@ private struct GallerySystemVideoPlayerView:
             isReadyForDisplay = false
             controller.player = player
         }
+        context.coordinator.updateInteractions(
+            allowsDoubleTapSeek: allowsDoubleTapSeek,
+            canMovePrevious: canMovePrevious,
+            canMoveNext: canMoveNext,
+            movePrevious: movePrevious,
+            moveNext: moveNext
+        )
         context.coordinator.observeDisplayReadiness(of: controller)
     }
 
@@ -1664,7 +1711,8 @@ private struct GallerySystemVideoPlayerView:
 
     final class Coordinator:
         NSObject,
-        AVPlayerViewControllerDelegate {
+        AVPlayerViewControllerDelegate,
+        UIGestureRecognizerDelegate {
         let playbackController: GalleryPlaybackController
         private var isReadyForDisplay: Binding<Bool>
         private weak var playerViewController: AVPlayerViewController?
@@ -1672,6 +1720,13 @@ private struct GallerySystemVideoPlayerView:
         private var readinessObservation: NSKeyValueObservation?
         private var readinessHandoffTask: Task<Void, Never>?
         private var userStartedPictureInPicture = false
+        private weak var edgeTapRecognizer: UITapGestureRecognizer?
+        private weak var doubleTapRecognizer: UITapGestureRecognizer?
+        private var allowsDoubleTapSeek = false
+        private var canMovePrevious = false
+        private var canMoveNext = false
+        private var movePrevious: () -> Void = {}
+        private var moveNext: () -> Void = {}
 
         init(
             isReadyForDisplay: Binding<Bool>,
@@ -1721,6 +1776,7 @@ private struct GallerySystemVideoPlayerView:
 
         func attach(to controller: AVPlayerViewController) {
             playerViewController = controller
+            installInteractionRecognizers(on: controller)
             guard observers.isEmpty else { return }
             let center = NotificationCenter.default
             observers = [
@@ -1764,6 +1820,176 @@ private struct GallerySystemVideoPlayerView:
             readinessObservation?.invalidate()
             readinessObservation = nil
             playerViewController = nil
+        }
+
+        func updateInteractions(
+            allowsDoubleTapSeek: Bool,
+            canMovePrevious: Bool,
+            canMoveNext: Bool,
+            movePrevious: @escaping () -> Void,
+            moveNext: @escaping () -> Void
+        ) {
+            self.allowsDoubleTapSeek = allowsDoubleTapSeek
+            self.canMovePrevious = canMovePrevious
+            self.canMoveNext = canMoveNext
+            self.movePrevious = movePrevious
+            self.moveNext = moveNext
+        }
+
+        private func installInteractionRecognizers(
+            on controller: AVPlayerViewController
+        ) {
+            guard edgeTapRecognizer == nil,
+                  doubleTapRecognizer == nil
+            else {
+                return
+            }
+
+            let doubleTap = UITapGestureRecognizer(
+                target: self,
+                action: #selector(handleDoubleTap(_:))
+            )
+            doubleTap.numberOfTapsRequired = 2
+            doubleTap.cancelsTouchesInView = true
+            doubleTap.delegate = self
+            controller.view.addGestureRecognizer(doubleTap)
+            doubleTapRecognizer = doubleTap
+
+            let edgeTap = UITapGestureRecognizer(
+                target: self,
+                action: #selector(handleEdgeTap(_:))
+            )
+            edgeTap.numberOfTapsRequired = 1
+            edgeTap.cancelsTouchesInView = false
+            edgeTap.delegate = self
+            edgeTap.require(toFail: doubleTap)
+            controller.view.addGestureRecognizer(edgeTap)
+            edgeTapRecognizer = edgeTap
+
+            DispatchQueue.main.async { [weak self, weak controller] in
+                guard let self,
+                      let controller,
+                      let doubleTap = self.doubleTapRecognizer
+                else {
+                    return
+                }
+                self.delayNativeSingleTaps(
+                    below: controller.view,
+                    until: doubleTap
+                )
+            }
+        }
+
+        private func delayNativeSingleTaps(
+            below view: UIView,
+            until doubleTap: UITapGestureRecognizer
+        ) {
+            for recognizer in view.gestureRecognizers ?? [] {
+                guard recognizer !== edgeTapRecognizer,
+                      recognizer !== doubleTapRecognizer,
+                      let tap = recognizer as? UITapGestureRecognizer,
+                      tap.numberOfTapsRequired == 1
+                else {
+                    continue
+                }
+                tap.require(toFail: doubleTap)
+            }
+            for subview in view.subviews {
+                delayNativeSingleTaps(
+                    below: subview,
+                    until: doubleTap
+                )
+            }
+        }
+
+        @objc
+        private func handleEdgeTap(_ recognizer: UITapGestureRecognizer) {
+            guard recognizer.state == .ended,
+                  let view = recognizer.view
+            else {
+                return
+            }
+            let location = recognizer.location(in: view)
+            let edgeWidth = view.bounds.width / 7
+            if location.x <= edgeWidth, canMovePrevious {
+                movePrevious()
+            } else if location.x >= view.bounds.width - edgeWidth,
+                      canMoveNext {
+                moveNext()
+            }
+        }
+
+        @objc
+        private func handleDoubleTap(
+            _ recognizer: UITapGestureRecognizer
+        ) {
+            guard recognizer.state == .ended,
+                  allowsDoubleTapSeek,
+                  let view = recognizer.view
+            else {
+                return
+            }
+            let location = recognizer.location(in: view)
+            playbackController.seek(
+                by: location.x < view.bounds.midX ? -5 : 5
+            )
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldReceive touch: UITouch
+        ) -> Bool {
+            guard let controller = playerViewController,
+                  let touchedView = touch.view,
+                  !isPlaybackControl(touchedView)
+            else {
+                return false
+            }
+
+            let location = touch.location(in: controller.view)
+            let width = controller.view.bounds.width
+            guard width > 0,
+                  location.y > max(
+                    78,
+                    controller.view.safeAreaInsets.top + 54
+                  )
+            else {
+                return false
+            }
+
+            if gestureRecognizer === edgeTapRecognizer {
+                let edgeWidth = width / 7
+                return location.x <= edgeWidth
+                    || location.x >= width - edgeWidth
+            }
+
+            if gestureRecognizer === doubleTapRecognizer {
+                guard allowsDoubleTapSeek else { return false }
+                let edgeWidth = width / 7
+                return location.x > edgeWidth
+                    && location.x < width - edgeWidth
+            }
+
+            return false
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith
+                otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            true
+        }
+
+        private func isPlaybackControl(_ view: UIView) -> Bool {
+            var candidate: UIView? = view
+            while let current = candidate {
+                if current is UIControl {
+                    return true
+                }
+                candidate = current.superview
+            }
+            return false
         }
 
         @MainActor
