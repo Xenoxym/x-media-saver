@@ -761,10 +761,11 @@ private struct GalleryFullScreenViewer: View {
                     return
                 }
 
-                let vertical = value.predictedEndTranslation.height
-                if vertical < -80, let currentItem {
+                let predictedVertical =
+                    value.predictedEndTranslation.height
+                if predictedVertical < -80, let currentItem {
                     presentedPost = currentItem.post
-                } else if vertical > 80,
+                } else if predictedVertical > 80,
                           currentItem?.media.type != .photo {
                     dismiss()
                 }
