@@ -13,6 +13,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 ### Changed
 
 - Gallery edge-tap navigation is limited to compact outer-edge zones and shows a subtle pressed gradient; releasing outside the original edge cancels the page change.
+- Gallery edge-tap navigation now occupies exactly the outer one-seventh of each side, leaving more of the player surface for playback controls.
 - Horizontal swipes now move the current media interactively with the finger, reveal the adjacent item, and settle only after crossing a distance or velocity threshold.
 - Adjacent videos use a lightweight static preview during an interactive page drag; the real player is created only after the page becomes current.
 
@@ -25,6 +26,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - A horizontal or vertical navigation direction is now locked for the full lifetime of each drag, preventing a slightly diagonal page swipe from opening Post Preview or dismissing the gallery.
 - Preserve the locked swipe direction through `onEnded` so a horizontal drag that crosses the paging threshold actually commits; cancelled gestures still reset their offset automatically.
 - After a page swipe, the centered cover remains above the new system player until `isReadyForDisplay` confirms its first frame, then disappears without animation to eliminate the black handoff flash without preloading videos.
+- The first-frame cover now remains for one additional 20-millisecond render handoff, and Picture in Picture cleanup restores the native player control binding while rejecting background-triggered PiP starts.
 
 ## [1.2.1] - 2026-07-29
 

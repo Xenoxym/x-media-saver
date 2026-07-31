@@ -664,7 +664,7 @@ private struct GalleryFullScreenViewer: View {
         width: CGFloat,
         topInset: CGFloat
     ) -> some View {
-        let edgeWidth = min(max(width * 0.20, 56), 84)
+        let edgeWidth = width / 7
         return HStack(spacing: 0) {
             GalleryEdgePagingButton(direction: .previous) {
                 moveImmediately(by: -1)
@@ -702,7 +702,7 @@ private struct GalleryFullScreenViewer: View {
         else {
             return
         }
-        let edgeWidth = min(max(width * 0.20, 56), 84)
+        let edgeWidth = width / 7
         guard location.x >= edgeWidth,
               location.x <= width - edgeWidth
         else {
@@ -1670,6 +1670,7 @@ private struct GallerySystemVideoPlayerView:
         private weak var playerViewController: AVPlayerViewController?
         private var observers: [NSObjectProtocol] = []
         private var readinessObservation: NSKeyValueObservation?
+        private var readinessHandoffTask: Task<Void, Never>?
         private var userStartedPictureInPicture = false
 
         init(
@@ -1689,8 +1690,31 @@ private struct GallerySystemVideoPlayerView:
                 options: [.initial, .new]
             ) { [weak self] controller, _ in
                 DispatchQueue.main.async {
-                    self?.isReadyForDisplay.wrappedValue =
-                        controller.isReadyForDisplay
+                    guard let self else { return }
+                    self.readinessHandoffTask?.cancel()
+                    guard controller.isReadyForDisplay else {
+                        self.isReadyForDisplay.wrappedValue = false
+                        return
+                    }
+                    self.readinessHandoffTask = Task { @MainActor [
+                        weak self,
+                        weak controller
+                    ] in
+                        try? await Task.sleep(
+                            nanoseconds: 20_000_000
+                        )
+                        guard !Task.isCancelled,
+                              let self,
+                              controller?.isReadyForDisplay == true
+                        else {
+                            return
+                        }
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            self.isReadyForDisplay.wrappedValue = true
+                        }
+                    }
                 }
             }
         }
@@ -1701,18 +1725,21 @@ private struct GallerySystemVideoPlayerView:
             let center = NotificationCenter.default
             observers = [
                 center.addObserver(
+                    forName: UIScene.willDeactivateNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.preventAutomaticPictureInPicture()
+                    }
+                },
+                center.addObserver(
                     forName: UIApplication.willResignActiveNotification,
                     object: nil,
                     queue: .main
                 ) { [weak self] _ in
                     MainActor.assumeIsolated {
-                        guard let self,
-                              !self.userStartedPictureInPicture
-                        else {
-                            return
-                        }
-                        self.playerViewController?
-                            .allowsPictureInPicturePlayback = false
+                        self?.preventAutomaticPictureInPicture()
                     }
                 },
                 center.addObserver(
@@ -1732,16 +1759,53 @@ private struct GallerySystemVideoPlayerView:
             let center = NotificationCenter.default
             observers.forEach(center.removeObserver)
             observers.removeAll()
+            readinessHandoffTask?.cancel()
+            readinessHandoffTask = nil
             readinessObservation?.invalidate()
             readinessObservation = nil
             playerViewController = nil
         }
 
         @MainActor
+        private func preventAutomaticPictureInPicture() {
+            guard !userStartedPictureInPicture else { return }
+            playerViewController?
+                .canStartPictureInPictureAutomaticallyFromInline = false
+            playerViewController?.allowsPictureInPicturePlayback = false
+        }
+
+        @MainActor
+        private func restorePlaybackControls(
+            in playerViewController: AVPlayerViewController
+        ) {
+            guard let player = playerViewController.player else { return }
+            let wasPlaying = player.rate != 0
+            playerViewController.player = nil
+            DispatchQueue.main.async { [weak playerViewController] in
+                guard let playerViewController else { return }
+                playerViewController.player = player
+                playerViewController.allowsPictureInPicturePlayback = true
+                playerViewController
+                    .canStartPictureInPictureAutomaticallyFromInline = false
+                if wasPlaying {
+                    player.play()
+                }
+            }
+        }
+
+        @MainActor
         func playerViewControllerWillStartPictureInPicture(
             _ playerViewController: AVPlayerViewController
         ) {
-            userStartedPictureInPicture = true
+            let explicitlyStartedWhileActive =
+                UIApplication.shared.applicationState == .active
+            userStartedPictureInPicture = explicitlyStartedWhileActive
+            guard explicitlyStartedWhileActive else {
+                playerViewController
+                    .allowsPictureInPicturePlayback = false
+                playbackController.setPictureInPictureActive(false)
+                return
+            }
             playbackController.setPictureInPictureActive(true)
         }
 
@@ -1751,6 +1815,7 @@ private struct GallerySystemVideoPlayerView:
         ) {
             userStartedPictureInPicture = false
             playbackController.setPictureInPictureActive(false)
+            restorePlaybackControls(in: playerViewController)
         }
 
         @MainActor
@@ -1760,6 +1825,7 @@ private struct GallerySystemVideoPlayerView:
         ) {
             userStartedPictureInPicture = false
             playbackController.setPictureInPictureActive(false)
+            restorePlaybackControls(in: playerViewController)
         }
 
         func playerViewControllerShouldAutomaticallyDismissAtPictureInPictureStart(
