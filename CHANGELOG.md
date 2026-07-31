@@ -39,7 +39,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Indexed Posts places the media/text preview toggle beside the back button on the leading side. X Browser keeps its Sync button on one line when the loading spinner appears.
 - All five Local Incremental Index destinations support a left-edge right swipe to return to Bookmarks without interfering with ordinary scrolling or center-originated gestures.
 - Local Index edge-back recognition now owns only a 24-point leading strip, preventing short swipes from also activating an Indexed Post or media cell. Photo navigation locks one drag direction so diagonal horizontal paging cannot pull the image downward.
-- Full-screen photos support double-tap zoom centered on the tapped location at 2× with a short 0.22-second zoom/restore animation; double-tap again to return to the fitted view.
+- Full-screen photos support double-tap zoom centered on the tapped location at 1.5× with a visible 0.28-second zoom/restore animation; double-tap again to return to the fitted view. The page-level animation suppression no longer cancels this local transition.
 - Local Incremental Index entry and exit now use an animation-free controlled navigation path, avoiding the brief touch lock imposed by the default NavigationStack push/pop transition.
 
 ## [1.2.1] - 2026-07-29

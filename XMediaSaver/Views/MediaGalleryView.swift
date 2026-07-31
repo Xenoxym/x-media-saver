@@ -635,10 +635,6 @@ private struct GalleryFullScreenViewer: View {
                         dismissAction: { dismiss() }
                     )
                     .id(item.id)
-                    .transaction { transaction in
-                        transaction.animation = nil
-                        transaction.disablesAnimations = true
-                    }
                 }
                 .frame(width: width)
                 .offset(x: visiblePageOffset)
@@ -1493,13 +1489,13 @@ private struct ZoomableGalleryPhoto: View {
         SpatialTapGesture(count: 2)
             .onEnded { tap in
                 if scale > 1.01 {
-                    withAnimation(.easeInOut(duration: 0.22)) {
+                    withAnimation(.easeInOut(duration: 0.28)) {
                         resetZoom()
                     }
                     return
                 }
 
-                let targetScale: CGFloat = 2
+                let targetScale: CGFloat = 1.5
                 let targetOffset = CGSize(
                     width:
                         (size.width / 2 - tap.location.x)
@@ -1508,7 +1504,7 @@ private struct ZoomableGalleryPhoto: View {
                         (size.height / 2 - tap.location.y)
                         * (targetScale - 1)
                 )
-                withAnimation(.easeInOut(duration: 0.22)) {
+                withAnimation(.easeInOut(duration: 0.28)) {
                     scale = targetScale
                     settledScale = targetScale
                     offset = targetOffset
