@@ -460,12 +460,6 @@ private struct GalleryMediaItem: Identifiable {
     var id: String { media.mediaKey }
 }
 
-private enum GalleryNavigationDragAxis {
-    case undecided
-    case horizontal
-    case vertical
-}
-
 private enum GalleryPagingDirection {
     case previous
     case next
@@ -479,8 +473,7 @@ private struct GalleryFullScreenViewer: View {
     @State private var imageIsZoomed = false
     @State private var presentedPost: BookmarkedPost?
     @State private var pageDragOffset: CGFloat = 0
-    @State private var navigationDragAxis =
-        GalleryNavigationDragAxis.undecided
+    @GestureState private var pageDragTranslation: CGFloat = 0
     @State private var completesPageTransition = false
     @StateObject private var playbackController =
         GalleryPlaybackController()
@@ -534,8 +527,7 @@ private struct GalleryFullScreenViewer: View {
                         .padding(.vertical, 7)
                         .background(.black.opacity(0.55), in: Capsule())
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, geometry.safeAreaInsets.top + 12)
+                .padding()
 
                 edgePagingControls(
                     width: geometry.size.width,
@@ -565,7 +557,6 @@ private struct GalleryFullScreenViewer: View {
                 navigationDragGesture(width: geometry.size.width)
             )
         }
-        .ignoresSafeArea()
         .background(Color.black.ignoresSafeArea())
         .statusBarHidden(true)
         .task(id: currentIndex) {
@@ -599,25 +590,29 @@ private struct GalleryFullScreenViewer: View {
         return items[currentIndex]
     }
 
+    private var visiblePageOffset: CGFloat {
+        completesPageTransition ? pageDragOffset : pageDragTranslation
+    }
+
     @ViewBuilder
     private func interactivePages(width: CGFloat) -> some View {
         ZStack {
-            if pageDragOffset > 0,
+            if visiblePageOffset > 0,
                items.indices.contains(currentIndex - 1) {
                 GalleryAdjacentMediaPreview(
                     item: items[currentIndex - 1]
                 )
                 .frame(width: width)
-                .offset(x: -width + pageDragOffset)
+                .offset(x: -width + visiblePageOffset)
             }
 
-            if pageDragOffset < 0,
+            if visiblePageOffset < 0,
                items.indices.contains(currentIndex + 1) {
                 GalleryAdjacentMediaPreview(
                     item: items[currentIndex + 1]
                 )
                 .frame(width: width)
-                .offset(x: width + pageDragOffset)
+                .offset(x: width + visiblePageOffset)
             }
 
             if let item = currentItem {
@@ -636,7 +631,7 @@ private struct GalleryFullScreenViewer: View {
                     }
                 }
                 .frame(width: width)
-                .offset(x: pageDragOffset)
+                .offset(x: visiblePageOffset)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -732,7 +727,7 @@ private struct GalleryFullScreenViewer: View {
 
     private func navigationDragGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 12)
-            .onChanged { value in
+            .updating($pageDragTranslation) { value, translation, _ in
                 guard !imageIsZoomed,
                       !playbackController.isScrubbing,
                       !completesPageTransition
@@ -742,35 +737,26 @@ private struct GalleryFullScreenViewer: View {
 
                 let horizontal = abs(value.translation.width)
                 let vertical = abs(value.translation.height)
-                if navigationDragAxis == .undecided {
-                    guard max(horizontal, vertical) >= 12 else { return }
-                    navigationDragAxis = horizontal > vertical
-                        ? .horizontal
-                        : .vertical
-                }
-
-                guard navigationDragAxis == .horizontal else { return }
-                let translation = value.translation.width
-                let hasDestination = translation < 0
+                guard horizontal > vertical else { return }
+                let proposed = value.translation.width
+                let hasDestination = proposed < 0
                     ? items.indices.contains(currentIndex + 1)
                     : items.indices.contains(currentIndex - 1)
-                pageDragOffset = hasDestination
-                    ? translation
-                    : translation * 0.22
+                translation = hasDestination
+                    ? proposed
+                    : proposed * 0.22
             }
             .onEnded { value in
-                defer {
-                    navigationDragAxis = .undecided
-                }
                 guard !imageIsZoomed,
                       !playbackController.isScrubbing,
                       !completesPageTransition
                 else {
-                    resetPageDrag()
                     return
                 }
 
-                if navigationDragAxis == .horizontal {
+                let horizontal = abs(value.translation.width)
+                let vertical = abs(value.translation.height)
+                if horizontal > vertical {
                     finishHorizontalDrag(value, width: width)
                     return
                 }
@@ -789,10 +775,7 @@ private struct GalleryFullScreenViewer: View {
         _ value: DragGesture.Value,
         width: CGFloat
     ) {
-        guard width > 0 else {
-            resetPageDrag()
-            return
-        }
+        guard width > 0 else { return }
         let translation = value.translation.width
         let predicted = value.predictedEndTranslation.width
         let direction = translation < 0 ? 1 : -1
@@ -802,11 +785,12 @@ private struct GalleryFullScreenViewer: View {
         guard items.indices.contains(candidate),
               passesDistance || passesPrediction
         else {
-            resetPageDrag()
+            settlePageBack(from: translation)
             return
         }
 
         completesPageTransition = true
+        pageDragOffset = translation
         let target = direction > 0 ? -width : width
         withAnimation(.easeOut(duration: 0.22)) {
             pageDragOffset = target
@@ -825,12 +809,20 @@ private struct GalleryFullScreenViewer: View {
         }
     }
 
-    private func resetPageDrag() {
+    private func settlePageBack(from translation: CGFloat) {
+        completesPageTransition = true
+        pageDragOffset = translation
         withAnimation(.interactiveSpring(
             response: 0.25,
             dampingFraction: 0.88
         )) {
             pageDragOffset = 0
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            guard completesPageTransition else { return }
+            pageDragOffset = 0
+            completesPageTransition = false
         }
     }
 
@@ -891,6 +883,7 @@ private struct GalleryAdjacentMediaPreview: View {
     var body: some View {
         ZStack {
             Color.black
+
             LocalMediaThumbnailView(
                 media: item.media,
                 maximumPixelSize: 1_280,
@@ -899,9 +892,11 @@ private struct GalleryAdjacentMediaPreview: View {
                     item.media.type == .photo ? "orig" : "small",
                 showsPlaceholder: false
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea()
+        .background(Color.black)
+        .clipped()
     }
 }
 
