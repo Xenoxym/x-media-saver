@@ -373,6 +373,30 @@ enum MediaPlaybackAudioSession {
         }
     }
 
+    @discardableResult
+    static func activateForBackgroundPlayback() async -> Bool {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async {
+                let session = AVAudioSession.sharedInstance()
+                do {
+                    try session.setCategory(
+                        .playback,
+                        mode: .moviePlayback
+                    )
+                    try session.setActive(true)
+                    continuation.resume(returning: true)
+                } catch {
+                    continuation.resume(returning: false)
+                }
+            }
+        }
+    }
+
+    @discardableResult
+    static func activateForPictureInPicture() async -> Bool {
+        await activateForBackgroundPlayback()
+    }
+
     static func deactivate() async {
         await withCheckedContinuation { continuation in
             sessionQueue.async {

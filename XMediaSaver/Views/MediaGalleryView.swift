@@ -623,6 +623,12 @@ private struct GalleryFullScreenViewer: View {
                         imageIsZoomed: $imageIsZoomed,
                         playbackSuspended: presentedPost != nil,
                         playbackController: playbackController,
+                        canMovePrevious:
+                            items.indices.contains(currentIndex - 1),
+                        canMoveNext:
+                            items.indices.contains(currentIndex + 1),
+                        movePrevious: { moveImmediately(by: -1) },
+                        moveNext: { moveImmediately(by: 1) },
                         dismissAction: { dismiss() }
                     )
                     .id(item.id)
@@ -1000,6 +1006,13 @@ private struct GalleryScrubOverlay: View {
 private final class GalleryPlaybackController: ObservableObject {
     @Published private(set) var scrubState: GalleryScrubState?
     @Published private(set) var isPictureInPictureActive = false
+    @Published private(set) var pictureInPictureAvailable = false
+    @Published private(set) var pictureInPicturePossible = false
+    @Published private(set) var isPlaying = false
+    @Published private(set) var isMuted = true
+    @Published private(set) var currentSeconds: Double = 0
+    @Published private(set) var durationSeconds: Double = 0
+    @Published private(set) var directSeekActive = false
 
     private weak var player: AVPlayer?
     private var mediaKey: String?
@@ -1007,17 +1020,54 @@ private final class GalleryPlaybackController: ObservableObject {
     private var scrubStartSeconds: Double = 0
     private var scrubDurationSeconds: Double = 0
     private var resumesAfterScrub = false
+    private var resumesAfterDirectSeek = false
     private var lastPreviewSeekAt: CFTimeInterval = 0
+    private var rateObservation: NSKeyValueObservation?
+    private var muteObservation: NSKeyValueObservation?
+    private var timeObserver: Any?
+    private var startPictureInPictureAction: (() -> Void)?
 
     var isScrubbing: Bool {
-        scrubState != nil
+        scrubState != nil || directSeekActive
     }
 
     func attach(player: AVPlayer, mediaKey: String) {
+        removePlayerObservers()
         self.player = player
         self.mediaKey = mediaKey
         galleryIsDismissed = false
         scrubState = nil
+        isMuted = player.isMuted
+        isPlaying = player.rate != 0
+        currentSeconds = finiteCurrentTime(of: player)
+        durationSeconds = finiteDuration(of: player) ?? 0
+        rateObservation = player.observe(
+            \.rate,
+            options: [.initial, .new]
+        ) { [weak self] player, _ in
+            DispatchQueue.main.async {
+                self?.isPlaying = player.rate != 0
+            }
+        }
+        muteObservation = player.observe(
+            \.isMuted,
+            options: [.initial, .new]
+        ) { [weak self] player, _ in
+            DispatchQueue.main.async {
+                self?.isMuted = player.isMuted
+            }
+        }
+        timeObserver = player.addPeriodicTimeObserver(
+            forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
+            queue: .main
+        ) { [weak self, weak player] time in
+            guard let self, let player else { return }
+            let seconds = time.seconds
+            self.currentSeconds =
+                seconds.isFinite ? max(seconds, 0) : 0
+            self.durationSeconds =
+                self.finiteDuration(of: player) ?? 0
+        }
     }
 
     func detach(player: AVPlayer, mediaKey: String) {
@@ -1028,9 +1078,17 @@ private final class GalleryPlaybackController: ObservableObject {
     }
 
     func detachAll() {
+        removePlayerObservers()
         scrubState = nil
         player = nil
         mediaKey = nil
+        isPlaying = false
+        currentSeconds = 0
+        durationSeconds = 0
+        directSeekActive = false
+        pictureInPicturePossible = false
+        pictureInPictureAvailable = false
+        startPictureInPictureAction = nil
     }
 
     func setPictureInPictureActive(_ active: Bool) {
@@ -1066,6 +1124,77 @@ private final class GalleryPlaybackController: ObservableObject {
             toleranceBefore: CMTime(seconds: 0.05, preferredTimescale: 600),
             toleranceAfter: CMTime(seconds: 0.05, preferredTimescale: 600)
         )
+    }
+
+    func togglePlayback() {
+        guard let player else { return }
+        if player.rate == 0 {
+            player.play()
+        } else {
+            player.pause()
+        }
+    }
+
+    func toggleMute() {
+        guard let player else { return }
+        player.isMuted.toggle()
+    }
+
+    func seek(to seconds: Double) {
+        guard let player,
+              let duration = finiteDuration(of: player),
+              duration > 0
+        else {
+            return
+        }
+        let target = min(max(seconds, 0), duration)
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: CMTime(seconds: 0.05, preferredTimescale: 600),
+            toleranceAfter: CMTime(seconds: 0.05, preferredTimescale: 600)
+        )
+        currentSeconds = target
+    }
+
+    func beginDirectSeeking() {
+        guard let player else { return }
+        directSeekActive = true
+        resumesAfterDirectSeek = player.rate != 0
+        player.pause()
+    }
+
+    func endDirectSeeking(at seconds: Double) {
+        directSeekActive = false
+        guard let player else { return }
+        let shouldResume = resumesAfterDirectSeek
+        seek(to: seconds)
+        if shouldResume {
+            player.play()
+        }
+    }
+
+    func registerPictureInPicture(
+        possible: Bool,
+        start: @escaping () -> Void
+    ) {
+        pictureInPictureAvailable = true
+        pictureInPicturePossible = possible
+        startPictureInPictureAction = start
+    }
+
+    func updatePictureInPicturePossible(_ possible: Bool) {
+        pictureInPicturePossible = possible
+    }
+
+    func unregisterPictureInPicture() {
+        pictureInPictureAvailable = false
+        pictureInPicturePossible = false
+        startPictureInPictureAction = nil
+    }
+
+    func startPictureInPicture() {
+        guard pictureInPictureAvailable else { return }
+        startPictureInPictureAction?()
     }
 
     func beginScrubbing(width: CGFloat) {
@@ -1156,6 +1285,17 @@ private final class GalleryPlaybackController: ObservableObject {
         let seconds = player.currentTime().seconds
         return seconds.isFinite ? max(seconds, 0) : 0
     }
+
+    private func removePlayerObservers() {
+        rateObservation?.invalidate()
+        rateObservation = nil
+        muteObservation?.invalidate()
+        muteObservation = nil
+        if let timeObserver, let player {
+            player.removeTimeObserver(timeObserver)
+        }
+        timeObserver = nil
+    }
 }
 
 private struct GalleryViewerMediaPage: View {
@@ -1163,6 +1303,10 @@ private struct GalleryViewerMediaPage: View {
     @Binding var imageIsZoomed: Bool
     let playbackSuspended: Bool
     @ObservedObject var playbackController: GalleryPlaybackController
+    let canMovePrevious: Bool
+    let canMoveNext: Bool
+    let movePrevious: () -> Void
+    let moveNext: () -> Void
     let dismissAction: () -> Void
 
     var body: some View {
@@ -1177,7 +1321,11 @@ private struct GalleryViewerMediaPage: View {
             GalleryVideoPlayer(
                 media: item.media,
                 playbackSuspended: playbackSuspended,
-                playbackController: playbackController
+                playbackController: playbackController,
+                canMovePrevious: canMovePrevious,
+                canMoveNext: canMoveNext,
+                movePrevious: movePrevious,
+                moveNext: moveNext
             )
                 .onAppear { imageIsZoomed = false }
         }
@@ -1314,11 +1462,18 @@ private struct GalleryVideoPlayer: View {
     let media: BookmarkedMedia
     let playbackSuspended: Bool
     @ObservedObject var playbackController: GalleryPlaybackController
+    let canMovePrevious: Bool
+    let canMoveNext: Bool
+    let movePrevious: () -> Void
+    let moveNext: () -> Void
     @State private var player: AVPlayer?
     @State private var looper: AVPlayerLooper?
     @State private var isSilent: Bool?
     @State private var playerReadyForDisplay = false
     @State private var pausedForBackground = false
+    @State private var controlsVisible = true
+    @State private var sliderSeconds: Double = 0
+    @State private var sliderIsActive = false
     @AppStorage("postVideoBackgroundPlaybackEnabled")
     private var backgroundPlaybackEnabled = false
 
@@ -1327,7 +1482,7 @@ private struct GalleryVideoPlayer: View {
             Color.black
 
             if let player {
-                GallerySystemVideoPlayerView(
+                GalleryPlayerLayerView(
                     player: player,
                     isReadyForDisplay: $playerReadyForDisplay,
                     playbackController: playbackController
@@ -1343,6 +1498,33 @@ private struct GalleryVideoPlayer: View {
                         transaction.animation = nil
                         transaction.disablesAnimations = true
                     }
+            }
+
+            if player != nil, playerReadyForDisplay {
+                GalleryVideoInteractionLayer(
+                    allowsSeeking: media.type == .video,
+                    canMovePrevious: canMovePrevious,
+                    canMoveNext: canMoveNext,
+                    playbackController: playbackController,
+                    movePrevious: movePrevious,
+                    moveNext: moveNext,
+                    toggleControls: {
+                        withAnimation(.easeOut(duration: 0.16)) {
+                            controlsVisible.toggle()
+                        }
+                    }
+                )
+            }
+
+            if player != nil, controlsVisible,
+               !playbackController.isPictureInPictureActive {
+                GalleryVideoControlsOverlay(
+                    isSilentMedia: isSilent == true,
+                    sliderSeconds: $sliderSeconds,
+                    sliderIsActive: $sliderIsActive,
+                    playbackController: playbackController
+                )
+                .transition(.opacity)
             }
         }
         .ignoresSafeArea()
@@ -1400,9 +1582,12 @@ private struct GalleryVideoPlayer: View {
                     }
                     isSilent = silent
                     newPlayer.isMuted = silent
-                    await MediaPlaybackAudioSession.activate(
-                        silent: silent
-                    )
+                    if backgroundPlaybackEnabled, !silent {
+                        await MediaPlaybackAudioSession
+                            .activateForBackgroundPlayback()
+                    } else {
+                        await MediaPlaybackAudioSession.activate(silent: true)
+                    }
                 } else {
                     await MediaPlaybackAudioSession.activate(silent: true)
                 }
@@ -1415,9 +1600,29 @@ private struct GalleryVideoPlayer: View {
                     if let isSilent {
                         Task {
                             await MediaPlaybackAudioSession.activate(
-                                silent: isSilent
+                                silent: backgroundPlaybackEnabled
+                                    ? isSilent
+                                    : true
                             )
                         }
+                    }
+                }
+            }
+            .onChange(of: playbackController.currentSeconds) { seconds in
+                if !sliderIsActive {
+                    sliderSeconds = seconds
+                }
+            }
+            .onChange(
+                of: playbackController.isPictureInPictureActive
+            ) { active in
+                guard !active else { return }
+                Task {
+                    if backgroundPlaybackEnabled, isSilent == false {
+                        await MediaPlaybackAudioSession
+                            .activateForBackgroundPlayback()
+                    } else {
+                        await MediaPlaybackAudioSession.activate(silent: true)
                     }
                 }
             }
@@ -1475,6 +1680,424 @@ private struct GalleryVideoPlayer: View {
                 player = nil
                 looper = nil
             }
+    }
+}
+
+private struct GalleryVideoInteractionLayer: View {
+    let allowsSeeking: Bool
+    let canMovePrevious: Bool
+    let canMoveNext: Bool
+    @ObservedObject var playbackController: GalleryPlaybackController
+    let movePrevious: () -> Void
+    let moveNext: () -> Void
+    let toggleControls: () -> Void
+
+    var body: some View {
+        GeometryReader { geometry in
+            HStack(spacing: 0) {
+                GalleryEdgePagingButton(
+                    direction: .previous,
+                    action: movePrevious
+                )
+                .frame(width: geometry.size.width / 7)
+                .disabled(!canMovePrevious)
+
+                HStack(spacing: 0) {
+                    interactionHalf(seekSeconds: -5)
+                    interactionHalf(seekSeconds: 5)
+                }
+                .simultaneousGesture(
+                    scrubGesture(width: geometry.size.width),
+                    including: allowsSeeking ? .gesture : .none
+                )
+
+                GalleryEdgePagingButton(
+                    direction: .next,
+                    action: moveNext
+                )
+                .frame(width: geometry.size.width / 7)
+                .disabled(!canMoveNext)
+            }
+            .padding(.top, max(78, geometry.safeAreaInsets.top + 54))
+        }
+    }
+
+    private func interactionHalf(seekSeconds: Double) -> some View {
+        Color.clear
+            .contentShape(Rectangle())
+            .gesture(
+                SpatialTapGesture(count: 2)
+                    .exclusively(before: SpatialTapGesture())
+                    .onEnded { result in
+                        switch result {
+                        case .first(_):
+                            guard allowsSeeking else { return }
+                            playbackController.seek(by: seekSeconds)
+                        case .second(_):
+                            toggleControls()
+                        }
+                    }
+            )
+    }
+
+    private func scrubGesture(width: CGFloat) -> some Gesture {
+        LongPressGesture(
+            minimumDuration: 0.5,
+            maximumDistance: 10
+        )
+        .sequenced(
+            before: DragGesture(
+                minimumDistance: 0,
+                coordinateSpace: .local
+            )
+        )
+        .onChanged { value in
+            switch value {
+            case .second(true, let drag):
+                playbackController.beginScrubbing(width: width)
+                if let drag {
+                    playbackController.updateScrubbing(
+                        horizontalTranslation: drag.translation.width,
+                        width: width
+                    )
+                }
+            default:
+                break
+            }
+        }
+        .onEnded { _ in
+            playbackController.endScrubbing()
+        }
+    }
+}
+
+private struct GalleryVideoControlsOverlay: View {
+    let isSilentMedia: Bool
+    @Binding var sliderSeconds: Double
+    @Binding var sliderIsActive: Bool
+    @ObservedObject var playbackController: GalleryPlaybackController
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Spacer()
+
+                Button {
+                    playbackController.startPictureInPicture()
+                } label: {
+                    Image(systemName: "pip.enter")
+                }
+                .disabled(!playbackController.pictureInPictureAvailable)
+
+                if !isSilentMedia {
+                    Button {
+                        playbackController.toggleMute()
+                    } label: {
+                        Image(
+                            systemName: playbackController.isMuted
+                                ? "speaker.slash.fill"
+                                : "speaker.wave.2.fill"
+                        )
+                    }
+                }
+            }
+            .font(.headline)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .padding(.top, 66)
+            .buttonStyle(GalleryPlayerControlButtonStyle())
+
+            Spacer()
+
+            Button {
+                playbackController.togglePlayback()
+            } label: {
+                Image(
+                    systemName: playbackController.isPlaying
+                        ? "pause.fill"
+                        : "play.fill"
+                )
+                .font(.system(size: 30, weight: .semibold))
+                .frame(width: 62, height: 62)
+                .background(.black.opacity(0.52), in: Circle())
+            }
+            .foregroundStyle(.white)
+
+            Spacer()
+
+            HStack(spacing: 10) {
+                Text(timeText(sliderSeconds))
+                Slider(
+                    value: $sliderSeconds,
+                    in: 0...max(
+                        playbackController.durationSeconds,
+                        0.1
+                    ),
+                    onEditingChanged: { editing in
+                        sliderIsActive = editing
+                        if editing {
+                            playbackController.beginDirectSeeking()
+                        } else {
+                            playbackController.endDirectSeeking(
+                                at: sliderSeconds
+                            )
+                        }
+                    }
+                )
+                .tint(.white)
+                Text(timeText(playbackController.durationSeconds))
+            }
+            .font(.caption.monospacedDigit().weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 28)
+        }
+    }
+
+    private func timeText(_ seconds: Double) -> String {
+        let total = max(Int(seconds.rounded(.down)), 0)
+        if total >= 3_600 {
+            return String(
+                format: "%d:%02d:%02d",
+                total / 3_600,
+                (total % 3_600) / 60,
+                total % 60
+            )
+        }
+        return String(
+            format: "%d:%02d",
+            total / 60,
+            total % 60
+        )
+    }
+}
+
+private struct GalleryPlayerControlButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: 42, height: 42)
+            .background(.black.opacity(0.52), in: Circle())
+            .opacity(configuration.isPressed ? 0.58 : 1)
+    }
+}
+
+private final class GalleryPlayerLayerHostView: UIView {
+    override class var layerClass: AnyClass {
+        AVPlayerLayer.self
+    }
+
+    var playerLayer: AVPlayerLayer {
+        layer as! AVPlayerLayer
+    }
+}
+
+private struct GalleryPlayerLayerView: UIViewRepresentable {
+    let player: AVPlayer
+    @Binding var isReadyForDisplay: Bool
+    @ObservedObject var playbackController: GalleryPlaybackController
+
+    func makeUIView(context: Context) -> GalleryPlayerLayerHostView {
+        let view = GalleryPlayerLayerHostView()
+        view.backgroundColor = .black
+        view.playerLayer.backgroundColor = UIColor.black.cgColor
+        view.playerLayer.videoGravity = .resizeAspect
+        view.playerLayer.player = player
+        context.coordinator.attach(to: view)
+        return view
+    }
+
+    func updateUIView(
+        _ view: GalleryPlayerLayerHostView,
+        context: Context
+    ) {
+        if view.playerLayer.player !== player {
+            isReadyForDisplay = false
+            view.playerLayer.player = player
+            context.coordinator.observeReadiness(of: view.playerLayer)
+            context.coordinator.configurePictureInPicture(
+                for: view.playerLayer
+            )
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            isReadyForDisplay: $isReadyForDisplay,
+            playbackController: playbackController
+        )
+    }
+
+    static func dismantleUIView(
+        _ view: GalleryPlayerLayerHostView,
+        coordinator: Coordinator
+    ) {
+        coordinator.detach()
+        if !coordinator.playbackController
+            .isPictureInPictureActive {
+            view.playerLayer.player = nil
+        }
+    }
+
+    final class Coordinator:
+        NSObject,
+        AVPictureInPictureControllerDelegate {
+        let playbackController: GalleryPlaybackController
+        private var isReadyForDisplay: Binding<Bool>
+        private weak var playerLayer: AVPlayerLayer?
+        private var readinessObservation: NSKeyValueObservation?
+        private var readinessHandoffTask: Task<Void, Never>?
+        private var pictureInPictureController:
+            AVPictureInPictureController?
+        private var possibilityObservation: NSKeyValueObservation?
+
+        init(
+            isReadyForDisplay: Binding<Bool>,
+            playbackController: GalleryPlaybackController
+        ) {
+            self.isReadyForDisplay = isReadyForDisplay
+            self.playbackController = playbackController
+        }
+
+        func attach(to view: GalleryPlayerLayerHostView) {
+            observeReadiness(of: view.playerLayer)
+            configurePictureInPicture(for: view.playerLayer)
+        }
+
+        func observeReadiness(of layer: AVPlayerLayer) {
+            guard playerLayer !== layer else { return }
+            playerLayer = layer
+            readinessObservation?.invalidate()
+            readinessObservation = layer.observe(
+                \.isReadyForDisplay,
+                options: [.initial, .new]
+            ) { [weak self] layer, _ in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.readinessHandoffTask?.cancel()
+                    guard layer.isReadyForDisplay else {
+                        self.isReadyForDisplay.wrappedValue = false
+                        return
+                    }
+                    self.readinessHandoffTask = Task { @MainActor [
+                        weak self,
+                        weak layer
+                    ] in
+                        try? await Task.sleep(
+                            nanoseconds: 20_000_000
+                        )
+                        guard !Task.isCancelled,
+                              let self,
+                              layer?.isReadyForDisplay == true
+                        else {
+                            return
+                        }
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            self.isReadyForDisplay.wrappedValue = true
+                        }
+                    }
+                }
+            }
+        }
+
+        func configurePictureInPicture(for layer: AVPlayerLayer) {
+            guard pictureInPictureController == nil,
+                  AVPictureInPictureController
+                    .isPictureInPictureSupported()
+            else {
+                return
+            }
+            let controller = AVPictureInPictureController(
+                playerLayer: layer
+            )
+            controller.delegate = self
+            controller
+                .canStartPictureInPictureAutomaticallyFromInline = false
+            pictureInPictureController = controller
+            possibilityObservation = controller.observe(
+                \.isPictureInPicturePossible,
+                options: [.initial, .new]
+            ) { [weak self] controller, _ in
+                DispatchQueue.main.async {
+                    self?.playbackController
+                        .updatePictureInPicturePossible(
+                            controller.isPictureInPicturePossible
+                        )
+                }
+            }
+            playbackController.registerPictureInPicture(
+                possible: controller.isPictureInPicturePossible,
+                start: { [weak self] in
+                    self?.startPictureInPicture()
+                }
+            )
+        }
+
+        @MainActor
+        private func startPictureInPicture() {
+            guard let controller = pictureInPictureController,
+                  !controller.isPictureInPictureActive
+            else {
+                return
+            }
+            Task { @MainActor [weak controller] in
+                await MediaPlaybackAudioSession
+                    .activateForPictureInPicture()
+                for _ in 0..<8 {
+                    guard let controller else { return }
+                    if controller.isPictureInPicturePossible {
+                        controller.startPictureInPicture()
+                        return
+                    }
+                    try? await Task.sleep(
+                        nanoseconds: 50_000_000
+                    )
+                }
+            }
+        }
+
+        func detach() {
+            readinessHandoffTask?.cancel()
+            readinessHandoffTask = nil
+            readinessObservation?.invalidate()
+            readinessObservation = nil
+            possibilityObservation?.invalidate()
+            possibilityObservation = nil
+            pictureInPictureController?.delegate = nil
+            if pictureInPictureController?
+                .isPictureInPictureActive == true {
+                pictureInPictureController?.stopPictureInPicture()
+            }
+            pictureInPictureController = nil
+            playerLayer = nil
+            playbackController.unregisterPictureInPicture()
+        }
+
+        @MainActor
+        func pictureInPictureControllerWillStartPictureInPicture(
+            _ pictureInPictureController:
+                AVPictureInPictureController
+        ) {
+            playbackController.setPictureInPictureActive(true)
+        }
+
+        @MainActor
+        func pictureInPictureControllerDidStopPictureInPicture(
+            _ pictureInPictureController:
+                AVPictureInPictureController
+        ) {
+            playbackController.setPictureInPictureActive(false)
+        }
+
+        @MainActor
+        func pictureInPictureController(
+            _ pictureInPictureController:
+                AVPictureInPictureController,
+            failedToStartPictureInPictureWithError error: Error
+        ) {
+            playbackController.setPictureInPictureActive(false)
+        }
     }
 }
 
