@@ -304,18 +304,14 @@ struct BookmarksView: View {
     }
 
     private func openLocalIndex(_ route: LocalIndexRoute) {
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
+        withAnimation(.easeOut(duration: 0.18)) {
             localIndexPath.append(route)
         }
     }
 
     private func closeLocalIndex() {
         guard !localIndexPath.isEmpty else { return }
-        var transaction = Transaction(animation: nil)
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
+        withAnimation(.easeInOut(duration: 0.18)) {
             localIndexPath.removeLast()
         }
     }

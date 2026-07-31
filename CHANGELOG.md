@@ -12,6 +12,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ### Changed
 
+- The five Local Incremental Index destinations once again use a short push/pop transition while retaining controlled navigation and its reduced interaction delay.
 - Photo double-tap zoom now uses a smoother GPU-composited spring transition, supports the device's higher refresh rate, and magnifies to 1.75×.
 - Gallery edge-tap navigation is limited to compact outer-edge zones and shows a subtle pressed gradient; releasing outside the original edge cancels the page change.
 - Gallery edge-tap navigation now occupies exactly the outer one-tenth of each side, leaving more of the player surface for playback controls.
