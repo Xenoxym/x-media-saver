@@ -10,6 +10,10 @@ extension View {
     func compactBackButton() -> some View {
         modifier(CompactBackButtonModifier())
     }
+
+    func edgeSwipeBack() -> some View {
+        modifier(EdgeSwipeBackModifier())
+    }
 }
 
 private struct CompactBackButtonModifier: ViewModifier {
@@ -28,5 +32,31 @@ private struct CompactBackButtonModifier: ViewModifier {
                     .accessibilityLabel("Back")
                 }
             }
+    }
+}
+
+private struct EdgeSwipeBackModifier: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content.simultaneousGesture(
+            DragGesture(
+                minimumDistance: 12,
+                coordinateSpace: .global
+            )
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = abs(value.translation.height)
+                let predicted = value.predictedEndTranslation.width
+                guard value.startLocation.x <= 24,
+                      horizontal > 0,
+                      horizontal > vertical * 1.2,
+                      horizontal >= 72 || predicted >= 120
+                else {
+                    return
+                }
+                dismiss()
+            }
+        )
     }
 }

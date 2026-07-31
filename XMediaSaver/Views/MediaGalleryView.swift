@@ -118,6 +118,7 @@ struct MediaGalleryView: View {
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .compactBackButton()
+        .edgeSwipeBack()
         .onChange(of: sort) { value in
             applySort(value)
         }

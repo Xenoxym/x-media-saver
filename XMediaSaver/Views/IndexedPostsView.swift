@@ -87,6 +87,7 @@ struct IndexedPostsView: View {
         .navigationTitle(L10n.string("已索引 Post"))
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .edgeSwipeBack()
         .searchable(text: $searchText, prompt: "搜索账号或正文")
         .onChange(of: searchText) { _ in
             visibleLimit = 100

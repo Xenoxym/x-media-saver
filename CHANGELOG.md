@@ -37,6 +37,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Tapping the compact center play/pause area now toggles playback even when controls are hidden, while all surrounding tap, double-tap, scrub, and paging regions keep their existing behavior. The center control no longer draws a translucent black circle.
 - The center play/pause target is refined to 100×100 points. Video controls fade away automatically after five seconds and remain hidden by default on entry and page changes.
 - Indexed Posts places the media/text preview toggle beside the back button on the leading side. X Browser keeps its Sync button on one line when the loading spinner appears.
+- All five Local Incremental Index destinations support a left-edge right swipe to return to Bookmarks without interfering with ordinary scrolling or center-originated gestures.
 
 ## [1.2.1] - 2026-07-29
 
