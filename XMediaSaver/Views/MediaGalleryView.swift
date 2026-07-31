@@ -1399,6 +1399,10 @@ private struct ZoomableGalleryPhoto: View {
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Flatten the low/high-resolution image stack once, then animate
+                // the resulting Metal-backed layer instead of redrawing both
+                // source images for every zoom frame.
+                .drawingGroup(opaque: false, colorMode: .nonLinear)
                 .scaleEffect(scale)
                 .offset(combinedOffset)
             }
@@ -1489,13 +1493,17 @@ private struct ZoomableGalleryPhoto: View {
         SpatialTapGesture(count: 2)
             .onEnded { tap in
                 if scale > 1.01 {
-                    withAnimation(.easeInOut(duration: 0.28)) {
+                    withAnimation(.interactiveSpring(
+                        response: 0.24,
+                        dampingFraction: 0.9,
+                        blendDuration: 0
+                    )) {
                         resetZoom()
                     }
                     return
                 }
 
-                let targetScale: CGFloat = 1.5
+                let targetScale: CGFloat = 1.75
                 let targetOffset = CGSize(
                     width:
                         (size.width / 2 - tap.location.x)
@@ -1504,7 +1512,11 @@ private struct ZoomableGalleryPhoto: View {
                         (size.height / 2 - tap.location.y)
                         * (targetScale - 1)
                 )
-                withAnimation(.easeInOut(duration: 0.28)) {
+                withAnimation(.interactiveSpring(
+                    response: 0.24,
+                    dampingFraction: 0.9,
+                    blendDuration: 0
+                )) {
                     scale = targetScale
                     settledScale = targetScale
                     offset = targetOffset
