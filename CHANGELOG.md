@@ -4,6 +4,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-31
+
 ### Added
 
 - Full-screen videos now support half-second long-press scrubbing: drag horizontally from the current playback position, see the target time and progress, then release to seek precisely. This works in both the media gallery and the native full-screen player opened from Post Preview.
@@ -114,6 +116,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 [1.1.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Xenoxym/x-media-saver/releases/tag/v1.0.0
-[Unreleased]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/Xenoxym/x-media-saver/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.1.0...v1.2.0

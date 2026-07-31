@@ -4,6 +4,8 @@
 
 ## [尚未发布]
 
+## [1.3.0] - 2026-07-31
+
 ### 新增
 
 - 全屏视频支持长按半秒后横向拖动进度：从当前播放位置开始相对移动，实时显示目标时间和进度，松手后精确定位；九宫格全屏与 Post 预览打开的系统全屏播放器均支持。
@@ -114,6 +116,7 @@
 
 [1.1.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/Xenoxym/x-media-saver/releases/tag/v1.0.0
-[尚未发布]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.1...HEAD
+[尚未发布]: https://github.com/Xenoxym/x-media-saver/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/Xenoxym/x-media-saver/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/Xenoxym/x-media-saver/compare/v1.1.0...v1.2.0
