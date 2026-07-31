@@ -1399,10 +1399,11 @@ private struct ZoomableGalleryPhoto: View {
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                // Flatten the low/high-resolution image stack once, then animate
-                // the resulting Metal-backed layer instead of redrawing both
-                // source images for every zoom frame.
-                .drawingGroup(opaque: false, colorMode: .nonLinear)
+                // Keep both image resolutions in one compositing hierarchy
+                // without rasterizing them into a new off-screen bitmap. An
+                // off-screen drawing group can briefly rebuild at the target
+                // scale when double-tap zoom is repeated.
+                .compositingGroup()
                 .scaleEffect(scale)
                 .offset(combinedOffset)
             }
@@ -1493,11 +1494,7 @@ private struct ZoomableGalleryPhoto: View {
         SpatialTapGesture(count: 2)
             .onEnded { tap in
                 if scale > 1.01 {
-                    withAnimation(.interactiveSpring(
-                        response: 0.24,
-                        dampingFraction: 0.9,
-                        blendDuration: 0
-                    )) {
+                    withAnimation(doubleTapZoomAnimation) {
                         resetZoom()
                     }
                     return
@@ -1512,11 +1509,7 @@ private struct ZoomableGalleryPhoto: View {
                         (size.height / 2 - tap.location.y)
                         * (targetScale - 1)
                 )
-                withAnimation(.interactiveSpring(
-                    response: 0.24,
-                    dampingFraction: 0.9,
-                    blendDuration: 0
-                )) {
+                withAnimation(doubleTapZoomAnimation) {
                     scale = targetScale
                     settledScale = targetScale
                     offset = targetOffset
@@ -1526,6 +1519,10 @@ private struct ZoomableGalleryPhoto: View {
                     isZoomed = true
                 }
             }
+    }
+
+    private var doubleTapZoomAnimation: Animation {
+        .timingCurve(0.22, 0.78, 0.28, 1, duration: 0.24)
     }
 
     private var combinedOffset: CGSize {

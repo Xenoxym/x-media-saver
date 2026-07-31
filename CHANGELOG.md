@@ -21,6 +21,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ### Fixed
 
+- Repeated photo double-tap zoom no longer rebuilds an off-screen raster layer or inherits spring velocity, preventing the one-frame enlarged flash that was most visible near the image center.
 - Returning from an upward-opened Post Preview no longer pauses the resumed gallery video after a short delay. Audio-session cleanup now runs only when the full-screen gallery itself closes.
 - Full-screen media now covers the device safe areas without white bars. Video scrubbing starts only after the half-second long press completes, and its gesture no longer blocks quick edge taps or vertical/horizontal navigation.
 - Interactive page covers now use the same centered fit as playback, and cancelled gestures automatically discard their temporary offset instead of leaving the gallery stuck between two items.
