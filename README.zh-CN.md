@@ -6,7 +6,7 @@ X Media Saver 是一个供个人侧载使用的 iOS 16+ SwiftUI App。当前版�
 
 本项目没有自建后端、代理或第三方下载 API；也不使用 X OAuth、开发者 API key 或用户 Bearer Token。
 
-当前正式版：**1.2.1（build 9）**。版本记录见 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
+当前正式版：**1.2.1（build 9）**。当前开发构建标识为 **1.3.0（build 10）**。版本记录见 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
 
 ## 当前功能
 

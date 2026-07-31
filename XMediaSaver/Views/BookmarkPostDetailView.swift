@@ -1,4 +1,5 @@
 import AVKit
+import QuartzCore
 import SwiftUI
 import UIKit
 
@@ -557,6 +558,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = false
         context.coordinator.observe(player: player)
+        context.coordinator.installScrubGesture(on: controller)
         Self.disablePinchGestures(in: controller.view)
         DispatchQueue.main.async { [weak controller] in
             guard let controller else { return }
@@ -590,6 +592,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
     ) {
         controller.delegate = nil
         controller.player = nil
+        coordinator.removeScrubGesture()
         coordinator.stopObservingPlayer()
     }
 
@@ -599,6 +602,14 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         private var inlineAudioEnabled: Binding<Bool>
         private weak var observedPlayer: AVPlayer?
         private var muteObservation: NSKeyValueObservation?
+        private weak var playerViewController: AVPlayerViewController?
+        private weak var scrubGesture: UILongPressGestureRecognizer?
+        private weak var scrubOverlay: NativeVideoScrubOverlayView?
+        private var scrubStartTime: Double?
+        private var scrubStartLocationX: CGFloat?
+        private var scrubDuration: Double?
+        private var scrubWasPlaying = false
+        private var lastPreviewSeekTime: CFTimeInterval = 0
 
         init(
             isPictureInPictureActive: Binding<Bool>,
@@ -630,6 +641,34 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
             }
         }
 
+        func installScrubGesture(on controller: AVPlayerViewController) {
+            guard playerViewController !== controller else { return }
+            removeScrubGesture()
+
+            playerViewController = controller
+            let recognizer = UILongPressGestureRecognizer(
+                target: self,
+                action: #selector(handleScrubGesture(_:))
+            )
+            recognizer.minimumPressDuration = 0.5
+            recognizer.allowableMovement = 10
+            recognizer.cancelsTouchesInView = true
+            recognizer.isEnabled = false
+            controller.view.addGestureRecognizer(recognizer)
+            scrubGesture = recognizer
+        }
+
+        func removeScrubGesture() {
+            cancelScrub(resumePlayback: false)
+            if let scrubGesture {
+                scrubGesture.view?.removeGestureRecognizer(scrubGesture)
+            }
+            scrubGesture = nil
+            scrubOverlay?.removeFromSuperview()
+            scrubOverlay = nil
+            playerViewController = nil
+        }
+
         func stopObservingPlayer() {
             muteObservation?.invalidate()
             muteObservation = nil
@@ -654,6 +693,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
                 coordinator: UIViewControllerTransitionCoordinator
         ) {
             isFullScreenActive.wrappedValue = true
+            scrubGesture?.isEnabled = true
             playerViewController.player?.isMuted = false
             playerViewController.player?.play()
         }
@@ -663,6 +703,8 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
             willEndFullScreenPresentationWithAnimationCoordinator
                 coordinator: UIViewControllerTransitionCoordinator
         ) {
+            cancelScrub(resumePlayback: false)
+            scrubGesture?.isEnabled = false
             coordinator.animate(alongsideTransition: nil) {
                 [weak self, weak playerViewController] _ in
                 guard let self else { return }
@@ -671,6 +713,160 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
                 playerViewController?.player?.play()
                 self.isFullScreenActive.wrappedValue = false
             }
+        }
+
+        @objc
+        private func handleScrubGesture(
+            _ recognizer: UILongPressGestureRecognizer
+        ) {
+            guard isFullScreenActive.wrappedValue,
+                  let controller = playerViewController,
+                  let player = controller.player
+            else {
+                return
+            }
+
+            switch recognizer.state {
+            case .began:
+                beginScrub(with: player, in: controller)
+            case .changed:
+                updateScrub(
+                    with: player,
+                    locationX: recognizer.location(in: controller.view).x,
+                    width: controller.view.bounds.width
+                )
+            case .ended:
+                finishScrub(with: player)
+            case .cancelled, .failed:
+                cancelScrub(resumePlayback: true)
+            default:
+                break
+            }
+        }
+
+        private func beginScrub(
+            with player: AVPlayer,
+            in controller: AVPlayerViewController
+        ) {
+            let duration = player.currentItem?.duration.seconds ?? .nan
+            let current = player.currentTime().seconds
+            guard duration.isFinite, duration > 0,
+                  current.isFinite
+            else {
+                return
+            }
+
+            scrubStartTime = min(max(current, 0), duration)
+            scrubDuration = duration
+            scrubWasPlaying = player.rate != 0
+            lastPreviewSeekTime = 0
+            player.pause()
+
+            let overlay = scrubOverlay ?? makeScrubOverlay(in: controller)
+            overlay.update(current: current, duration: duration)
+            overlay.isHidden = false
+            scrubStartLocationX = scrubGesture?.location(
+                in: controller.view
+            ).x
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        }
+
+        private func updateScrub(
+            with player: AVPlayer,
+            locationX: CGFloat,
+            width: CGFloat
+        ) {
+            guard let start = scrubStartTime,
+                  let startX = scrubStartLocationX,
+                  let duration = scrubDuration,
+                  width > 0
+            else {
+                return
+            }
+
+            let target = min(
+                max(
+                    start + Double((locationX - startX) / width) * duration,
+                    0
+                ),
+                duration
+            )
+            scrubOverlay?.update(current: target, duration: duration)
+
+            let now = CACurrentMediaTime()
+            guard now - lastPreviewSeekTime >= 0.10 else { return }
+            lastPreviewSeekTime = now
+            player.seek(
+                to: CMTime(seconds: target, preferredTimescale: 600),
+                toleranceBefore: CMTime(seconds: 0.05, preferredTimescale: 600),
+                toleranceAfter: CMTime(seconds: 0.05, preferredTimescale: 600)
+            )
+        }
+
+        private func finishScrub(with player: AVPlayer) {
+            guard let duration = scrubDuration else {
+                cancelScrub(resumePlayback: false)
+                return
+            }
+
+            let progress = scrubOverlay?.progress ?? 0
+            let target = min(max(Double(progress) * duration, 0), duration)
+            let shouldResume = scrubWasPlaying
+            clearScrubState()
+            player.seek(
+                to: CMTime(seconds: target, preferredTimescale: 600),
+                toleranceBefore: .zero,
+                toleranceAfter: .zero
+            ) { finished in
+                guard finished, shouldResume else { return }
+                DispatchQueue.main.async {
+                    player.play()
+                }
+            }
+        }
+
+        private func cancelScrub(resumePlayback: Bool) {
+            let shouldResume = resumePlayback && scrubWasPlaying
+            let player = playerViewController?.player
+            clearScrubState()
+            if shouldResume {
+                player?.play()
+            }
+        }
+
+        private func clearScrubState() {
+            scrubStartTime = nil
+            scrubStartLocationX = nil
+            scrubDuration = nil
+            scrubWasPlaying = false
+            lastPreviewSeekTime = 0
+            scrubOverlay?.isHidden = true
+        }
+
+        private func makeScrubOverlay(
+            in controller: AVPlayerViewController
+        ) -> NativeVideoScrubOverlayView {
+            let overlay = NativeVideoScrubOverlayView()
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            let host = controller.contentOverlayView ?? controller.view!
+            host.addSubview(overlay)
+            NSLayoutConstraint.activate([
+                overlay.leadingAnchor.constraint(
+                    equalTo: host.safeAreaLayoutGuide.leadingAnchor,
+                    constant: 24
+                ),
+                overlay.trailingAnchor.constraint(
+                    equalTo: host.safeAreaLayoutGuide.trailingAnchor,
+                    constant: -24
+                ),
+                overlay.bottomAnchor.constraint(
+                    equalTo: host.safeAreaLayoutGuide.bottomAnchor,
+                    constant: -40
+                ),
+                overlay.heightAnchor.constraint(equalToConstant: 64)
+            ])
+            scrubOverlay = overlay
+            return overlay
         }
     }
 
@@ -681,5 +877,104 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         view.subviews.forEach {
             disablePinchGestures(in: $0)
         }
+    }
+}
+
+private final class NativeVideoScrubOverlayView: UIVisualEffectView {
+    private let currentLabel = UILabel()
+    private let durationLabel = UILabel()
+    private let progressView = UIProgressView(progressViewStyle: .default)
+
+    private(set) var progress: Float = 0
+
+    init() {
+        super.init(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
+        isUserInteractionEnabled = false
+        layer.cornerRadius = 14
+        clipsToBounds = true
+
+        currentLabel.font = .monospacedDigitSystemFont(
+            ofSize: 13,
+            weight: .semibold
+        )
+        currentLabel.textColor = .white
+        durationLabel.font = .monospacedDigitSystemFont(
+            ofSize: 13,
+            weight: .regular
+        )
+        durationLabel.textColor = UIColor.white.withAlphaComponent(0.75)
+        durationLabel.textAlignment = .right
+        progressView.progressTintColor = .white
+        progressView.trackTintColor = UIColor.white.withAlphaComponent(0.25)
+
+        [currentLabel, durationLabel, progressView].forEach {
+            $0.translatesAutoresizingMaskIntoConstraints = false
+            contentView.addSubview($0)
+        }
+        NSLayoutConstraint.activate([
+            currentLabel.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: 14
+            ),
+            currentLabel.topAnchor.constraint(
+                equalTo: contentView.topAnchor,
+                constant: 10
+            ),
+            durationLabel.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -14
+            ),
+            durationLabel.centerYAnchor.constraint(
+                equalTo: currentLabel.centerYAnchor
+            ),
+            progressView.leadingAnchor.constraint(
+                equalTo: contentView.leadingAnchor,
+                constant: 14
+            ),
+            progressView.trailingAnchor.constraint(
+                equalTo: contentView.trailingAnchor,
+                constant: -14
+            ),
+            progressView.topAnchor.constraint(
+                equalTo: currentLabel.bottomAnchor,
+                constant: 10
+            )
+        ])
+        isHidden = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func update(current: Double, duration: Double) {
+        let safeDuration = max(duration, 0)
+        let safeCurrent = min(max(current, 0), safeDuration)
+        progress = safeDuration > 0
+            ? Float(safeCurrent / safeDuration)
+            : 0
+        currentLabel.text = Self.formattedTime(safeCurrent)
+        durationLabel.text = Self.formattedTime(safeDuration)
+        progressView.setProgress(progress, animated: false)
+    }
+
+    private static func formattedTime(_ seconds: Double) -> String {
+        let total = max(Int(seconds.rounded()), 0)
+        let hours = total / 3_600
+        let minutes = (total % 3_600) / 60
+        let remainingSeconds = total % 60
+        if hours > 0 {
+            return String(
+                format: "%d:%02d:%02d",
+                hours,
+                minutes,
+                remainingSeconds
+            )
+        }
+        return String(
+            format: "%d:%02d",
+            minutes,
+            remainingSeconds
+        )
     }
 }

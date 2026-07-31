@@ -4,6 +4,21 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+### Added
+
+- Full-screen videos now support half-second long-press scrubbing: drag horizontally from the current playback position, see the target time and progress, then release to seek precisely. This works in both the media gallery and the native full-screen player opened from Post Preview.
+- Double-tap the inner left or right side of a gallery video to seek backward or forward five seconds.
+
+### Changed
+
+- Gallery edge-tap navigation is limited to compact outer-edge zones and shows a subtle pressed gradient; releasing outside the original edge cancels the page change.
+- Horizontal swipes now move the current media interactively with the finger, reveal the adjacent item, and settle only after crossing a distance or velocity threshold.
+- Adjacent videos use a lightweight static preview during an interactive page drag; the real player is created only after the page becomes current.
+
+### Fixed
+
+- Returning from an upward-opened Post Preview no longer pauses the resumed gallery video after a short delay. Audio-session cleanup now runs only when the full-screen gallery itself closes.
+
 ## [1.2.1] - 2026-07-29
 
 ### Added

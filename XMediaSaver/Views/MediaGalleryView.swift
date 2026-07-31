@@ -1,4 +1,5 @@
 import AVKit
+import QuartzCore
 import SwiftUI
 import UIKit
 
@@ -459,6 +460,17 @@ private struct GalleryMediaItem: Identifiable {
     var id: String { media.mediaKey }
 }
 
+private enum GalleryNavigationDragAxis {
+    case undecided
+    case horizontal
+    case vertical
+}
+
+private enum GalleryPagingDirection {
+    case previous
+    case next
+}
+
 private struct GalleryFullScreenViewer: View {
     let items: [GalleryMediaItem]
     let initialIndex: Int
@@ -466,6 +478,12 @@ private struct GalleryFullScreenViewer: View {
     @State private var currentIndex: Int
     @State private var imageIsZoomed = false
     @State private var presentedPost: BookmarkedPost?
+    @State private var pageDragOffset: CGFloat = 0
+    @State private var navigationDragAxis =
+        GalleryNavigationDragAxis.undecided
+    @State private var completesPageTransition = false
+    @StateObject private var playbackController =
+        GalleryPlaybackController()
 
     init(items: [GalleryMediaItem], initialIndex: Int) {
         self.items = items
@@ -481,18 +499,18 @@ private struct GalleryFullScreenViewer: View {
                 Color.black
                     .ignoresSafeArea()
 
-                if let item = currentItem {
-                    GalleryViewerMediaPage(
-                        item: item,
-                        imageIsZoomed: $imageIsZoomed,
-                        playbackSuspended: presentedPost != nil,
-                        dismissAction: { dismiss() }
-                    )
-                    .id(item.id)
-                    .transaction { transaction in
-                        transaction.animation = nil
-                        transaction.disablesAnimations = true
-                    }
+                interactivePages(width: geometry.size.width)
+
+                if let scrubState = playbackController.scrubState {
+                    GalleryScrubOverlay(state: scrubState)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 42)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .transition(.opacity)
+                }
+
+                if let feedback = playbackController.seekFeedback {
+                    GallerySeekFeedbackOverlay(feedback: feedback)
                 }
 
                 HStack {
@@ -517,18 +535,35 @@ private struct GalleryFullScreenViewer: View {
                         .background(.black.opacity(0.55), in: Capsule())
                 }
                 .padding()
+
+                edgePagingControls(
+                    width: geometry.size.width,
+                    topInset: max(78, geometry.safeAreaInsets.top + 54)
+                )
             }
+            .clipped()
             .contentShape(Rectangle())
-            .simultaneousGesture(
-                SpatialTapGesture()
-                    .onEnded { value in
-                        handleTap(
-                            at: value.location,
+            .highPriorityGesture(
+                SpatialTapGesture(count: 2)
+                    .onEnded {
+                        handleDoubleTap(
+                            at: $0.location,
                             width: geometry.size.width
                         )
-                    }
+                    },
+                including: currentItem?.media.type == .video
+                    ? .all
+                    : .none
             )
-            .simultaneousGesture(navigationDragGesture)
+            .simultaneousGesture(
+                scrubGesture(width: geometry.size.width),
+                including: currentItem?.media.type == .video
+                    ? .all
+                    : .none
+            )
+            .simultaneousGesture(
+                navigationDragGesture(width: geometry.size.width)
+            )
         }
         .statusBarHidden(true)
         .task(id: currentIndex) {
@@ -540,18 +575,19 @@ private struct GalleryFullScreenViewer: View {
                     post: post,
                     preservesAudioSessionOnDismiss: true
                 )
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("关闭") {
-                                presentedPost = nil
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("关闭") {
+                            presentedPost = nil
+                        }
+                    }
                 }
             }
         }
         .onDisappear {
+            playbackController.detachAll()
             Task {
                 await MediaPlaybackAudioSession.deactivate()
-            }
-        }
             }
         }
     }
@@ -561,24 +597,186 @@ private struct GalleryFullScreenViewer: View {
         return items[currentIndex]
     }
 
-    private func handleTap(at location: CGPoint, width: CGFloat) {
-        guard !imageIsZoomed, width > 0, location.y > 80 else { return }
-        if location.x < width / 3 {
-            move(by: -1)
-        } else if location.x > width * 2 / 3 {
-            move(by: 1)
+    @ViewBuilder
+    private func interactivePages(width: CGFloat) -> some View {
+        ZStack {
+            if pageDragOffset > 0,
+               items.indices.contains(currentIndex - 1) {
+                GalleryAdjacentMediaPreview(
+                    item: items[currentIndex - 1]
+                )
+                .frame(width: width)
+                .offset(x: -width + pageDragOffset)
+            }
+
+            if pageDragOffset < 0,
+               items.indices.contains(currentIndex + 1) {
+                GalleryAdjacentMediaPreview(
+                    item: items[currentIndex + 1]
+                )
+                .frame(width: width)
+                .offset(x: width + pageDragOffset)
+            }
+
+            if let item = currentItem {
+                ZStack {
+                    GalleryViewerMediaPage(
+                        item: item,
+                        imageIsZoomed: $imageIsZoomed,
+                        playbackSuspended: presentedPost != nil,
+                        playbackController: playbackController,
+                        dismissAction: { dismiss() }
+                    )
+                    .id(item.id)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                        transaction.disablesAnimations = true
+                    }
+                }
+                .frame(width: width)
+                .offset(x: pageDragOffset)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func edgePagingControls(
+        width: CGFloat,
+        topInset: CGFloat
+    ) -> some View {
+        let edgeWidth = min(max(width * 0.20, 56), 84)
+        return HStack(spacing: 0) {
+            GalleryEdgePagingButton(direction: .previous) {
+                moveImmediately(by: -1)
+            }
+            .frame(width: edgeWidth)
+            .disabled(!items.indices.contains(currentIndex - 1))
+
+            Spacer(minLength: 0)
+
+            GalleryEdgePagingButton(direction: .next) {
+                moveImmediately(by: 1)
+            }
+            .frame(width: edgeWidth)
+            .disabled(!items.indices.contains(currentIndex + 1))
+        }
+        .padding(.top, topInset)
+        .allowsHitTesting(
+            !imageIsZoomed
+                && !playbackController.isScrubbing
+                && !completesPageTransition
+        )
+    }
+
+    private func handleDoubleTap(
+        at location: CGPoint,
+        width: CGFloat
+    ) {
+        guard currentItem?.media.type == .video,
+              !imageIsZoomed,
+              !playbackController.isScrubbing,
+              width > 0,
+              location.y > 80
+        else {
+            return
+        }
+        let edgeWidth = min(max(width * 0.20, 56), 84)
+        guard location.x >= edgeWidth,
+              location.x <= width - edgeWidth
+        else {
+            return
+        }
+        playbackController.seek(
+            by: location.x < width / 2 ? -5 : 5
+        )
+    }
+
+    private func scrubGesture(width: CGFloat) -> some Gesture {
+        LongPressGesture(
+            minimumDuration: 0.5,
+            maximumDistance: 10
+        )
+        .sequenced(
+            before: DragGesture(
+                minimumDistance: 0,
+                coordinateSpace: .local
+            )
+        )
+        .onChanged { value in
+            guard currentItem?.media.type == .video,
+                  !imageIsZoomed,
+                  !completesPageTransition
+            else {
+                return
+            }
+
+            switch value {
+            case .first(true):
+                playbackController.beginScrubbing(width: width)
+            case .second(true, let drag):
+                playbackController.beginScrubbing(width: width)
+                if let drag {
+                    playbackController.updateScrubbing(
+                        horizontalTranslation: drag.translation.width,
+                        width: width
+                    )
+                }
+            default:
+                break
+            }
+        }
+        .onEnded { _ in
+            playbackController.endScrubbing()
         }
     }
 
-    private var navigationDragGesture: some Gesture {
-        DragGesture(minimumDistance: 24)
+    private func navigationDragGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard !imageIsZoomed,
+                      !playbackController.isScrubbing,
+                      !completesPageTransition
+                else {
+                    return
+                }
+
+                let horizontal = abs(value.translation.width)
+                let vertical = abs(value.translation.height)
+                if navigationDragAxis == .undecided {
+                    guard max(horizontal, vertical) >= 12 else { return }
+                    navigationDragAxis = horizontal > vertical
+                        ? .horizontal
+                        : .vertical
+                }
+
+                guard navigationDragAxis == .horizontal else { return }
+                let translation = value.translation.width
+                let hasDestination = translation < 0
+                    ? items.indices.contains(currentIndex + 1)
+                    : items.indices.contains(currentIndex - 1)
+                pageDragOffset = hasDestination
+                    ? translation
+                    : translation * 0.22
+            }
             .onEnded { value in
-                guard !imageIsZoomed else { return }
-                let horizontal = value.predictedEndTranslation.width
+                defer {
+                    navigationDragAxis = .undecided
+                }
+                guard !imageIsZoomed,
+                      !playbackController.isScrubbing,
+                      !completesPageTransition
+                else {
+                    resetPageDrag()
+                    return
+                }
+
+                if navigationDragAxis == .horizontal {
+                    finishHorizontalDrag(value, width: width)
+                    return
+                }
+
                 let vertical = value.predictedEndTranslation.height
-                if abs(horizontal) > abs(vertical), abs(horizontal) > 70 {
-                    move(by: horizontal < 0 ? 1 : -1)
-                } else if vertical < -80, let currentItem {
+                if vertical < -80, let currentItem {
                     presentedPost = currentItem.post
                 } else if vertical > 80,
                           currentItem?.media.type != .photo {
@@ -587,13 +785,68 @@ private struct GalleryFullScreenViewer: View {
             }
     }
 
-    private func move(by offset: Int) {
+    private func finishHorizontalDrag(
+        _ value: DragGesture.Value,
+        width: CGFloat
+    ) {
+        guard width > 0 else {
+            resetPageDrag()
+            return
+        }
+        let translation = value.translation.width
+        let predicted = value.predictedEndTranslation.width
+        let direction = translation < 0 ? 1 : -1
+        let candidate = currentIndex + direction
+        let passesDistance = abs(translation) >= width * 0.23
+        let passesPrediction = abs(predicted) >= width * 0.38
+        guard items.indices.contains(candidate),
+              passesDistance || passesPrediction
+        else {
+            resetPageDrag()
+            return
+        }
+
+        completesPageTransition = true
+        let target = direction > 0 ? -width : width
+        withAnimation(.easeOut(duration: 0.22)) {
+            pageDragOffset = target
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            guard completesPageTransition else { return }
+            var transaction = Transaction(animation: nil)
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                imageIsZoomed = false
+                currentIndex = candidate
+                pageDragOffset = 0
+            }
+            completesPageTransition = false
+        }
+    }
+
+    private func resetPageDrag() {
+        withAnimation(.interactiveSpring(
+            response: 0.25,
+            dampingFraction: 0.88
+        )) {
+            pageDragOffset = 0
+        }
+    }
+
+    private func moveImmediately(by offset: Int) {
+        guard !playbackController.isScrubbing,
+              !completesPageTransition
+        else {
+            return
+        }
         let candidate = currentIndex + offset
         guard items.indices.contains(candidate) else { return }
         var transaction = Transaction(animation: nil)
         transaction.disablesAnimations = true
         withTransaction(transaction) {
             imageIsZoomed = false
+            pageDragOffset = 0
             currentIndex = candidate
         }
     }
@@ -632,10 +885,347 @@ private struct GalleryFullScreenViewer: View {
     }
 }
 
+private struct GalleryAdjacentMediaPreview: View {
+    let item: GalleryMediaItem
+
+    var body: some View {
+        ZStack {
+            Color.black
+            LocalMediaThumbnailView(
+                media: item.media,
+                maximumPixelSize: 1_280,
+                contentMode: .fit,
+                remoteImageName:
+                    item.media.type == .photo ? "orig" : "small",
+                showsPlaceholder: false
+            )
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+    }
+}
+
+private struct GalleryEdgePagingButton: View {
+    let direction: GalleryPagingDirection
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Color.clear
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(
+            GalleryEdgePagingButtonStyle(direction: direction)
+        )
+        .accessibilityLabel(
+            direction == .previous ? "上一个媒体" : "下一个媒体"
+        )
+    }
+}
+
+private struct GalleryEdgePagingButtonStyle: ButtonStyle {
+    let direction: GalleryPagingDirection
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(
+                            configuration.isPressed ? 0.14 : 0
+                        ),
+                        Color.black.opacity(
+                            configuration.isPressed ? 0.08 : 0
+                        ),
+                        .clear
+                    ],
+                    startPoint: direction == .previous
+                        ? .leading
+                        : .trailing,
+                    endPoint: direction == .previous
+                        ? .trailing
+                        : .leading
+                )
+            }
+            .animation(
+                .easeOut(duration: configuration.isPressed ? 0.08 : 0.15),
+                value: configuration.isPressed
+            )
+    }
+}
+
+private struct GalleryScrubState {
+    let targetSeconds: Double
+    let durationSeconds: Double
+
+    var progress: Double {
+        guard durationSeconds > 0 else { return 0 }
+        return min(max(targetSeconds / durationSeconds, 0), 1)
+    }
+}
+
+private struct GallerySeekFeedback: Identifiable {
+    let id = UUID()
+    let seconds: Int
+}
+
+private struct GalleryScrubOverlay: View {
+    let state: GalleryScrubState
+
+    var body: some View {
+        VStack(spacing: 8) {
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.28))
+                        .frame(height: 4)
+                    Capsule()
+                        .fill(.white)
+                        .frame(
+                            width: geometry.size.width * state.progress,
+                            height: 4
+                        )
+                    Circle()
+                        .fill(.white)
+                        .frame(width: 14, height: 14)
+                        .offset(
+                            x: max(
+                                0,
+                                min(
+                                    geometry.size.width - 14,
+                                    geometry.size.width * state.progress - 7
+                                )
+                            )
+                        )
+                }
+                .frame(maxHeight: .infinity)
+            }
+            .frame(height: 16)
+
+            HStack {
+                Text(Self.timeText(state.targetSeconds))
+                Spacer()
+                Text(Self.timeText(state.durationSeconds))
+            }
+            .font(.caption.monospacedDigit().weight(.semibold))
+            .foregroundStyle(.white)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.black.opacity(0.68), in: RoundedRectangle(
+            cornerRadius: 14
+        ))
+        .allowsHitTesting(false)
+    }
+
+    private static func timeText(_ seconds: Double) -> String {
+        let total = max(Int(seconds.rounded(.down)), 0)
+        if total >= 3_600 {
+            return String(
+                format: "%d:%02d:%02d",
+                total / 3_600,
+                (total % 3_600) / 60,
+                total % 60
+            )
+        }
+        return String(
+            format: "%d:%02d",
+            total / 60,
+            total % 60
+        )
+    }
+}
+
+private struct GallerySeekFeedbackOverlay: View {
+    let feedback: GallerySeekFeedback
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(
+                systemName: feedback.seconds < 0
+                    ? "gobackward.5"
+                    : "goforward.5"
+            )
+            .font(.system(size: 34, weight: .semibold))
+            Text(feedback.seconds < 0 ? "−5" : "+5")
+                .font(.headline.monospacedDigit())
+        }
+        .foregroundStyle(.white)
+        .padding(18)
+        .background(.black.opacity(0.58), in: RoundedRectangle(
+            cornerRadius: 16
+        ))
+        .allowsHitTesting(false)
+        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+    }
+}
+
+@MainActor
+private final class GalleryPlaybackController: ObservableObject {
+    @Published private(set) var scrubState: GalleryScrubState?
+    @Published private(set) var seekFeedback: GallerySeekFeedback?
+
+    private weak var player: AVPlayer?
+    private var mediaKey: String?
+    private var scrubStartSeconds: Double = 0
+    private var scrubDurationSeconds: Double = 0
+    private var resumesAfterScrub = false
+    private var lastPreviewSeekAt: CFTimeInterval = 0
+    private var feedbackTask: Task<Void, Never>?
+
+    var isScrubbing: Bool {
+        scrubState != nil
+    }
+
+    func attach(player: AVPlayer, mediaKey: String) {
+        self.player = player
+        self.mediaKey = mediaKey
+        scrubState = nil
+    }
+
+    func detach(player: AVPlayer, mediaKey: String) {
+        guard self.player === player, self.mediaKey == mediaKey else {
+            return
+        }
+        detachAll()
+    }
+
+    func detachAll() {
+        feedbackTask?.cancel()
+        feedbackTask = nil
+        scrubState = nil
+        seekFeedback = nil
+        player = nil
+        mediaKey = nil
+    }
+
+    func seek(by seconds: Double) {
+        guard !isScrubbing,
+              let player,
+              let duration = finiteDuration(of: player),
+              duration > 0
+        else {
+            return
+        }
+        let current = finiteCurrentTime(of: player)
+        let target = min(max(current + seconds, 0), duration)
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: CMTime(seconds: 0.05, preferredTimescale: 600),
+            toleranceAfter: CMTime(seconds: 0.05, preferredTimescale: 600)
+        )
+        showSeekFeedback(seconds: seconds < 0 ? -5 : 5)
+    }
+
+    func beginScrubbing(width: CGFloat) {
+        guard scrubState == nil,
+              width > 0,
+              let player,
+              let duration = finiteDuration(of: player),
+              duration > 0
+        else {
+            return
+        }
+        scrubStartSeconds = finiteCurrentTime(of: player)
+        scrubDurationSeconds = duration
+        resumesAfterScrub = player.rate > 0
+        player.pause()
+        scrubState = GalleryScrubState(
+            targetSeconds: scrubStartSeconds,
+            durationSeconds: duration
+        )
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    func updateScrubbing(
+        horizontalTranslation: CGFloat,
+        width: CGFloat
+    ) {
+        guard let player,
+              scrubState != nil,
+              width > 0,
+              scrubDurationSeconds > 0
+        else {
+            return
+        }
+        let progressDelta = Double(horizontalTranslation / width)
+        let target = min(
+            max(
+                scrubStartSeconds
+                    + progressDelta * scrubDurationSeconds,
+                0
+            ),
+            scrubDurationSeconds
+        )
+        scrubState = GalleryScrubState(
+            targetSeconds: target,
+            durationSeconds: scrubDurationSeconds
+        )
+
+        let now = CACurrentMediaTime()
+        guard now - lastPreviewSeekAt >= 0.10 else { return }
+        lastPreviewSeekAt = now
+        player.seek(
+            to: CMTime(seconds: target, preferredTimescale: 600),
+            toleranceBefore: CMTime(seconds: 0.12, preferredTimescale: 600),
+            toleranceAfter: CMTime(seconds: 0.12, preferredTimescale: 600)
+        )
+    }
+
+    func endScrubbing() {
+        guard let player, let state = scrubState else { return }
+        let shouldResume = resumesAfterScrub
+        scrubState = nil
+        player.seek(
+            to: CMTime(
+                seconds: state.targetSeconds,
+                preferredTimescale: 600
+            ),
+            toleranceBefore: .zero,
+            toleranceAfter: .zero
+        ) { finished in
+            guard finished, shouldResume else { return }
+            DispatchQueue.main.async {
+                player.play()
+            }
+        }
+    }
+
+    private func showSeekFeedback(seconds: Int) {
+        feedbackTask?.cancel()
+        withAnimation(.easeOut(duration: 0.12)) {
+            seekFeedback = GallerySeekFeedback(seconds: seconds)
+        }
+        feedbackTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 650_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.16)) {
+                self?.seekFeedback = nil
+            }
+        }
+    }
+
+    private func finiteDuration(of player: AVPlayer) -> Double? {
+        guard let seconds = player.currentItem?.duration.seconds,
+              seconds.isFinite,
+              seconds > 0
+        else {
+            return nil
+        }
+        return seconds
+    }
+
+    private func finiteCurrentTime(of player: AVPlayer) -> Double {
+        let seconds = player.currentTime().seconds
+        return seconds.isFinite ? max(seconds, 0) : 0
+    }
+}
+
 private struct GalleryViewerMediaPage: View {
     let item: GalleryMediaItem
     @Binding var imageIsZoomed: Bool
     let playbackSuspended: Bool
+    @ObservedObject var playbackController: GalleryPlaybackController
     let dismissAction: () -> Void
 
     var body: some View {
@@ -649,7 +1239,8 @@ private struct GalleryViewerMediaPage: View {
         case .animatedGIF, .video:
             GalleryVideoPlayer(
                 media: item.media,
-                playbackSuspended: playbackSuspended
+                playbackSuspended: playbackSuspended,
+                playbackController: playbackController
             )
                 .onAppear { imageIsZoomed = false }
         }
@@ -783,6 +1374,7 @@ private struct ZoomableGalleryPhoto: View {
 private struct GalleryVideoPlayer: View {
     let media: BookmarkedMedia
     let playbackSuspended: Bool
+    @ObservedObject var playbackController: GalleryPlaybackController
     @State private var player: AVPlayer?
     @State private var looper: AVPlayerLooper?
     @State private var isSilent: Bool?
@@ -831,6 +1423,10 @@ private struct GalleryVideoPlayer: View {
 
                 newPlayer.allowsExternalPlayback = false
                 player = newPlayer
+                playbackController.attach(
+                    player: newPlayer,
+                    mediaKey: media.mediaKey
+                )
                 if !playbackSuspended {
                     newPlayer.play()
                 }
@@ -883,6 +1479,12 @@ private struct GalleryVideoPlayer: View {
             }
             .onDisappear {
                 player?.pause()
+                if let player {
+                    playbackController.detach(
+                        player: player,
+                        mediaKey: media.mediaKey
+                    )
+                }
                 player = nil
                 looper = nil
             }
