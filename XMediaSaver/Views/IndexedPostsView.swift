@@ -2,6 +2,7 @@ import SwiftUI
 
 struct IndexedPostsView: View {
     @ObservedObject var session: BrowserSessionModel
+    @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var sort = BookmarkPostSort.bookmarkNewest
     @State private var visibleLimit = 100
@@ -85,7 +86,7 @@ struct IndexedPostsView: View {
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(L10n.string("已索引 Post"))
         .navigationBarTitleDisplayMode(.inline)
-        .compactBackButton()
+        .navigationBarBackButtonHidden(true)
         .searchable(text: $searchText, prompt: "搜索账号或正文")
         .onChange(of: searchText) { _ in
             visibleLimit = 100
@@ -95,12 +96,15 @@ struct IndexedPostsView: View {
             selectedPostIDs.formIntersection(updatedPosts.map(\.id))
         }
         .toolbar {
-            ToolbarItemGroup(placement: .navigationBarTrailing) {
-                if isSelecting {
-                    Button("完成") {
-                        endSelection()
-                    }
-                } else {
+            ToolbarItemGroup(placement: .navigationBarLeading) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "chevron.backward")
+                }
+                .accessibilityLabel(L10n.string("返回"))
+
+                if !isSelecting {
                     Button {
                         previewModeRaw = previewMode == .media
                             ? BookmarkPostPreviewMode.text.rawValue
@@ -115,7 +119,15 @@ struct IndexedPostsView: View {
                     .accessibilityLabel(
                         previewMode == .media ? "切换到纯文字" : "切换到媒体"
                     )
+                }
+            }
 
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if isSelecting {
+                    Button("完成") {
+                        endSelection()
+                    }
+                } else {
                     Menu {
                         Picker("Post 排序", selection: $sort) {
                             ForEach(BookmarkPostSort.allCases) {

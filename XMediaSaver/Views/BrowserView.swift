@@ -87,9 +87,12 @@ struct BrowserView: View {
                             ? "stop.fill"
                             : "arrow.down.to.line"
                     )
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+                .layoutPriority(1)
                 .accessibilityLabel(
                     session.isAutoCapturing ? "停止滚动" : "同步书签"
                 )

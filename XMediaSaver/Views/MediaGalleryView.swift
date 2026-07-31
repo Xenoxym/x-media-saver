@@ -1499,6 +1499,7 @@ private struct GalleryVideoPlayer: View {
     @State private var playerReadyForDisplay = false
     @State private var pausedForBackground = false
     @State private var controlsVisible = false
+    @State private var controlsAutoHideTask: Task<Void, Never>?
     @State private var sliderSeconds: Double = 0
     @State private var sliderIsActive = false
     @AppStorage("postVideoBackgroundPlaybackEnabled")
@@ -1537,11 +1538,7 @@ private struct GalleryVideoPlayer: View {
                     playbackController: playbackController,
                     movePrevious: movePrevious,
                     moveNext: moveNext,
-                    toggleControls: {
-                        withAnimation(.easeOut(duration: 0.16)) {
-                            controlsVisible.toggle()
-                        }
-                    }
+                    toggleControls: toggleControls
                 )
             }
 
@@ -1558,6 +1555,8 @@ private struct GalleryVideoPlayer: View {
         }
         .ignoresSafeArea()
             .task(id: media.mediaKey) {
+                controlsAutoHideTask?.cancel()
+                controlsAutoHideTask = nil
                 controlsVisible = false
                 playerReadyForDisplay = false
                 player?.pause()
@@ -1662,6 +1661,14 @@ private struct GalleryVideoPlayer: View {
                     sliderSeconds = seconds
                 }
             }
+            .onChange(of: sliderIsActive) { active in
+                if active {
+                    controlsAutoHideTask?.cancel()
+                    controlsAutoHideTask = nil
+                } else if controlsVisible {
+                    scheduleControlsAutoHide()
+                }
+            }
             .onChange(
                 of: playbackController.isPictureInPictureActive
             ) { active in
@@ -1716,11 +1723,40 @@ private struct GalleryVideoPlayer: View {
                 }
             }
             .onDisappear {
+                controlsAutoHideTask?.cancel()
+                controlsAutoHideTask = nil
                 guard !playbackController.isPictureInPictureActive else {
                     return
                 }
                 player?.pause()
             }
+    }
+
+    private func toggleControls() {
+        if controlsVisible {
+            controlsAutoHideTask?.cancel()
+            controlsAutoHideTask = nil
+            withAnimation(.easeInOut(duration: 0.2)) {
+                controlsVisible = false
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                controlsVisible = true
+            }
+            scheduleControlsAutoHide()
+        }
+    }
+
+    private func scheduleControlsAutoHide() {
+        controlsAutoHideTask?.cancel()
+        controlsAutoHideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            guard !Task.isCancelled, !sliderIsActive else { return }
+            withAnimation(.easeInOut(duration: 0.2)) {
+                controlsVisible = false
+            }
+            controlsAutoHideTask = nil
+        }
     }
 }
 
@@ -1802,8 +1838,8 @@ private struct GalleryVideoInteractionLayer: View {
                                                 + verticalCenterOffset
                                         )
                                 )
-                                if edgeDistance <= 82,
-                                   verticalDistance <= 82 {
+                                if edgeDistance <= 50,
+                                   verticalDistance <= 50 {
                                     playbackController.togglePlayback()
                                 } else {
                                     toggleControls()
