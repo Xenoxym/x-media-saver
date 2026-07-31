@@ -531,7 +531,8 @@ private struct GalleryFullScreenViewer: View {
                         .padding(.vertical, 7)
                         .background(.black.opacity(0.55), in: Capsule())
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.top, 28)
 
                 edgePagingControls(
                     width: geometry.size.width,
@@ -578,11 +579,6 @@ private struct GalleryFullScreenViewer: View {
         }
         .onDisappear {
             playbackController.galleryDidDisappear()
-            if !playbackController.isPictureInPictureActive {
-                Task {
-                    await MediaPlaybackAudioSession.deactivate()
-                }
-            }
         }
     }
 
@@ -648,7 +644,7 @@ private struct GalleryFullScreenViewer: View {
         width: CGFloat,
         topInset: CGFloat
     ) -> some View {
-        let edgeWidth = width / 7
+        let edgeWidth = width / 10
         return HStack(spacing: 0) {
             GalleryEdgePagingButton(direction: .previous) {
                 moveImmediately(by: -1)
@@ -866,6 +862,7 @@ private struct GalleryMediaCover: View {
                 remoteImageName:
                     media.type == .photo ? "orig" : "small",
                 showsPlaceholder: false,
+                showsPlayIndicator: false,
                 alignment: .center
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1026,12 +1023,16 @@ private final class GalleryPlaybackController: ObservableObject {
     private var muteObservation: NSKeyValueObservation?
     private var timeObserver: Any?
     private var startPictureInPictureAction: (() -> Void)?
+    private var pictureInPictureRegistrationID: UUID?
+    private var cleanupTask: Task<Void, Never>?
 
     var isScrubbing: Bool {
         scrubState != nil || directSeekActive
     }
 
     func attach(player: AVPlayer, mediaKey: String) {
+        cleanupTask?.cancel()
+        cleanupTask = nil
         removePlayerObservers()
         self.player = player
         self.mediaKey = mediaKey
@@ -1091,24 +1092,23 @@ private final class GalleryPlaybackController: ObservableObject {
         pictureInPicturePossible = false
         pictureInPictureAvailable = false
         startPictureInPictureAction = nil
+        pictureInPictureRegistrationID = nil
     }
 
     func setPictureInPictureActive(_ active: Bool) {
         isPictureInPictureActive = active
         guard !active, galleryIsDismissed else { return }
         player?.pause()
-        detachAll()
-        Task {
-            await MediaPlaybackAudioSession.deactivate()
-        }
+        scheduleCleanupAfterTransition()
     }
 
     func galleryDidDisappear() {
+        galleryIsDismissed = true
         if isPictureInPictureActive {
-            galleryIsDismissed = true
             return
         }
-        detachAll()
+        player?.pause()
+        scheduleCleanupAfterTransition()
     }
 
     func seek(by seconds: Double) {
@@ -1176,22 +1176,30 @@ private final class GalleryPlaybackController: ObservableObject {
     }
 
     func registerPictureInPicture(
+        id: UUID,
         possible: Bool,
         start: @escaping () -> Void
     ) {
+        pictureInPictureRegistrationID = id
         pictureInPictureAvailable = true
         pictureInPicturePossible = possible
         startPictureInPictureAction = start
     }
 
-    func updatePictureInPicturePossible(_ possible: Bool) {
+    func updatePictureInPicturePossible(
+        _ possible: Bool,
+        id: UUID
+    ) {
+        guard pictureInPictureRegistrationID == id else { return }
         pictureInPicturePossible = possible
     }
 
-    func unregisterPictureInPicture() {
+    func unregisterPictureInPicture(id: UUID) {
+        guard pictureInPictureRegistrationID == id else { return }
         pictureInPictureAvailable = false
         pictureInPicturePossible = false
         startPictureInPictureAction = nil
+        pictureInPictureRegistrationID = nil
     }
 
     func startPictureInPicture() {
@@ -1297,6 +1305,23 @@ private final class GalleryPlaybackController: ObservableObject {
             player.removeTimeObserver(timeObserver)
         }
         timeObserver = nil
+    }
+
+    private func scheduleCleanupAfterTransition() {
+        cleanupTask?.cancel()
+        cleanupTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled,
+                  let self,
+                  self.galleryIsDismissed,
+                  !self.isPictureInPictureActive
+            else {
+                return
+            }
+            self.cleanupTask = nil
+            self.detachAll()
+            await MediaPlaybackAudioSession.deactivate()
+        }
     }
 }
 
@@ -1563,6 +1588,7 @@ private struct GalleryVideoPlayer: View {
                 }
 
                 newPlayer.allowsExternalPlayback = false
+                newPlayer.audiovisualBackgroundPlaybackPolicy = .pauses
                 player = newPlayer
                 playbackController.attach(
                     player: newPlayer,
@@ -1584,6 +1610,10 @@ private struct GalleryVideoPlayer: View {
                     }
                     isSilent = silent
                     newPlayer.isMuted = silent
+                    newPlayer.audiovisualBackgroundPlaybackPolicy =
+                        backgroundPlaybackEnabled && !silent
+                            ? .continuesIfPossible
+                            : .pauses
                     if backgroundPlaybackEnabled, !silent {
                         await MediaPlaybackAudioSession
                             .activateForBackgroundPlayback()
@@ -1592,6 +1622,20 @@ private struct GalleryVideoPlayer: View {
                     }
                 } else {
                     await MediaPlaybackAudioSession.activate(silent: true)
+                }
+            }
+            .onChange(of: backgroundPlaybackEnabled) { enabled in
+                guard let player else { return }
+                let continuesAudio = enabled && isSilent == false
+                player.audiovisualBackgroundPlaybackPolicy =
+                    continuesAudio ? .continuesIfPossible : .pauses
+                Task {
+                    if continuesAudio {
+                        await MediaPlaybackAudioSession
+                            .activateForBackgroundPlayback()
+                    } else {
+                        await MediaPlaybackAudioSession.activate(silent: true)
+                    }
                 }
             }
             .onChange(of: playbackSuspended) { suspended in
@@ -1673,14 +1717,6 @@ private struct GalleryVideoPlayer: View {
                     return
                 }
                 player?.pause()
-                if let player {
-                    playbackController.detach(
-                        player: player,
-                        mediaKey: media.mediaKey
-                    )
-                }
-                player = nil
-                looper = nil
             }
     }
 }
@@ -1701,7 +1737,7 @@ private struct GalleryVideoInteractionLayer: View {
                     direction: .previous,
                     action: movePrevious
                 )
-                .frame(width: geometry.size.width / 7)
+                .frame(width: geometry.size.width / 10)
                 .disabled(!canMovePrevious)
 
                 HStack(spacing: 0) {
@@ -1717,10 +1753,10 @@ private struct GalleryVideoInteractionLayer: View {
                     direction: .next,
                     action: moveNext
                 )
-                .frame(width: geometry.size.width / 7)
+                .frame(width: geometry.size.width / 10)
                 .disabled(!canMoveNext)
             }
-            .padding(.top, max(78, geometry.safeAreaInsets.top + 54))
+            .padding(.top, max(92, geometry.safeAreaInsets.top + 66))
         }
     }
 
@@ -1780,7 +1816,7 @@ private struct GalleryVideoControlsOverlay: View {
     @ObservedObject var playbackController: GalleryPlaybackController
 
     var body: some View {
-        VStack(spacing: 0) {
+        ZStack {
             HStack(spacing: 12) {
                 Spacer()
 
@@ -1806,10 +1842,13 @@ private struct GalleryVideoControlsOverlay: View {
             .font(.headline)
             .foregroundStyle(.white)
             .padding(.horizontal, 18)
-            .padding(.top, 66)
+            .padding(.top, 92)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .top
+            )
             .buttonStyle(GalleryPlayerControlButtonStyle())
-
-            Spacer()
 
             Button {
                 playbackController.togglePlayback()
@@ -1824,8 +1863,11 @@ private struct GalleryVideoControlsOverlay: View {
                 .background(.black.opacity(0.52), in: Circle())
             }
             .foregroundStyle(.white)
-
-            Spacer()
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .center
+            )
 
             HStack(spacing: 10) {
                 Text(timeText(sliderSeconds))
@@ -1853,6 +1895,11 @@ private struct GalleryVideoControlsOverlay: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 18)
             .padding(.bottom, 28)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .bottom
+            )
         }
     }
 
@@ -1933,11 +1980,7 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
         _ view: GalleryPlayerLayerHostView,
         coordinator: Coordinator
     ) {
-        coordinator.detach()
-        if !coordinator.playbackController
-            .isPictureInPictureActive {
-            view.playerLayer.player = nil
-        }
+        coordinator.detachAfterTransition()
     }
 
     final class Coordinator:
@@ -1951,6 +1994,10 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
         private var pictureInPictureController:
             AVPictureInPictureController?
         private var possibilityObservation: NSKeyValueObservation?
+        private var teardownTask: Task<Void, Never>?
+        private var teardownRequested = false
+        private var manualPictureInPictureRequested = false
+        private let pictureInPictureRegistrationID = UUID()
 
         init(
             isReadyForDisplay: Binding<Bool>,
@@ -1962,6 +2009,9 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
 
         @MainActor
         func attach(to view: GalleryPlayerLayerHostView) {
+            teardownTask?.cancel()
+            teardownTask = nil
+            teardownRequested = false
             observeReadiness(of: view.playerLayer)
             configurePictureInPicture(for: view.playerLayer)
         }
@@ -2026,13 +2076,16 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
                 options: [.initial, .new]
             ) { [weak self] controller, _ in
                 Task { @MainActor [weak self] in
-                    self?.playbackController
+                    guard let self else { return }
+                    self.playbackController
                         .updatePictureInPicturePossible(
-                            controller.isPictureInPicturePossible
+                            controller.isPictureInPicturePossible,
+                            id: self.pictureInPictureRegistrationID
                         )
                 }
             }
             playbackController.registerPictureInPicture(
+                id: pictureInPictureRegistrationID,
                 possible: controller.isPictureInPicturePossible,
                 start: { [weak self] in
                     self?.startPictureInPicture()
@@ -2047,11 +2100,15 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             else {
                 return
             }
+            manualPictureInPictureRequested = true
             Task { @MainActor [weak controller] in
                 await MediaPlaybackAudioSession
                     .activateForPictureInPicture()
                 for _ in 0..<8 {
-                    guard let controller else { return }
+                    guard let controller else {
+                        self.manualPictureInPictureRequested = false
+                        return
+                    }
                     if controller.isPictureInPicturePossible {
                         controller.startPictureInPicture()
                         return
@@ -2060,11 +2117,34 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
                         nanoseconds: 50_000_000
                     )
                 }
+                self.manualPictureInPictureRequested = false
             }
         }
 
         @MainActor
-        func detach() {
+        func detachAfterTransition() {
+            teardownRequested = true
+            scheduleTeardown()
+        }
+
+        @MainActor
+        private func scheduleTeardown() {
+            teardownTask?.cancel()
+            teardownTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 350_000_000)
+                guard !Task.isCancelled,
+                      !self.playbackController
+                        .isPictureInPictureActive
+                else {
+                    return
+                }
+                self.performDetach()
+            }
+        }
+
+        @MainActor
+        private func performDetach() {
+            teardownTask = nil
             readinessHandoffTask?.cancel()
             readinessHandoffTask = nil
             readinessObservation?.invalidate()
@@ -2072,13 +2152,12 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             possibilityObservation?.invalidate()
             possibilityObservation = nil
             pictureInPictureController?.delegate = nil
-            if pictureInPictureController?
-                .isPictureInPictureActive == true {
-                pictureInPictureController?.stopPictureInPicture()
-            }
             pictureInPictureController = nil
+            playerLayer?.player = nil
             playerLayer = nil
-            playbackController.unregisterPictureInPicture()
+            playbackController.unregisterPictureInPicture(
+                id: pictureInPictureRegistrationID
+            )
         }
 
         @MainActor
@@ -2086,6 +2165,19 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             _ pictureInPictureController:
                 AVPictureInPictureController
         ) {
+            guard manualPictureInPictureRequested else { return }
+            playbackController.setPictureInPictureActive(true)
+        }
+
+        @MainActor
+        func pictureInPictureControllerDidStartPictureInPicture(
+            _ pictureInPictureController:
+                AVPictureInPictureController
+        ) {
+            guard manualPictureInPictureRequested else {
+                pictureInPictureController.stopPictureInPicture()
+                return
+            }
             playbackController.setPictureInPictureActive(true)
         }
 
@@ -2094,7 +2186,11 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             _ pictureInPictureController:
                 AVPictureInPictureController
         ) {
+            manualPictureInPictureRequested = false
             playbackController.setPictureInPictureActive(false)
+            if teardownRequested {
+                scheduleTeardown()
+            }
         }
 
         @MainActor
@@ -2103,7 +2199,11 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
                 AVPictureInPictureController,
             failedToStartPictureInPictureWithError error: Error
         ) {
+            manualPictureInPictureRequested = false
             playbackController.setPictureInPictureActive(false)
+            if teardownRequested {
+                scheduleTeardown()
+            }
         }
     }
 }

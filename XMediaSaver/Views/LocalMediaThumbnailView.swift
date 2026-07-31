@@ -11,6 +11,7 @@ struct LocalMediaThumbnailView: View {
     let contentMode: ContentMode
     let remoteImageName: String
     let showsPlaceholder: Bool
+    let showsPlayIndicator: Bool
     let alignment: Alignment
     @StateObject private var loader: LocalMediaThumbnailLoader
 
@@ -20,6 +21,7 @@ struct LocalMediaThumbnailView: View {
         contentMode: ContentMode = .fill,
         remoteImageName: String = "small",
         showsPlaceholder: Bool = true,
+        showsPlayIndicator: Bool = true,
         alignment: Alignment = .topTrailing
     ) {
         self.media = media
@@ -27,6 +29,7 @@ struct LocalMediaThumbnailView: View {
         self.contentMode = contentMode
         self.remoteImageName = remoteImageName
         self.showsPlaceholder = showsPlaceholder
+        self.showsPlayIndicator = showsPlayIndicator
         self.alignment = alignment
         _loader = StateObject(
             wrappedValue: LocalMediaThumbnailLoader(
@@ -74,7 +77,7 @@ struct LocalMediaThumbnailView: View {
                     .padding(5)
             }
 
-            if media.type != .photo {
+            if media.type != .photo, showsPlayIndicator {
                 Image(systemName: "play.fill")
                     .font(.headline)
                     .foregroundStyle(.white)

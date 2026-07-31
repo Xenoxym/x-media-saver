@@ -13,7 +13,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 ### Changed
 
 - Gallery edge-tap navigation is limited to compact outer-edge zones and shows a subtle pressed gradient; releasing outside the original edge cancels the page change.
-- Gallery edge-tap navigation now occupies exactly the outer one-seventh of each side, leaving more of the player surface for playback controls.
+- Gallery edge-tap navigation now occupies exactly the outer one-tenth of each side, leaving more of the player surface for playback controls.
 - Horizontal swipes now move the current media interactively with the finger, reveal the adjacent item, and settle only after crossing a distance or velocity threshold.
 - Adjacent videos use a lightweight static preview during an interactive page drag; the real player is created only after the page becomes current.
 
@@ -30,6 +30,9 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Gallery videos now use a public `AVPlayerLayer` with an app-owned control surface: play/pause, mute, progress seeking, and manual Picture in Picture remain above all empty-area gestures, and the unwanted native ±10-second controls are gone.
 - Video edge taps use the outer one-seventh zones with pressed feedback and cancel-on-release-outside behavior. Inner double taps seek ±5 seconds without showing controls or feedback, while a half-second long press enables relative scrubbing with the existing progress overlay.
 - Foreground gallery playback uses a non-background audio session and publishes no Now Playing metadata. The background playback category is activated only for user-started Picture in Picture or the explicit background-audio setting.
+- Closing the full-screen media gallery now defers player-layer, observer, and Picture in Picture teardown until the dismissal transition has completed, avoiding the lifecycle race that could crash on either swipe-down or the close button.
+- Video and animated-GIF covers no longer draw a play-button overlay. The gallery header sits below the device status area, and the custom play/pause control is geometrically centered.
+- Background Audio now controls audio continuation only. Picture in Picture requires the in-player PiP button and rejects system-initiated background starts.
 
 ## [1.2.1] - 2026-07-29
 
