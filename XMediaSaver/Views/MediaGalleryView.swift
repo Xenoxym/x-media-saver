@@ -1498,7 +1498,7 @@ private struct GalleryVideoPlayer: View {
     @State private var isSilent: Bool?
     @State private var playerReadyForDisplay = false
     @State private var pausedForBackground = false
-    @State private var controlsVisible = true
+    @State private var controlsVisible = false
     @State private var sliderSeconds: Double = 0
     @State private var sliderIsActive = false
     @AppStorage("postVideoBackgroundPlaybackEnabled")
@@ -1558,6 +1558,7 @@ private struct GalleryVideoPlayer: View {
         }
         .ignoresSafeArea()
             .task(id: media.mediaKey) {
+                controlsVisible = false
                 playerReadyForDisplay = false
                 player?.pause()
                 player = nil
@@ -1801,8 +1802,8 @@ private struct GalleryVideoInteractionLayer: View {
                                                 + verticalCenterOffset
                                         )
                                 )
-                                if edgeDistance <= 41,
-                                   verticalDistance <= 41 {
+                                if edgeDistance <= 82,
+                                   verticalDistance <= 82 {
                                     playbackController.togglePlayback()
                                 } else {
                                     toggleControls()
