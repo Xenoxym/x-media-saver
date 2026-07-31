@@ -1369,34 +1369,40 @@ private struct ZoomableGalleryPhoto: View {
     @State private var offset: CGSize = .zero
     @State private var settledOffset: CGSize = .zero
     @State private var dismissOffset: CGSize = .zero
+    @State private var dragAxis = GalleryNavigationDragAxis.undecided
 
     var body: some View {
-        ZStack {
-            Color.black
-                .opacity(backgroundOpacity)
-
+        GeometryReader { geometry in
             ZStack {
-                LocalMediaThumbnailView(
-                    media: media,
-                    maximumPixelSize: 1_280,
-                    contentMode: .fit,
-                    remoteImageName: "orig",
-                    showsPlaceholder: false,
-                    alignment: .center
-                )
+                Color.black
+                    .opacity(backgroundOpacity)
 
-                LocalMediaThumbnailView(
-                    media: media,
-                    maximumPixelSize: 4_096,
-                    contentMode: .fit,
-                    remoteImageName: "orig",
-                    showsPlaceholder: false,
-                    alignment: .center
-                )
+                ZStack {
+                    LocalMediaThumbnailView(
+                        media: media,
+                        maximumPixelSize: 1_280,
+                        contentMode: .fit,
+                        remoteImageName: "orig",
+                        showsPlaceholder: false,
+                        alignment: .center
+                    )
+
+                    LocalMediaThumbnailView(
+                        media: media,
+                        maximumPixelSize: 4_096,
+                        contentMode: .fit,
+                        remoteImageName: "orig",
+                        showsPlaceholder: false,
+                        alignment: .center
+                    )
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scaleEffect(scale)
+                .offset(combinedOffset)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .scaleEffect(scale)
-            .offset(combinedOffset)
+            .simultaneousGesture(
+                doubleTapGesture(in: geometry.size)
+            )
         }
         .ignoresSafeArea()
         .simultaneousGesture(magnificationGesture)
@@ -1428,9 +1434,25 @@ private struct ZoomableGalleryPhoto: View {
                         width: settledOffset.width + value.translation.width,
                         height: settledOffset.height + value.translation.height
                     )
-                } else if value.translation.height > 0,
-                          abs(value.translation.height)
-                            > abs(value.translation.width) {
+                    return
+                }
+
+                let horizontal = abs(value.translation.width)
+                let vertical = abs(value.translation.height)
+                if dragAxis == .undecided {
+                    guard max(horizontal, vertical) >= 12 else { return }
+                    dragAxis = horizontal >= vertical
+                        ? .horizontal
+                        : .vertical
+                }
+
+                guard dragAxis == .vertical,
+                      value.translation.height > 0
+                else {
+                    dismissOffset = .zero
+                    return
+                }
+                if value.translation.height > 0 {
                     dismissOffset = CGSize(
                         width: value.translation.width * 0.2,
                         height: value.translation.height
@@ -1440,6 +1462,13 @@ private struct ZoomableGalleryPhoto: View {
             .onEnded { value in
                 if scale > 1.01 {
                     settledOffset = offset
+                    dragAxis = .undecided
+                    return
+                }
+
+                guard dragAxis == .vertical else {
+                    dragAxis = .undecided
+                    dismissOffset = .zero
                     return
                 }
                 let predicted = value.predictedEndTranslation.height
@@ -1449,6 +1478,38 @@ private struct ZoomableGalleryPhoto: View {
                     withAnimation(.spring(response: 0.3)) {
                         dismissOffset = .zero
                     }
+                }
+                dragAxis = .undecided
+            }
+    }
+
+    private func doubleTapGesture(in size: CGSize) -> some Gesture {
+        SpatialTapGesture(count: 2)
+            .onEnded { tap in
+                if scale > 1.01 {
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        resetZoom()
+                    }
+                    return
+                }
+
+                let targetScale: CGFloat = 2.5
+                let targetOffset = CGSize(
+                    width:
+                        (size.width / 2 - tap.location.x)
+                        * (targetScale - 1),
+                    height:
+                        (size.height / 2 - tap.location.y)
+                        * (targetScale - 1)
+                )
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    scale = targetScale
+                    settledScale = targetScale
+                    offset = targetOffset
+                    settledOffset = targetOffset
+                    dismissOffset = .zero
+                    dragAxis = .undecided
+                    isZoomed = true
                 }
             }
     }
@@ -1482,6 +1543,7 @@ private struct ZoomableGalleryPhoto: View {
         offset = .zero
         settledOffset = .zero
         dismissOffset = .zero
+        dragAxis = .undecided
         isZoomed = false
     }
 }

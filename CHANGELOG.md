@@ -38,6 +38,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - The center play/pause target is refined to 100×100 points. Video controls fade away automatically after five seconds and remain hidden by default on entry and page changes.
 - Indexed Posts places the media/text preview toggle beside the back button on the leading side. X Browser keeps its Sync button on one line when the loading spinner appears.
 - All five Local Incremental Index destinations support a left-edge right swipe to return to Bookmarks without interfering with ordinary scrolling or center-originated gestures.
+- Local Index edge-back recognition now owns only a 24-point leading strip, preventing short swipes from also activating an Indexed Post or media cell. Photo navigation locks one drag direction so diagonal horizontal paging cannot pull the image downward.
+- Full-screen photos support double-tap zoom centered on the tapped location at 2.5×; double-tap again to return to the fitted view.
 
 ## [1.2.1] - 2026-07-29
 
