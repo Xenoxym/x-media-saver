@@ -465,6 +465,17 @@ private enum GalleryPagingDirection {
     case next
 }
 
+private enum GalleryNavigationDragAxis {
+    case undecided
+    case horizontal
+    case vertical
+}
+
+private struct GalleryNavigationGestureState {
+    var axis = GalleryNavigationDragAxis.undecided
+    var horizontalTranslation: CGFloat = 0
+}
+
 private struct GalleryFullScreenViewer: View {
     let items: [GalleryMediaItem]
     let initialIndex: Int
@@ -473,7 +484,8 @@ private struct GalleryFullScreenViewer: View {
     @State private var imageIsZoomed = false
     @State private var presentedPost: BookmarkedPost?
     @State private var pageDragOffset: CGFloat = 0
-    @GestureState private var pageDragTranslation: CGFloat = 0
+    @GestureState private var navigationGestureState =
+        GalleryNavigationGestureState()
     @State private var completesPageTransition = false
     @StateObject private var playbackController =
         GalleryPlaybackController()
@@ -594,7 +606,9 @@ private struct GalleryFullScreenViewer: View {
     }
 
     private var visiblePageOffset: CGFloat {
-        completesPageTransition ? pageDragOffset : pageDragTranslation
+        completesPageTransition
+            ? pageDragOffset
+            : navigationGestureState.horizontalTranslation
     }
 
     @ViewBuilder
@@ -733,7 +747,7 @@ private struct GalleryFullScreenViewer: View {
 
     private func navigationDragGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 12)
-            .updating($pageDragTranslation) { value, translation, _ in
+            .updating($navigationGestureState) { value, state, _ in
                 guard !imageIsZoomed,
                       !playbackController.isScrubbing,
                       !playbackController.isPictureInPictureActive,
@@ -744,30 +758,39 @@ private struct GalleryFullScreenViewer: View {
 
                 let horizontal = abs(value.translation.width)
                 let vertical = abs(value.translation.height)
-                guard horizontal > vertical else { return }
+                if state.axis == .undecided {
+                    guard max(horizontal, vertical) >= 12 else { return }
+                    state.axis = horizontal >= vertical
+                        ? .horizontal
+                        : .vertical
+                }
+
+                guard state.axis == .horizontal else { return }
                 let proposed = value.translation.width
                 let hasDestination = proposed < 0
                     ? items.indices.contains(currentIndex + 1)
                     : items.indices.contains(currentIndex - 1)
-                translation = hasDestination
+                state.horizontalTranslation = hasDestination
                     ? proposed
                     : proposed * 0.22
             }
             .onEnded { value in
                 guard !imageIsZoomed,
                       !playbackController.isScrubbing,
+                      !playbackController.isPictureInPictureActive,
                       !completesPageTransition
                 else {
                     return
                 }
 
-                let horizontal = abs(value.translation.width)
-                let vertical = abs(value.translation.height)
-                if horizontal > vertical {
+                if navigationGestureState.axis == .horizontal {
                     finishHorizontalDrag(value, width: width)
                     return
                 }
 
+                guard navigationGestureState.axis == .vertical else {
+                    return
+                }
                 let predictedVertical =
                     value.predictedEndTranslation.height
                 if predictedVertical < -80, let currentItem {
@@ -890,15 +913,23 @@ private struct GalleryAdjacentMediaPreview: View {
     let item: GalleryMediaItem
 
     var body: some View {
+        GalleryMediaCover(media: item.media)
+    }
+}
+
+private struct GalleryMediaCover: View {
+    let media: BookmarkedMedia
+
+    var body: some View {
         ZStack {
             Color.black
 
             LocalMediaThumbnailView(
-                media: item.media,
+                media: media,
                 maximumPixelSize: 1_280,
                 contentMode: .fit,
                 remoteImageName:
-                    item.media.type == .photo ? "orig" : "small",
+                    media.type == .photo ? "orig" : "small",
                 showsPlaceholder: false,
                 alignment: .center
             )
@@ -1406,6 +1437,7 @@ private struct GalleryVideoPlayer: View {
     @State private var player: AVPlayer?
     @State private var looper: AVPlayerLooper?
     @State private var isSilent: Bool?
+    @State private var playerReadyForDisplay = false
     @State private var pausedForBackground = false
     @AppStorage("postVideoBackgroundPlaybackEnabled")
     private var backgroundPlaybackEnabled = false
@@ -1417,14 +1449,25 @@ private struct GalleryVideoPlayer: View {
             if let player {
                 GallerySystemVideoPlayerView(
                     player: player,
+                    isReadyForDisplay: $playerReadyForDisplay,
                     playbackController: playbackController
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
             }
+
+            if !playerReadyForDisplay {
+                GalleryMediaCover(media: media)
+                    .allowsHitTesting(false)
+                    .transaction { transaction in
+                        transaction.animation = nil
+                        transaction.disablesAnimations = true
+                    }
+            }
         }
         .ignoresSafeArea()
             .task(id: media.mediaKey) {
+                playerReadyForDisplay = false
                 player?.pause()
                 player = nil
                 looper = nil
@@ -1556,6 +1599,7 @@ private struct GalleryVideoPlayer: View {
 private struct GallerySystemVideoPlayerView:
     UIViewControllerRepresentable {
     let player: AVPlayer
+    @Binding var isReadyForDisplay: Bool
     @ObservedObject var playbackController: GalleryPlaybackController
 
     func makeUIViewController(
@@ -1572,6 +1616,7 @@ private struct GallerySystemVideoPlayerView:
         controller.exitsFullScreenWhenPlaybackEnds = false
         controller.view.backgroundColor = .black
         context.coordinator.attach(to: controller)
+        context.coordinator.observeDisplayReadiness(of: controller)
         return controller
     }
 
@@ -1580,12 +1625,17 @@ private struct GallerySystemVideoPlayerView:
         context: Context
     ) {
         if controller.player !== player {
+            isReadyForDisplay = false
             controller.player = player
         }
+        context.coordinator.observeDisplayReadiness(of: controller)
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(playbackController: playbackController)
+        Coordinator(
+            isReadyForDisplay: $isReadyForDisplay,
+            playbackController: playbackController
+        )
     }
 
     static func dismantleUIViewController(
@@ -1604,12 +1654,33 @@ private struct GallerySystemVideoPlayerView:
         NSObject,
         AVPlayerViewControllerDelegate {
         let playbackController: GalleryPlaybackController
+        private var isReadyForDisplay: Binding<Bool>
         private weak var playerViewController: AVPlayerViewController?
         private var observers: [NSObjectProtocol] = []
+        private var readinessObservation: NSKeyValueObservation?
         private var userStartedPictureInPicture = false
 
-        init(playbackController: GalleryPlaybackController) {
+        init(
+            isReadyForDisplay: Binding<Bool>,
+            playbackController: GalleryPlaybackController
+        ) {
+            self.isReadyForDisplay = isReadyForDisplay
             self.playbackController = playbackController
+        }
+
+        func observeDisplayReadiness(
+            of controller: AVPlayerViewController
+        ) {
+            guard readinessObservation == nil else { return }
+            readinessObservation = controller.observe(
+                \.isReadyForDisplay,
+                options: [.initial, .new]
+            ) { [weak self] controller, _ in
+                DispatchQueue.main.async {
+                    self?.isReadyForDisplay.wrappedValue =
+                        controller.isReadyForDisplay
+                }
+            }
         }
 
         func attach(to controller: AVPlayerViewController) {
@@ -1649,6 +1720,8 @@ private struct GallerySystemVideoPlayerView:
             let center = NotificationCenter.default
             observers.forEach(center.removeObserver)
             observers.removeAll()
+            readinessObservation?.invalidate()
+            readinessObservation = nil
             playerViewController = nil
         }
 

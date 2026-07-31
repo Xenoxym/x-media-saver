@@ -22,6 +22,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Full-screen media now covers the device safe areas without white bars. Video scrubbing starts only after the half-second long press completes, and its gesture no longer blocks quick edge taps or vertical/horizontal navigation.
 - Interactive page covers now use the same centered fit as playback, and cancelled gestures automatically discard their temporary offset instead of leaving the gallery stuck between two items.
 - Gallery headers again use the original edge-to-edge top position, adjacent covers are centered inside their own thumbnail container, and leaving the app can no longer start PiP unless the user first chose the system PiP control.
+- A horizontal or vertical navigation direction is now locked for the full lifetime of each drag, preventing a slightly diagonal page swipe from opening Post Preview or dismissing the gallery.
+- After a page swipe, the centered cover remains above the new system player until `isReadyForDisplay` confirms its first frame, then disappears without animation to eliminate the black handoff flash without preloading videos.
 
 ## [1.2.1] - 2026-07-29
 
