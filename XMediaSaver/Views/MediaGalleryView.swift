@@ -1575,18 +1575,21 @@ private struct GallerySystemVideoPlayerView:
             self.playbackController = playbackController
         }
 
+        @MainActor
         func playerViewControllerWillStartPictureInPicture(
             _ playerViewController: AVPlayerViewController
         ) {
             playbackController.setPictureInPictureActive(true)
         }
 
+        @MainActor
         func playerViewControllerDidStopPictureInPicture(
             _ playerViewController: AVPlayerViewController
         ) {
             playbackController.setPictureInPictureActive(false)
         }
 
+        @MainActor
         func playerViewController(
             _ playerViewController: AVPlayerViewController,
             failedToStartPictureInPictureWithError error: Error
