@@ -3,6 +3,11 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct BookmarksView: View {
+    private enum LocalIndexRoute: Hashable {
+        case indexedPosts
+        case gallery(BookmarkMediaType?)
+    }
+
     @ObservedObject var session: BrowserSessionModel
     @ObservedObject var viewModel: BookmarksViewModel
     let onRequestVisibleSync: () -> Void
@@ -14,6 +19,7 @@ struct BookmarksView: View {
     @State private var choosesExportFolder = false
     @State private var showsRangeFilters = false
     @State private var dateRange: BookmarkDateRange = .all
+    @State private var localIndexPath = NavigationPath()
     @AppStorage("bookmarkPostPreviewMode")
     private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
 
@@ -26,7 +32,7 @@ struct BookmarksView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $localIndexPath) {
             ScrollView {
                 LazyVStack(spacing: 16) {
                     if session.capturedPosts.isEmpty {
@@ -67,6 +73,9 @@ struct BookmarksView: View {
                         }
                     }
                 }
+            }
+            .navigationDestination(for: LocalIndexRoute.self) { route in
+                localIndexDestination(route)
             }
         }
         .onAppear {
@@ -219,8 +228,8 @@ struct BookmarksView: View {
     }
 
     private var indexedPostsStat: some View {
-        NavigationLink {
-            IndexedPostsView(session: session)
+        Button {
+            openLocalIndex(.indexedPosts)
         } label: {
             HStack {
                 Image(systemName: "bookmark")
@@ -250,11 +259,8 @@ struct BookmarksView: View {
         _ systemImage: String,
         type: BookmarkMediaType?
     ) -> some View {
-        NavigationLink {
-            MediaGalleryView(
-                posts: session.capturedPosts,
-                mediaType: type
-            )
+        Button {
+            openLocalIndex(.gallery(type))
         } label: {
             HStack {
                 Image(systemName: systemImage)
@@ -276,6 +282,42 @@ struct BookmarksView: View {
             .clipShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func localIndexDestination(
+        _ route: LocalIndexRoute
+    ) -> some View {
+        switch route {
+        case .indexedPosts:
+            IndexedPostsView(
+                session: session,
+                onClose: closeLocalIndex
+            )
+        case .gallery(let type):
+            MediaGalleryView(
+                posts: session.capturedPosts,
+                mediaType: type,
+                onClose: closeLocalIndex
+            )
+        }
+    }
+
+    private func openLocalIndex(_ route: LocalIndexRoute) {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            localIndexPath.append(route)
+        }
+    }
+
+    private func closeLocalIndex() {
+        guard !localIndexPath.isEmpty else { return }
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            localIndexPath.removeLast()
+        }
     }
 
     private var filterCard: some View {

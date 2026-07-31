@@ -11,6 +11,7 @@ private enum GallerySelectionDragIntent: Equatable {
 
 struct MediaGalleryView: View {
     let mediaType: BookmarkMediaType?
+    let onClose: () -> Void
     @Environment(\.openURL) private var openURL
     @State private var visibleLimit = 90
     @State private var isSelecting = false
@@ -29,8 +30,13 @@ struct MediaGalleryView: View {
     private let baseGalleryItems: [GalleryMediaItem]
     private static let gridCoordinateSpace = "MediaGalleryGrid"
 
-    init(posts: [BookmarkedPost], mediaType: BookmarkMediaType?) {
+    init(
+        posts: [BookmarkedPost],
+        mediaType: BookmarkMediaType?,
+        onClose: @escaping () -> Void
+    ) {
         self.mediaType = mediaType
+        self.onClose = onClose
         var seen: Set<String> = []
         let items: [GalleryMediaItem] = posts.enumerated()
             .flatMap { postOffset, post -> [GalleryMediaItem] in
@@ -117,8 +123,8 @@ struct MediaGalleryView: View {
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .compactBackButton()
-        .edgeSwipeBack()
+        .compactBackButton(action: onClose)
+        .edgeSwipeBack(action: onClose)
         .onChange(of: sort) { value in
             applySort(value)
         }
@@ -1493,7 +1499,7 @@ private struct ZoomableGalleryPhoto: View {
                     return
                 }
 
-                let targetScale: CGFloat = 2.5
+                let targetScale: CGFloat = 2
                 let targetOffset = CGSize(
                     width:
                         (size.width / 2 - tap.location.x)

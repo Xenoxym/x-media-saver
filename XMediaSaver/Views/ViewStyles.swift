@@ -8,16 +8,29 @@ extension View {
     }
 
     func compactBackButton() -> some View {
-        modifier(CompactBackButtonModifier())
+        modifier(CompactBackButtonModifier(action: nil))
+    }
+
+    func compactBackButton(
+        action: @escaping () -> Void
+    ) -> some View {
+        modifier(CompactBackButtonModifier(action: action))
     }
 
     func edgeSwipeBack() -> some View {
-        modifier(EdgeSwipeBackModifier())
+        modifier(EdgeSwipeBackModifier(action: nil))
+    }
+
+    func edgeSwipeBack(
+        action: @escaping () -> Void
+    ) -> some View {
+        modifier(EdgeSwipeBackModifier(action: action))
     }
 }
 
 private struct CompactBackButtonModifier: ViewModifier {
     @Environment(\.dismiss) private var dismiss
+    let action: (() -> Void)?
 
     func body(content: Content) -> some View {
         content
@@ -25,7 +38,11 @@ private struct CompactBackButtonModifier: ViewModifier {
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
-                        dismiss()
+                        if let action {
+                            action()
+                        } else {
+                            dismiss()
+                        }
                     } label: {
                         Image(systemName: "chevron.backward")
                     }
@@ -37,6 +54,7 @@ private struct CompactBackButtonModifier: ViewModifier {
 
 private struct EdgeSwipeBackModifier: ViewModifier {
     @Environment(\.dismiss) private var dismiss
+    let action: (() -> Void)?
 
     func body(content: Content) -> some View {
         content.overlay(alignment: .leading) {
@@ -59,7 +77,11 @@ private struct EdgeSwipeBackModifier: ViewModifier {
                         else {
                             return
                         }
-                        dismiss()
+                        if let action {
+                            action()
+                        } else {
+                            dismiss()
+                        }
                     }
                 )
                 .ignoresSafeArea(edges: .vertical)

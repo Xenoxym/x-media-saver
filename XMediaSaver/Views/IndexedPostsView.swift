@@ -2,7 +2,7 @@ import SwiftUI
 
 struct IndexedPostsView: View {
     @ObservedObject var session: BrowserSessionModel
-    @Environment(\.dismiss) private var dismiss
+    let onClose: () -> Void
     @State private var searchText = ""
     @State private var sort = BookmarkPostSort.bookmarkNewest
     @State private var visibleLimit = 100
@@ -87,7 +87,7 @@ struct IndexedPostsView: View {
         .navigationTitle(L10n.string("已索引 Post"))
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
-        .edgeSwipeBack()
+        .edgeSwipeBack(action: onClose)
         .searchable(text: $searchText, prompt: "搜索账号或正文")
         .onChange(of: searchText) { _ in
             visibleLimit = 100
@@ -99,7 +99,7 @@ struct IndexedPostsView: View {
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarLeading) {
                 Button {
-                    dismiss()
+                    onClose()
                 } label: {
                     Image(systemName: "chevron.backward")
                 }
