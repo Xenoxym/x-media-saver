@@ -534,16 +534,16 @@ private struct GalleryFullScreenViewer: View {
                         .padding(.vertical, 7)
                         .background(.black.opacity(0.55), in: Capsule())
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.top, geometry.safeAreaInsets.top + 12)
 
                 edgePagingControls(
                     width: geometry.size.width,
                     topInset: max(78, geometry.safeAreaInsets.top + 54)
                 )
             }
-            .clipped()
             .contentShape(Rectangle())
-            .highPriorityGesture(
+            .simultaneousGesture(
                 SpatialTapGesture(count: 2)
                     .onEnded {
                         handleDoubleTap(
@@ -552,19 +552,21 @@ private struct GalleryFullScreenViewer: View {
                         )
                     },
                 including: currentItem?.media.type == .video
-                    ? .all
+                    ? .gesture
                     : .none
             )
             .simultaneousGesture(
                 scrubGesture(width: geometry.size.width),
                 including: currentItem?.media.type == .video
-                    ? .all
+                    ? .gesture
                     : .none
             )
             .simultaneousGesture(
                 navigationDragGesture(width: geometry.size.width)
             )
         }
+        .ignoresSafeArea()
+        .background(Color.black.ignoresSafeArea())
         .statusBarHidden(true)
         .task(id: currentIndex) {
             await preloadNearbyPhotos()
@@ -711,8 +713,6 @@ private struct GalleryFullScreenViewer: View {
             }
 
             switch value {
-            case .first(true):
-                playbackController.beginScrubbing(width: width)
             case .second(true, let drag):
                 playbackController.beginScrubbing(width: width)
                 if let drag {
