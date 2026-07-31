@@ -11,6 +11,7 @@ struct LocalMediaThumbnailView: View {
     let contentMode: ContentMode
     let remoteImageName: String
     let showsPlaceholder: Bool
+    let alignment: Alignment
     @StateObject private var loader: LocalMediaThumbnailLoader
 
     init(
@@ -18,13 +19,15 @@ struct LocalMediaThumbnailView: View {
         maximumPixelSize: Int = 600,
         contentMode: ContentMode = .fill,
         remoteImageName: String = "small",
-        showsPlaceholder: Bool = true
+        showsPlaceholder: Bool = true,
+        alignment: Alignment = .topTrailing
     ) {
         self.media = media
         self.maximumPixelSize = maximumPixelSize
         self.contentMode = contentMode
         self.remoteImageName = remoteImageName
         self.showsPlaceholder = showsPlaceholder
+        self.alignment = alignment
         _loader = StateObject(
             wrappedValue: LocalMediaThumbnailLoader(
                 cachedImage: LocalMediaThumbnailLoader.cachedImage(
@@ -37,7 +40,7 @@ struct LocalMediaThumbnailView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: alignment) {
             Group {
                 if let image = loader.image {
                     Image(uiImage: image)

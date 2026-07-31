@@ -21,6 +21,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Returning from an upward-opened Post Preview no longer pauses the resumed gallery video after a short delay. Audio-session cleanup now runs only when the full-screen gallery itself closes.
 - Full-screen media now covers the device safe areas without white bars. Video scrubbing starts only after the half-second long press completes, and its gesture no longer blocks quick edge taps or vertical/horizontal navigation.
 - Interactive page covers now use the same centered fit as playback, and cancelled gestures automatically discard their temporary offset instead of leaving the gallery stuck between two items.
+- Gallery headers again use the original edge-to-edge top position, adjacent covers are centered inside their own thumbnail container, and leaving the app can no longer start PiP unless the user first chose the system PiP control.
 
 ## [1.2.1] - 2026-07-29
 

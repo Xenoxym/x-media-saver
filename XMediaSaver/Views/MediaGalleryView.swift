@@ -557,6 +557,7 @@ private struct GalleryFullScreenViewer: View {
                 navigationDragGesture(width: geometry.size.width)
             )
         }
+        .ignoresSafeArea()
         .background(Color.black.ignoresSafeArea())
         .statusBarHidden(true)
         .task(id: currentIndex) {
@@ -898,7 +899,8 @@ private struct GalleryAdjacentMediaPreview: View {
                 contentMode: .fit,
                 remoteImageName:
                     item.media.type == .photo ? "orig" : "small",
-                showsPlaceholder: false
+                showsPlaceholder: false,
+                alignment: .center
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -1292,7 +1294,8 @@ private struct ZoomableGalleryPhoto: View {
                     maximumPixelSize: 1_280,
                     contentMode: .fit,
                     remoteImageName: "orig",
-                    showsPlaceholder: false
+                    showsPlaceholder: false,
+                    alignment: .center
                 )
 
                 LocalMediaThumbnailView(
@@ -1300,7 +1303,8 @@ private struct ZoomableGalleryPhoto: View {
                     maximumPixelSize: 4_096,
                     contentMode: .fit,
                     remoteImageName: "orig",
-                    showsPlaceholder: false
+                    showsPlaceholder: false,
+                    alignment: .center
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1402,6 +1406,9 @@ private struct GalleryVideoPlayer: View {
     @State private var player: AVPlayer?
     @State private var looper: AVPlayerLooper?
     @State private var isSilent: Bool?
+    @State private var pausedForBackground = false
+    @AppStorage("postVideoBackgroundPlaybackEnabled")
+    private var backgroundPlaybackEnabled = false
 
     var body: some View {
         ZStack {
@@ -1504,6 +1511,31 @@ private struct GalleryVideoPlayer: View {
                 player?.seek(to: .zero)
                 player?.play()
             }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: UIApplication.didEnterBackgroundNotification
+                )
+            ) { _ in
+                guard !playbackController.isPictureInPictureActive,
+                      !backgroundPlaybackEnabled
+                        || isSilent != false
+                else {
+                    return
+                }
+                pausedForBackground = player?.rate != 0
+                player?.pause()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: UIApplication.willEnterForegroundNotification
+                )
+            ) { _ in
+                guard pausedForBackground else { return }
+                pausedForBackground = false
+                if !playbackSuspended {
+                    player?.play()
+                }
+            }
             .onDisappear {
                 guard !playbackController.isPictureInPictureActive else {
                     return
@@ -1539,6 +1571,7 @@ private struct GallerySystemVideoPlayerView:
         controller.entersFullScreenWhenPlaybackBegins = false
         controller.exitsFullScreenWhenPlaybackEnds = false
         controller.view.backgroundColor = .black
+        context.coordinator.attach(to: controller)
         return controller
     }
 
@@ -1560,6 +1593,7 @@ private struct GallerySystemVideoPlayerView:
         coordinator: Coordinator
     ) {
         controller.delegate = nil
+        coordinator.detach()
         if !coordinator.playbackController
             .isPictureInPictureActive {
             controller.player = nil
@@ -1570,15 +1604,59 @@ private struct GallerySystemVideoPlayerView:
         NSObject,
         AVPlayerViewControllerDelegate {
         let playbackController: GalleryPlaybackController
+        private weak var playerViewController: AVPlayerViewController?
+        private var observers: [NSObjectProtocol] = []
+        private var userStartedPictureInPicture = false
 
         init(playbackController: GalleryPlaybackController) {
             self.playbackController = playbackController
+        }
+
+        func attach(to controller: AVPlayerViewController) {
+            playerViewController = controller
+            guard observers.isEmpty else { return }
+            let center = NotificationCenter.default
+            observers = [
+                center.addObserver(
+                    forName: UIApplication.willResignActiveNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        guard let self,
+                              !self.userStartedPictureInPicture
+                        else {
+                            return
+                        }
+                        self.playerViewController?
+                            .allowsPictureInPicturePlayback = false
+                    }
+                },
+                center.addObserver(
+                    forName: UIApplication.didBecomeActiveNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.playerViewController?
+                            .allowsPictureInPicturePlayback = true
+                    }
+                }
+            ]
+        }
+
+        func detach() {
+            let center = NotificationCenter.default
+            observers.forEach(center.removeObserver)
+            observers.removeAll()
+            playerViewController = nil
         }
 
         @MainActor
         func playerViewControllerWillStartPictureInPicture(
             _ playerViewController: AVPlayerViewController
         ) {
+            userStartedPictureInPicture = true
             playbackController.setPictureInPictureActive(true)
         }
 
@@ -1586,6 +1664,7 @@ private struct GallerySystemVideoPlayerView:
         func playerViewControllerDidStopPictureInPicture(
             _ playerViewController: AVPlayerViewController
         ) {
+            userStartedPictureInPicture = false
             playbackController.setPictureInPictureActive(false)
         }
 
@@ -1594,6 +1673,7 @@ private struct GallerySystemVideoPlayerView:
             _ playerViewController: AVPlayerViewController,
             failedToStartPictureInPictureWithError error: Error
         ) {
+            userStartedPictureInPicture = false
             playbackController.setPictureInPictureActive(false)
         }
 
