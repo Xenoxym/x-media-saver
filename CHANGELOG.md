@@ -27,8 +27,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Preserve the locked swipe direction through `onEnded` so a horizontal drag that crosses the paging threshold actually commits; cancelled gestures still reset their offset automatically.
 - After a page swipe, the centered cover remains above the new system player until `isReadyForDisplay` confirms its first frame, then disappears without animation to eliminate the black handoff flash without preloading videos.
 - The first-frame cover now remains for one additional 20-millisecond render handoff, and Picture in Picture cleanup restores the native player control binding while rejecting background-triggered PiP starts.
-- Native video controls now take precedence over edge paging. Video edge taps and double-tap five-second seeking are recognized inside the system player and skip touches that land on playback controls.
-- Removed the AVKit single-tap dependency that blocked native play, pause, skip, and Picture in Picture controls. Double-tap seeking no longer shows a custom overlay, and normal foreground playback no longer publishes Now Playing information or activates a background audio session.
+- Native video controls now exclusively own the system player touch surface. Custom tap, double-tap, long-press scrub, and video edge-button recognizers that could compete with play, pause, skip, mute, and Picture in Picture are temporarily disabled; horizontal drag paging remains available, and photo edge taps are unchanged.
+- System-player Now Playing metadata publishing remains disabled, while the audio-session category required for reliable native Picture in Picture is restored.
 
 ## [1.2.1] - 2026-07-29
 

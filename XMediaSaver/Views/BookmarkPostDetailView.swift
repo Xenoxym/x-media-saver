@@ -455,9 +455,7 @@ private struct InlineVideoPreview: View {
                         isSilent = silent
                         let activated =
                             await MediaPlaybackAudioSession.activate(
-                                silent: silent,
-                                allowsBackgroundPlayback:
-                                    backgroundPlaybackEnabled
+                                silent: silent
                             )
                         guard !Task.isCancelled,
                               player === newPlayer
@@ -479,14 +477,6 @@ private struct InlineVideoPreview: View {
                     for: player,
                     enabled: enabled && isSilent == false
                 )
-                if let isSilent {
-                    Task {
-                        await MediaPlaybackAudioSession.activate(
-                            silent: isSilent,
-                            allowsBackgroundPlayback: enabled
-                        )
-                    }
-                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
