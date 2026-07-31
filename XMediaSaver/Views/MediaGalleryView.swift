@@ -1379,15 +1379,31 @@ private struct ZoomableGalleryPhoto: View {
                 Color.black
                     .opacity(backgroundOpacity)
 
-                LocalMediaThumbnailView(
-                    media: media,
-                    maximumPixelSize: 4_096,
-                    contentMode: .fit,
-                    remoteImageName: "orig",
-                    showsPlaceholder: false,
-                    alignment: .center
-                )
+                ZStack {
+                    LocalMediaThumbnailView(
+                        media: media,
+                        maximumPixelSize: 1_280,
+                        contentMode: .fit,
+                        remoteImageName: "orig",
+                        showsPlaceholder: false,
+                        alignment: .center
+                    )
+
+                    LocalMediaThumbnailView(
+                        media: media,
+                        maximumPixelSize: 4_096,
+                        contentMode: .fit,
+                        remoteImageName: "orig",
+                        showsPlaceholder: false,
+                        alignment: .center
+                    )
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Keep both image resolutions in one compositing hierarchy
+                // without rasterizing them into a new off-screen bitmap. An
+                // off-screen drawing group can briefly rebuild at the target
+                // scale when double-tap zoom is repeated.
+                .compositingGroup()
                 .scaleEffect(scale)
                 .offset(combinedOffset)
             }
