@@ -578,9 +578,11 @@ private struct GalleryFullScreenViewer: View {
             }
         }
         .onDisappear {
-            playbackController.detachAll()
-            Task {
-                await MediaPlaybackAudioSession.deactivate()
+            playbackController.galleryDidDisappear()
+            if !playbackController.isPictureInPictureActive {
+                Task {
+                    await MediaPlaybackAudioSession.deactivate()
+                }
             }
         }
     }
@@ -661,6 +663,7 @@ private struct GalleryFullScreenViewer: View {
         .allowsHitTesting(
             !imageIsZoomed
                 && !playbackController.isScrubbing
+                && !playbackController.isPictureInPictureActive
                 && !completesPageTransition
         )
     }
@@ -672,6 +675,7 @@ private struct GalleryFullScreenViewer: View {
         guard currentItem?.media.type == .video,
               !imageIsZoomed,
               !playbackController.isScrubbing,
+              !playbackController.isPictureInPictureActive,
               width > 0,
               location.y > 80
         else {
@@ -702,6 +706,7 @@ private struct GalleryFullScreenViewer: View {
         .onChanged { value in
             guard currentItem?.media.type == .video,
                   !imageIsZoomed,
+                  !playbackController.isPictureInPictureActive,
                   !completesPageTransition
             else {
                 return
@@ -730,6 +735,7 @@ private struct GalleryFullScreenViewer: View {
             .updating($pageDragTranslation) { value, translation, _ in
                 guard !imageIsZoomed,
                       !playbackController.isScrubbing,
+                      !playbackController.isPictureInPictureActive,
                       !completesPageTransition
                 else {
                     return
@@ -829,6 +835,7 @@ private struct GalleryFullScreenViewer: View {
 
     private func moveImmediately(by offset: Int) {
         guard !playbackController.isScrubbing,
+              !playbackController.isPictureInPictureActive,
               !completesPageTransition
         else {
             return
@@ -1060,9 +1067,11 @@ private struct GallerySeekFeedbackOverlay: View {
 private final class GalleryPlaybackController: ObservableObject {
     @Published private(set) var scrubState: GalleryScrubState?
     @Published private(set) var seekFeedback: GallerySeekFeedback?
+    @Published private(set) var isPictureInPictureActive = false
 
     private weak var player: AVPlayer?
     private var mediaKey: String?
+    private var galleryIsDismissed = false
     private var scrubStartSeconds: Double = 0
     private var scrubDurationSeconds: Double = 0
     private var resumesAfterScrub = false
@@ -1076,6 +1085,7 @@ private final class GalleryPlaybackController: ObservableObject {
     func attach(player: AVPlayer, mediaKey: String) {
         self.player = player
         self.mediaKey = mediaKey
+        galleryIsDismissed = false
         scrubState = nil
     }
 
@@ -1093,6 +1103,24 @@ private final class GalleryPlaybackController: ObservableObject {
         seekFeedback = nil
         player = nil
         mediaKey = nil
+    }
+
+    func setPictureInPictureActive(_ active: Bool) {
+        isPictureInPictureActive = active
+        guard !active, galleryIsDismissed else { return }
+        player?.pause()
+        detachAll()
+        Task {
+            await MediaPlaybackAudioSession.deactivate()
+        }
+    }
+
+    func galleryDidDisappear() {
+        if isPictureInPictureActive {
+            galleryIsDismissed = true
+            return
+        }
+        detachAll()
     }
 
     func seek(by seconds: Double) {
@@ -1380,7 +1408,10 @@ private struct GalleryVideoPlayer: View {
             Color.black
 
             if let player {
-                VideoPlayer(player: player)
+                GallerySystemVideoPlayerView(
+                    player: player,
+                    playbackController: playbackController
+                )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
             }
@@ -1474,6 +1505,9 @@ private struct GalleryVideoPlayer: View {
                 player?.play()
             }
             .onDisappear {
+                guard !playbackController.isPictureInPictureActive else {
+                    return
+                }
                 player?.pause()
                 if let player {
                     playbackController.detach(
@@ -1484,6 +1518,87 @@ private struct GalleryVideoPlayer: View {
                 player = nil
                 looper = nil
             }
+    }
+}
+
+private struct GallerySystemVideoPlayerView:
+    UIViewControllerRepresentable {
+    let player: AVPlayer
+    @ObservedObject var playbackController: GalleryPlaybackController
+
+    func makeUIViewController(
+        context: Context
+    ) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.delegate = context.coordinator
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.videoGravity = .resizeAspect
+        controller.allowsPictureInPicturePlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = false
+        controller.entersFullScreenWhenPlaybackBegins = false
+        controller.exitsFullScreenWhenPlaybackEnds = false
+        controller.view.backgroundColor = .black
+        return controller
+    }
+
+    func updateUIViewController(
+        _ controller: AVPlayerViewController,
+        context: Context
+    ) {
+        if controller.player !== player {
+            controller.player = player
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(playbackController: playbackController)
+    }
+
+    static func dismantleUIViewController(
+        _ controller: AVPlayerViewController,
+        coordinator: Coordinator
+    ) {
+        controller.delegate = nil
+        if !coordinator.playbackController
+            .isPictureInPictureActive {
+            controller.player = nil
+        }
+    }
+
+    final class Coordinator:
+        NSObject,
+        AVPlayerViewControllerDelegate {
+        let playbackController: GalleryPlaybackController
+
+        init(playbackController: GalleryPlaybackController) {
+            self.playbackController = playbackController
+        }
+
+        func playerViewControllerWillStartPictureInPicture(
+            _ playerViewController: AVPlayerViewController
+        ) {
+            playbackController.setPictureInPictureActive(true)
+        }
+
+        func playerViewControllerDidStopPictureInPicture(
+            _ playerViewController: AVPlayerViewController
+        ) {
+            playbackController.setPictureInPictureActive(false)
+        }
+
+        func playerViewController(
+            _ playerViewController: AVPlayerViewController,
+            failedToStartPictureInPictureWithError error: Error
+        ) {
+            playbackController.setPictureInPictureActive(false)
+        }
+
+        func playerViewControllerShouldAutomaticallyDismissAtPictureInPictureStart(
+            _ playerViewController: AVPlayerViewController
+        ) -> Bool {
+            false
+        }
     }
 }
 

@@ -8,6 +8,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 - Full-screen videos now support half-second long-press scrubbing: drag horizontally from the current playback position, see the target time and progress, then release to seek precisely. This works in both the media gallery and the native full-screen player opened from Post Preview.
 - Double-tap the inner left or right side of a gallery video to seek backward or forward five seconds.
+- Gallery video playback now uses the system player surface and offers user-initiated Picture in Picture without enabling automatic PiP on app backgrounding.
 
 ### Changed
 
