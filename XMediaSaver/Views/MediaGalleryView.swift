@@ -471,11 +471,6 @@ private enum GalleryNavigationDragAxis {
     case vertical
 }
 
-private struct GalleryNavigationGestureState {
-    var axis = GalleryNavigationDragAxis.undecided
-    var horizontalTranslation: CGFloat = 0
-}
-
 private struct GalleryFullScreenViewer: View {
     let items: [GalleryMediaItem]
     let initialIndex: Int
@@ -484,8 +479,9 @@ private struct GalleryFullScreenViewer: View {
     @State private var imageIsZoomed = false
     @State private var presentedPost: BookmarkedPost?
     @State private var pageDragOffset: CGFloat = 0
-    @GestureState private var navigationGestureState =
-        GalleryNavigationGestureState()
+    @State private var navigationDragAxis =
+        GalleryNavigationDragAxis.undecided
+    @GestureState private var navigationDragIsActive = false
     @State private var completesPageTransition = false
     @StateObject private var playbackController =
         GalleryPlaybackController()
@@ -572,6 +568,18 @@ private struct GalleryFullScreenViewer: View {
         .ignoresSafeArea()
         .background(Color.black.ignoresSafeArea())
         .statusBarHidden(true)
+        .onChange(of: navigationDragIsActive) { isActive in
+            guard !isActive, !completesPageTransition else { return }
+            navigationDragAxis = .undecided
+            if pageDragOffset != 0 {
+                withAnimation(.interactiveSpring(
+                    response: 0.25,
+                    dampingFraction: 0.88
+                )) {
+                    pageDragOffset = 0
+                }
+            }
+        }
         .task(id: currentIndex) {
             await preloadNearbyPhotos()
         }
@@ -606,9 +614,7 @@ private struct GalleryFullScreenViewer: View {
     }
 
     private var visiblePageOffset: CGFloat {
-        completesPageTransition
-            ? pageDragOffset
-            : navigationGestureState.horizontalTranslation
+        pageDragOffset
     }
 
     @ViewBuilder
@@ -747,7 +753,10 @@ private struct GalleryFullScreenViewer: View {
 
     private func navigationDragGesture(width: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 12)
-            .updating($navigationGestureState) { value, state, _ in
+            .updating($navigationDragIsActive) { _, isActive, _ in
+                isActive = true
+            }
+            .onChanged { value in
                 guard !imageIsZoomed,
                       !playbackController.isScrubbing,
                       !playbackController.isPictureInPictureActive,
@@ -758,19 +767,19 @@ private struct GalleryFullScreenViewer: View {
 
                 let horizontal = abs(value.translation.width)
                 let vertical = abs(value.translation.height)
-                if state.axis == .undecided {
+                if navigationDragAxis == .undecided {
                     guard max(horizontal, vertical) >= 12 else { return }
-                    state.axis = horizontal >= vertical
+                    navigationDragAxis = horizontal >= vertical
                         ? .horizontal
                         : .vertical
                 }
 
-                guard state.axis == .horizontal else { return }
+                guard navigationDragAxis == .horizontal else { return }
                 let proposed = value.translation.width
                 let hasDestination = proposed < 0
                     ? items.indices.contains(currentIndex + 1)
                     : items.indices.contains(currentIndex - 1)
-                state.horizontalTranslation = hasDestination
+                pageDragOffset = hasDestination
                     ? proposed
                     : proposed * 0.22
             }
@@ -783,12 +792,12 @@ private struct GalleryFullScreenViewer: View {
                     return
                 }
 
-                if navigationGestureState.axis == .horizontal {
+                if navigationDragAxis == .horizontal {
                     finishHorizontalDrag(value, width: width)
                     return
                 }
 
-                guard navigationGestureState.axis == .vertical else {
+                guard navigationDragAxis == .vertical else {
                     return
                 }
                 let predictedVertical =
@@ -836,6 +845,7 @@ private struct GalleryFullScreenViewer: View {
                 currentIndex = candidate
                 pageDragOffset = 0
             }
+            navigationDragAxis = .undecided
             completesPageTransition = false
         }
     }
@@ -853,6 +863,7 @@ private struct GalleryFullScreenViewer: View {
             try? await Task.sleep(nanoseconds: 260_000_000)
             guard completesPageTransition else { return }
             pageDragOffset = 0
+            navigationDragAxis = .undecided
             completesPageTransition = false
         }
     }
@@ -871,6 +882,7 @@ private struct GalleryFullScreenViewer: View {
         withTransaction(transaction) {
             imageIsZoomed = false
             pageDragOffset = 0
+            navigationDragAxis = .undecided
             currentIndex = candidate
         }
     }

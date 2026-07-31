@@ -23,6 +23,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Interactive page covers now use the same centered fit as playback, and cancelled gestures automatically discard their temporary offset instead of leaving the gallery stuck between two items.
 - Gallery headers again use the original edge-to-edge top position, adjacent covers are centered inside their own thumbnail container, and leaving the app can no longer start PiP unless the user first chose the system PiP control.
 - A horizontal or vertical navigation direction is now locked for the full lifetime of each drag, preventing a slightly diagonal page swipe from opening Post Preview or dismissing the gallery.
+- Preserve the locked swipe direction through `onEnded` so a horizontal drag that crosses the paging threshold actually commits; cancelled gestures still reset their offset automatically.
 - After a page swipe, the centered cover remains above the new system player until `isReadyForDisplay` confirms its first frame, then disappears without animation to eliminate the black handoff flash without preloading videos.
 
 ## [1.2.1] - 2026-07-29
