@@ -1511,6 +1511,8 @@ private struct GalleryVideoPlayer: View {
             if let player {
                 GalleryPlayerLayerView(
                     player: player,
+                    audioOnlyBackgroundEnabled:
+                        backgroundPlaybackEnabled && isSilent == false,
                     isReadyForDisplay: $playerReadyForDisplay,
                     playbackController: playbackController
                 )
@@ -1732,6 +1734,10 @@ private struct GalleryVideoInteractionLayer: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let topInset = max(
+                92,
+                geometry.safeAreaInsets.top + 66
+            )
             HStack(spacing: 0) {
                 GalleryEdgePagingButton(
                     direction: .previous,
@@ -1741,8 +1747,16 @@ private struct GalleryVideoInteractionLayer: View {
                 .disabled(!canMovePrevious)
 
                 HStack(spacing: 0) {
-                    interactionHalf(seekSeconds: -5)
-                    interactionHalf(seekSeconds: 5)
+                    interactionHalf(
+                        seekSeconds: -5,
+                        playbackEdge: .trailing,
+                        verticalCenterOffset: -topInset / 2
+                    )
+                    interactionHalf(
+                        seekSeconds: 5,
+                        playbackEdge: .leading,
+                        verticalCenterOffset: -topInset / 2
+                    )
                 }
                 .simultaneousGesture(
                     scrubGesture(width: geometry.size.width),
@@ -1756,26 +1770,47 @@ private struct GalleryVideoInteractionLayer: View {
                 .frame(width: geometry.size.width / 10)
                 .disabled(!canMoveNext)
             }
-            .padding(.top, max(92, geometry.safeAreaInsets.top + 66))
+            .padding(.top, topInset)
         }
     }
 
-    private func interactionHalf(seekSeconds: Double) -> some View {
-        Color.clear
-            .contentShape(Rectangle())
-            .gesture(
-                SpatialTapGesture(count: 2)
-                    .exclusively(before: SpatialTapGesture())
-                    .onEnded { result in
-                        switch result {
-                        case .first(_):
-                            guard allowsSeeking else { return }
-                            playbackController.seek(by: seekSeconds)
-                        case .second(_):
-                            toggleControls()
+    private func interactionHalf(
+        seekSeconds: Double,
+        playbackEdge: HorizontalEdge,
+        verticalCenterOffset: CGFloat
+    ) -> some View {
+        GeometryReader { geometry in
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    SpatialTapGesture(count: 2)
+                        .exclusively(before: SpatialTapGesture())
+                        .onEnded { result in
+                            switch result {
+                            case .first(_):
+                                guard allowsSeeking else { return }
+                                playbackController.seek(by: seekSeconds)
+                            case .second(let tap):
+                                let edgeDistance = playbackEdge == .leading
+                                    ? tap.location.x
+                                    : geometry.size.width - tap.location.x
+                                let verticalDistance = abs(
+                                    tap.location.y
+                                        - (
+                                            geometry.size.height / 2
+                                                + verticalCenterOffset
+                                        )
+                                )
+                                if edgeDistance <= 41,
+                                   verticalDistance <= 41 {
+                                    playbackController.togglePlayback()
+                                } else {
+                                    toggleControls()
+                                }
+                            }
                         }
-                    }
-            )
+                )
+        }
     }
 
     private func scrubGesture(width: CGFloat) -> some Gesture {
@@ -1860,7 +1895,6 @@ private struct GalleryVideoControlsOverlay: View {
                 )
                 .font(.system(size: 30, weight: .semibold))
                 .frame(width: 62, height: 62)
-                .background(.black.opacity(0.52), in: Circle())
             }
             .foregroundStyle(.white)
             .frame(
@@ -1942,6 +1976,7 @@ private final class GalleryPlayerLayerHostView: UIView {
 
 private struct GalleryPlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
+    let audioOnlyBackgroundEnabled: Bool
     @Binding var isReadyForDisplay: Bool
     @ObservedObject var playbackController: GalleryPlaybackController
 
@@ -1951,6 +1986,9 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
         view.playerLayer.backgroundColor = UIColor.black.cgColor
         view.playerLayer.videoGravity = .resizeAspect
         view.playerLayer.player = player
+        context.coordinator.updateAudioOnlyBackground(
+            enabled: audioOnlyBackgroundEnabled
+        )
         context.coordinator.attach(to: view)
         return view
     }
@@ -1959,6 +1997,12 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
         _ view: GalleryPlayerLayerHostView,
         context: Context
     ) {
+        context.coordinator.updateAudioOnlyBackground(
+            enabled: audioOnlyBackgroundEnabled
+        )
+        guard !context.coordinator.isAudioOnlyBackgroundActive else {
+            return
+        }
         if view.playerLayer.player !== player {
             isReadyForDisplay = false
             view.playerLayer.player = player
@@ -1998,6 +2042,10 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
         private var teardownRequested = false
         private var manualPictureInPictureRequested = false
         private let pictureInPictureRegistrationID = UUID()
+        private var audioOnlyBackgroundEnabled = false
+        private var audioOnlyBackgroundPlayer: AVPlayer?
+        private var lifecycleObservers: [NSObjectProtocol] = []
+        private(set) var isAudioOnlyBackgroundActive = false
 
         init(
             isReadyForDisplay: Binding<Bool>,
@@ -2014,6 +2062,12 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             teardownRequested = false
             observeReadiness(of: view.playerLayer)
             configurePictureInPicture(for: view.playerLayer)
+            installLifecycleObservers()
+        }
+
+        @MainActor
+        func updateAudioOnlyBackground(enabled: Bool) {
+            audioOnlyBackgroundEnabled = enabled
         }
 
         func observeReadiness(of layer: AVPlayerLayer) {
@@ -2149,15 +2203,87 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             readinessHandoffTask = nil
             readinessObservation?.invalidate()
             readinessObservation = nil
+            lifecycleObservers.forEach(
+                NotificationCenter.default.removeObserver
+            )
+            lifecycleObservers.removeAll()
             possibilityObservation?.invalidate()
             possibilityObservation = nil
             pictureInPictureController?.delegate = nil
             pictureInPictureController = nil
             playerLayer?.player = nil
             playerLayer = nil
+            audioOnlyBackgroundPlayer = nil
+            isAudioOnlyBackgroundActive = false
             playbackController.unregisterPictureInPicture(
                 id: pictureInPictureRegistrationID
             )
+        }
+
+        @MainActor
+        private func installLifecycleObservers() {
+            guard lifecycleObservers.isEmpty else { return }
+            let center = NotificationCenter.default
+            lifecycleObservers = [
+                center.addObserver(
+                    forName: UIApplication.willResignActiveNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.enterAudioOnlyBackgroundIfNeeded()
+                    }
+                },
+                center.addObserver(
+                    forName: UIApplication.didBecomeActiveNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.restoreVideoSurfaceIfNeeded()
+                    }
+                }
+            ]
+        }
+
+        @MainActor
+        private func enterAudioOnlyBackgroundIfNeeded() {
+            guard audioOnlyBackgroundEnabled,
+                  !playbackController.isPictureInPictureActive,
+                  audioOnlyBackgroundPlayer == nil,
+                  let layer = playerLayer,
+                  let player = layer.player
+            else {
+                return
+            }
+
+            manualPictureInPictureRequested = false
+            possibilityObservation?.invalidate()
+            possibilityObservation = nil
+            pictureInPictureController?.delegate = nil
+            pictureInPictureController = nil
+            playbackController.unregisterPictureInPicture(
+                id: pictureInPictureRegistrationID
+            )
+            audioOnlyBackgroundPlayer = player
+            isAudioOnlyBackgroundActive = true
+            layer.player = nil
+            player.audiovisualBackgroundPlaybackPolicy =
+                .continuesIfPossible
+            player.play()
+        }
+
+        @MainActor
+        private func restoreVideoSurfaceIfNeeded() {
+            guard let layer = playerLayer,
+                  let player = audioOnlyBackgroundPlayer
+            else {
+                return
+            }
+            audioOnlyBackgroundPlayer = nil
+            isAudioOnlyBackgroundActive = false
+            layer.player = player
+            configurePictureInPicture(for: layer)
         }
 
         @MainActor

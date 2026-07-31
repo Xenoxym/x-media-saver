@@ -411,21 +411,6 @@ private struct InlineVideoPreview: View {
                 .frame(maxWidth: .infinity)
                 .background(Color.black)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
-
-            HStack(spacing: 8) {
-                Label("画中画", systemImage: "pip")
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("后台播放")
-                    .foregroundStyle(.secondary)
-                Toggle(
-                    "后台播放",
-                    isOn: $backgroundPlaybackEnabled
-                )
-                .labelsHidden()
-                .controlSize(.small)
-            }
-            .font(.caption)
         }
             .task(id: media.mediaKey) {
                 if player == nil {
@@ -560,6 +545,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         controller.canStartPictureInPictureAutomaticallyFromInline = false
         context.coordinator.observe(player: player)
         context.coordinator.installScrubGesture(on: controller)
+        context.coordinator.installLifecycleObservers()
         Self.disablePinchGestures(in: controller.view)
         DispatchQueue.main.async { [weak controller] in
             guard let controller else { return }
@@ -572,7 +558,8 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         _ controller: AVPlayerViewController,
         context: Context
     ) {
-        if controller.player !== player {
+        if !context.coordinator.isAudioOnlyBackgroundActive,
+           controller.player !== player {
             controller.player = player
         }
         context.coordinator.observe(player: player)
@@ -595,6 +582,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         controller.player = nil
         coordinator.removeScrubGesture()
         coordinator.stopObservingPlayer()
+        coordinator.stopLifecycleObservers()
     }
 
     final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
@@ -611,6 +599,9 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         private var scrubDuration: Double?
         private var scrubWasPlaying = false
         private var lastPreviewSeekTime: CFTimeInterval = 0
+        private var lifecycleObservers: [NSObjectProtocol] = []
+        private var audioOnlyBackgroundPlayer: AVPlayer?
+        private(set) var isAudioOnlyBackgroundActive = false
 
         init(
             isPictureInPictureActive: Binding<Bool>,
@@ -670,10 +661,77 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
             playerViewController = nil
         }
 
+        func installLifecycleObservers() {
+            guard lifecycleObservers.isEmpty else { return }
+            let center = NotificationCenter.default
+            lifecycleObservers = [
+                center.addObserver(
+                    forName: UIApplication.willResignActiveNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    self?.enterAudioOnlyBackgroundIfNeeded()
+                },
+                center.addObserver(
+                    forName: UIApplication.didBecomeActiveNotification,
+                    object: nil,
+                    queue: .main
+                ) { [weak self] _ in
+                    self?.restoreVideoSurfaceIfNeeded()
+                }
+            ]
+        }
+
         func stopObservingPlayer() {
             muteObservation?.invalidate()
             muteObservation = nil
             observedPlayer = nil
+        }
+
+        func stopLifecycleObservers() {
+            lifecycleObservers.forEach(
+                NotificationCenter.default.removeObserver
+            )
+            lifecycleObservers.removeAll()
+            audioOnlyBackgroundPlayer = nil
+            isAudioOnlyBackgroundActive = false
+        }
+
+        private func enterAudioOnlyBackgroundIfNeeded() {
+            guard UserDefaults.standard.bool(
+                forKey: "postVideoBackgroundPlaybackEnabled"
+            ),
+            !isPictureInPictureActive.wrappedValue,
+            audioOnlyBackgroundPlayer == nil,
+            let controller = playerViewController,
+            let player = controller.player
+            else {
+                return
+            }
+
+            controller.canStartPictureInPictureAutomaticallyFromInline =
+                false
+            controller.allowsPictureInPicturePlayback = false
+            audioOnlyBackgroundPlayer = player
+            isAudioOnlyBackgroundActive = true
+            controller.player = nil
+            player.audiovisualBackgroundPlaybackPolicy =
+                .continuesIfPossible
+            player.play()
+        }
+
+        private func restoreVideoSurfaceIfNeeded() {
+            guard let controller = playerViewController,
+                  let player = audioOnlyBackgroundPlayer
+            else {
+                return
+            }
+            audioOnlyBackgroundPlayer = nil
+            isAudioOnlyBackgroundActive = false
+            controller.player = player
+            controller.allowsPictureInPicturePlayback = true
+            controller.canStartPictureInPictureAutomaticallyFromInline =
+                false
         }
 
         func playerViewControllerWillStartPictureInPicture(

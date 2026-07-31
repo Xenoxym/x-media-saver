@@ -33,6 +33,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Closing the full-screen media gallery now defers player-layer, observer, and Picture in Picture teardown until the dismissal transition has completed, avoiding the lifecycle race that could crash on either swipe-down or the close button.
 - Video and animated-GIF covers no longer draw a play-button overlay. The gallery header sits below the device status area, and the custom play/pause control is geometrically centered.
 - Background Audio now controls audio continuation only. Picture in Picture requires the in-player PiP button and rejects system-initiated background starts.
+- Background Audio is now configured only in Settings; the duplicate Post Preview toggle has been removed. When enabled, both video surfaces detach before the app resigns active so only the player's audio continues and iOS has no inline video surface from which to auto-start PiP.
+- Tapping the compact center play/pause area now toggles playback even when controls are hidden, while all surrounding tap, double-tap, scrub, and paging regions keep their existing behavior. The center control no longer draws a translucent black circle.
 
 ## [1.2.1] - 2026-07-29
 
