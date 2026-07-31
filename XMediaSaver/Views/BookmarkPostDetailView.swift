@@ -455,7 +455,9 @@ private struct InlineVideoPreview: View {
                         isSilent = silent
                         let activated =
                             await MediaPlaybackAudioSession.activate(
-                                silent: silent
+                                silent: silent,
+                                allowsBackgroundPlayback:
+                                    backgroundPlaybackEnabled
                             )
                         guard !Task.isCancelled,
                               player === newPlayer
@@ -477,6 +479,14 @@ private struct InlineVideoPreview: View {
                     for: player,
                     enabled: enabled && isSilent == false
                 )
+                if let isSilent {
+                    Task {
+                        await MediaPlaybackAudioSession.activate(
+                            silent: isSilent,
+                            allowsBackgroundPlayback: enabled
+                        )
+                    }
+                }
             }
             .onReceive(
                 NotificationCenter.default.publisher(
@@ -555,6 +565,7 @@ private struct SystemVideoPlayerView: UIViewControllerRepresentable {
         controller.player = player
         controller.showsPlaybackControls = true
         controller.videoGravity = .resizeAspect
+        controller.updatesNowPlayingInfoCenter = false
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = false
         context.coordinator.observe(player: player)

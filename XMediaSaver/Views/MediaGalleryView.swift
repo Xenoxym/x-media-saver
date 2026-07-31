@@ -510,16 +510,6 @@ private struct GalleryFullScreenViewer: View {
                         .transition(.opacity)
                 }
 
-                if let feedback = playbackController.seekFeedback {
-                    GallerySeekFeedbackOverlay(feedback: feedback)
-                        .frame(
-                            maxWidth: .infinity,
-                            maxHeight: .infinity,
-                            alignment: .center
-                        )
-                        .offset(y: 36)
-                }
-
                 HStack {
                     Button {
                         dismiss()
@@ -549,16 +539,6 @@ private struct GalleryFullScreenViewer: View {
                 )
             }
             .contentShape(Rectangle())
-            .simultaneousGesture(
-                SpatialTapGesture(count: 2)
-                    .onEnded {
-                        handleDoubleTap(
-                            at: $0.location,
-                            width: geometry.size.width
-                        )
-                    },
-                including: .none
-            )
             .simultaneousGesture(
                 scrubGesture(width: geometry.size.width),
                 including: currentItem?.media.type == .video
@@ -697,30 +677,6 @@ private struct GalleryFullScreenViewer: View {
                 && !playbackController.isScrubbing
                 && !playbackController.isPictureInPictureActive
                 && !completesPageTransition
-        )
-    }
-
-    private func handleDoubleTap(
-        at location: CGPoint,
-        width: CGFloat
-    ) {
-        guard currentItem?.media.type == .video,
-              !imageIsZoomed,
-              !playbackController.isScrubbing,
-              !playbackController.isPictureInPictureActive,
-              width > 0,
-              location.y > 80
-        else {
-            return
-        }
-        let edgeWidth = width / 7
-        guard location.x >= edgeWidth,
-              location.x <= width - edgeWidth
-        else {
-            return
-        }
-        playbackController.seek(
-            by: location.x < width / 2 ? -5 : 5
         )
     }
 
@@ -1023,11 +979,6 @@ private struct GalleryScrubState {
     }
 }
 
-private struct GallerySeekFeedback: Identifiable {
-    let id = UUID()
-    let seconds: Int
-}
-
 private struct GalleryScrubOverlay: View {
     let state: GalleryScrubState
 
@@ -1095,34 +1046,9 @@ private struct GalleryScrubOverlay: View {
     }
 }
 
-private struct GallerySeekFeedbackOverlay: View {
-    let feedback: GallerySeekFeedback
-
-    var body: some View {
-        VStack(spacing: 6) {
-            Image(
-                systemName: feedback.seconds < 0
-                    ? "gobackward.5"
-                    : "goforward.5"
-            )
-            .font(.system(size: 34, weight: .semibold))
-            Text(feedback.seconds < 0 ? "−5" : "+5")
-                .font(.headline.monospacedDigit())
-        }
-        .foregroundStyle(.white)
-        .padding(18)
-        .background(.black.opacity(0.58), in: RoundedRectangle(
-            cornerRadius: 16
-        ))
-        .allowsHitTesting(false)
-        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-    }
-}
-
 @MainActor
 private final class GalleryPlaybackController: ObservableObject {
     @Published private(set) var scrubState: GalleryScrubState?
-    @Published private(set) var seekFeedback: GallerySeekFeedback?
     @Published private(set) var isPictureInPictureActive = false
 
     private weak var player: AVPlayer?
@@ -1132,7 +1058,6 @@ private final class GalleryPlaybackController: ObservableObject {
     private var scrubDurationSeconds: Double = 0
     private var resumesAfterScrub = false
     private var lastPreviewSeekAt: CFTimeInterval = 0
-    private var feedbackTask: Task<Void, Never>?
 
     var isScrubbing: Bool {
         scrubState != nil
@@ -1153,10 +1078,7 @@ private final class GalleryPlaybackController: ObservableObject {
     }
 
     func detachAll() {
-        feedbackTask?.cancel()
-        feedbackTask = nil
         scrubState = nil
-        seekFeedback = nil
         player = nil
         mediaKey = nil
     }
@@ -1194,7 +1116,6 @@ private final class GalleryPlaybackController: ObservableObject {
             toleranceBefore: CMTime(seconds: 0.05, preferredTimescale: 600),
             toleranceAfter: CMTime(seconds: 0.05, preferredTimescale: 600)
         )
-        showSeekFeedback(seconds: seconds < 0 ? -5 : 5)
     }
 
     func beginScrubbing(width: CGFloat) {
@@ -1267,20 +1188,6 @@ private final class GalleryPlaybackController: ObservableObject {
             guard finished, shouldResume else { return }
             DispatchQueue.main.async {
                 player.play()
-            }
-        }
-    }
-
-    private func showSeekFeedback(seconds: Int) {
-        feedbackTask?.cancel()
-        withAnimation(.easeOut(duration: 0.12)) {
-            seekFeedback = GallerySeekFeedback(seconds: seconds)
-        }
-        feedbackTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 650_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(.easeIn(duration: 0.16)) {
-                self?.seekFeedback = nil
             }
         }
     }
@@ -1487,6 +1394,8 @@ private struct GalleryVideoPlayer: View {
                     isReadyForDisplay: $playerReadyForDisplay,
                     playbackController: playbackController,
                     allowsDoubleTapSeek: media.type == .video,
+                    usesAudibleAudio: isSilent == false,
+                    backgroundPlaybackEnabled: backgroundPlaybackEnabled,
                     canMovePrevious: canMovePrevious,
                     canMoveNext: canMoveNext,
                     movePrevious: movePrevious,
@@ -1560,7 +1469,11 @@ private struct GalleryVideoPlayer: View {
                     }
                     isSilent = silent
                     newPlayer.isMuted = silent
-                    await MediaPlaybackAudioSession.activate(silent: silent)
+                    await MediaPlaybackAudioSession.activate(
+                        silent: silent,
+                        allowsBackgroundPlayback:
+                            backgroundPlaybackEnabled
+                    )
                 } else {
                     await MediaPlaybackAudioSession.activate(silent: true)
                 }
@@ -1573,10 +1486,21 @@ private struct GalleryVideoPlayer: View {
                     if let isSilent {
                         Task {
                             await MediaPlaybackAudioSession.activate(
-                                silent: isSilent
+                                silent: isSilent,
+                                allowsBackgroundPlayback:
+                                    backgroundPlaybackEnabled
                             )
                         }
                     }
+                }
+            }
+            .onChange(of: backgroundPlaybackEnabled) { enabled in
+                guard let isSilent else { return }
+                Task {
+                    await MediaPlaybackAudioSession.activate(
+                        silent: isSilent,
+                        allowsBackgroundPlayback: enabled
+                    )
                 }
             }
             .onReceive(
@@ -1642,6 +1566,8 @@ private struct GallerySystemVideoPlayerView:
     @Binding var isReadyForDisplay: Bool
     @ObservedObject var playbackController: GalleryPlaybackController
     let allowsDoubleTapSeek: Bool
+    let usesAudibleAudio: Bool
+    let backgroundPlaybackEnabled: Bool
     let canMovePrevious: Bool
     let canMoveNext: Bool
     let movePrevious: () -> Void
@@ -1655,6 +1581,7 @@ private struct GallerySystemVideoPlayerView:
         controller.player = player
         controller.showsPlaybackControls = true
         controller.videoGravity = .resizeAspect
+        controller.updatesNowPlayingInfoCenter = false
         controller.allowsPictureInPicturePlayback = true
         controller.canStartPictureInPictureAutomaticallyFromInline = false
         controller.entersFullScreenWhenPlaybackBegins = false
@@ -1663,6 +1590,8 @@ private struct GallerySystemVideoPlayerView:
         context.coordinator.attach(to: controller)
         context.coordinator.updateInteractions(
             allowsDoubleTapSeek: allowsDoubleTapSeek,
+            usesAudibleAudio: usesAudibleAudio,
+            backgroundPlaybackEnabled: backgroundPlaybackEnabled,
             canMovePrevious: canMovePrevious,
             canMoveNext: canMoveNext,
             movePrevious: movePrevious,
@@ -1682,6 +1611,8 @@ private struct GallerySystemVideoPlayerView:
         }
         context.coordinator.updateInteractions(
             allowsDoubleTapSeek: allowsDoubleTapSeek,
+            usesAudibleAudio: usesAudibleAudio,
+            backgroundPlaybackEnabled: backgroundPlaybackEnabled,
             canMovePrevious: canMovePrevious,
             canMoveNext: canMoveNext,
             movePrevious: movePrevious,
@@ -1723,6 +1654,8 @@ private struct GallerySystemVideoPlayerView:
         private weak var edgeTapRecognizer: UITapGestureRecognizer?
         private weak var doubleTapRecognizer: UITapGestureRecognizer?
         private var allowsDoubleTapSeek = false
+        private var usesAudibleAudio = false
+        private var backgroundPlaybackEnabled = false
         private var canMovePrevious = false
         private var canMoveNext = false
         private var movePrevious: () -> Void = {}
@@ -1824,12 +1757,16 @@ private struct GallerySystemVideoPlayerView:
 
         func updateInteractions(
             allowsDoubleTapSeek: Bool,
+            usesAudibleAudio: Bool,
+            backgroundPlaybackEnabled: Bool,
             canMovePrevious: Bool,
             canMoveNext: Bool,
             movePrevious: @escaping () -> Void,
             moveNext: @escaping () -> Void
         ) {
             self.allowsDoubleTapSeek = allowsDoubleTapSeek
+            self.usesAudibleAudio = usesAudibleAudio
+            self.backgroundPlaybackEnabled = backgroundPlaybackEnabled
             self.canMovePrevious = canMovePrevious
             self.canMoveNext = canMoveNext
             self.movePrevious = movePrevious
@@ -1862,44 +1799,8 @@ private struct GallerySystemVideoPlayerView:
             edgeTap.numberOfTapsRequired = 1
             edgeTap.cancelsTouchesInView = false
             edgeTap.delegate = self
-            edgeTap.require(toFail: doubleTap)
             controller.view.addGestureRecognizer(edgeTap)
             edgeTapRecognizer = edgeTap
-
-            DispatchQueue.main.async { [weak self, weak controller] in
-                guard let self,
-                      let controller,
-                      let doubleTap = self.doubleTapRecognizer
-                else {
-                    return
-                }
-                self.delayNativeSingleTaps(
-                    below: controller.view,
-                    until: doubleTap
-                )
-            }
-        }
-
-        private func delayNativeSingleTaps(
-            below view: UIView,
-            until doubleTap: UITapGestureRecognizer
-        ) {
-            for recognizer in view.gestureRecognizers ?? [] {
-                guard recognizer !== edgeTapRecognizer,
-                      recognizer !== doubleTapRecognizer,
-                      let tap = recognizer as? UITapGestureRecognizer,
-                      tap.numberOfTapsRequired == 1
-                else {
-                    continue
-                }
-                tap.require(toFail: doubleTap)
-            }
-            for subview in view.subviews {
-                delayNativeSingleTaps(
-                    below: subview,
-                    until: doubleTap
-                )
-            }
         }
 
         @objc
@@ -1930,9 +1831,13 @@ private struct GallerySystemVideoPlayerView:
                 return
             }
             let location = recognizer.location(in: view)
+            playerViewController?.showsPlaybackControls = false
             playbackController.seek(
                 by: location.x < view.bounds.midX ? -5 : 5
             )
+            DispatchQueue.main.async { [weak playerViewController] in
+                playerViewController?.showsPlaybackControls = true
+            }
         }
 
         func gestureRecognizer(
@@ -2032,6 +1937,10 @@ private struct GallerySystemVideoPlayerView:
                 playbackController.setPictureInPictureActive(false)
                 return
             }
+            Task {
+                await MediaPlaybackAudioSession
+                    .activateForPictureInPicture()
+            }
             playbackController.setPictureInPictureActive(true)
         }
 
@@ -2041,6 +1950,13 @@ private struct GallerySystemVideoPlayerView:
         ) {
             userStartedPictureInPicture = false
             playbackController.setPictureInPictureActive(false)
+            Task {
+                await MediaPlaybackAudioSession.activate(
+                    silent: !usesAudibleAudio,
+                    allowsBackgroundPlayback:
+                        backgroundPlaybackEnabled
+                )
+            }
             restorePlaybackControls(in: playerViewController)
         }
 
@@ -2051,6 +1967,13 @@ private struct GallerySystemVideoPlayerView:
         ) {
             userStartedPictureInPicture = false
             playbackController.setPictureInPictureActive(false)
+            Task {
+                await MediaPlaybackAudioSession.activate(
+                    silent: !usesAudibleAudio,
+                    allowsBackgroundPlayback:
+                        backgroundPlaybackEnabled
+                )
+            }
             restorePlaybackControls(in: playerViewController)
         }
 
