@@ -1061,12 +1061,14 @@ private final class GalleryPlaybackController: ObservableObject {
             forInterval: CMTime(seconds: 0.25, preferredTimescale: 600),
             queue: .main
         ) { [weak self, weak player] time in
-            guard let self, let player else { return }
-            let seconds = time.seconds
-            self.currentSeconds =
-                seconds.isFinite ? max(seconds, 0) : 0
-            self.durationSeconds =
-                self.finiteDuration(of: player) ?? 0
+            Task { @MainActor [weak self, weak player] in
+                guard let self, let player else { return }
+                let seconds = time.seconds
+                self.currentSeconds =
+                    seconds.isFinite ? max(seconds, 0) : 0
+                self.durationSeconds =
+                    self.finiteDuration(of: player) ?? 0
+            }
         }
     }
 
@@ -1940,7 +1942,7 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
 
     final class Coordinator:
         NSObject,
-        AVPictureInPictureControllerDelegate {
+        @preconcurrency AVPictureInPictureControllerDelegate {
         let playbackController: GalleryPlaybackController
         private var isReadyForDisplay: Binding<Bool>
         private weak var playerLayer: AVPlayerLayer?
@@ -1958,6 +1960,7 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             self.playbackController = playbackController
         }
 
+        @MainActor
         func attach(to view: GalleryPlayerLayerHostView) {
             observeReadiness(of: view.playerLayer)
             configurePictureInPicture(for: view.playerLayer)
@@ -2001,6 +2004,7 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             }
         }
 
+        @MainActor
         func configurePictureInPicture(for layer: AVPlayerLayer) {
             guard pictureInPictureController == nil,
                   AVPictureInPictureController
@@ -2008,9 +2012,11 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             else {
                 return
             }
-            let controller = AVPictureInPictureController(
+            guard let controller = AVPictureInPictureController(
                 playerLayer: layer
-            )
+            ) else {
+                return
+            }
             controller.delegate = self
             controller
                 .canStartPictureInPictureAutomaticallyFromInline = false
@@ -2019,7 +2025,7 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
                 \.isPictureInPicturePossible,
                 options: [.initial, .new]
             ) { [weak self] controller, _ in
-                DispatchQueue.main.async {
+                Task { @MainActor [weak self] in
                     self?.playbackController
                         .updatePictureInPicturePossible(
                             controller.isPictureInPicturePossible
@@ -2057,6 +2063,7 @@ private struct GalleryPlayerLayerView: UIViewRepresentable {
             }
         }
 
+        @MainActor
         func detach() {
             readinessHandoffTask?.cancel()
             readinessHandoffTask = nil
