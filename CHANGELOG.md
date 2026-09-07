@@ -4,6 +4,19 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+### Added
+
+- Failed batch saves are recorded with their cached Post details and error reasons, with a compact Save & Export entry for later inspection. Successful retries automatically clear the corresponding failures.
+
+### Changed
+
+- Save & Export now prioritizes the app's Files library, keeps alternate folder export next, and places the non-deduplicating Photos action last to reduce accidental bulk saves.
+- Download and browse filter values, date-range selection, and range-section expansion now persist across app launches.
+
+### Fixed
+
+- Full-screen local media no longer shows the phone-shaped local-file badge. The badge remains in media grids and is anchored to the square grid cell so portrait or landscape source dimensions cannot push it outside the tile.
+
 ## [1.3.0] - 2026-07-31
 
 ### Added

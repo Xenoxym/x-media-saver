@@ -203,6 +203,11 @@
 "无法读取本地书签索引：%@" = "Could not read the local bookmark index: %@";
 "无法保存本地书签索引：%@" = "Could not save the local bookmark index: %@";
 "X 页面加载失败：%@（%lld）" = "X failed to load: %@ (%lld)";
+"没有可下载的直接地址" = "No direct media URL is available.";
+"查看保存失败的 Post（%lld）" = "View Failed Saves (%lld Posts)";
+"这里保留最近未成功保存的 Post。对应媒体后续保存成功后会自动移除记录。" = "Posts with media that did not save are retained here. A record is removed automatically after the corresponding media saves successfully.";
+"%lld 个媒体保存失败" = "%lld media items failed to save";
+"保存失败" = "Save Failures";
 
 "Settings" = "Settings";
 "Bookmarks" = "Bookmarks";

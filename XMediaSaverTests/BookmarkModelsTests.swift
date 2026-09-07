@@ -330,6 +330,60 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertEqual(estimate.unknownSizeCount, 1)
     }
 
+    func testBookmarkFilterRoundTripsThroughPersistenceEncoding() throws {
+        var expected = BookmarkFilter()
+        expected.includePhotos = false
+        expected.minimumDuration = .oneMinute
+        expected.maximumDuration = .oneHour
+        expected.minimumSize = .tenMB
+        expected.maximumSize = .fiveHundredMB
+        expected.useStartDate = true
+        expected.startDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+        let data = try JSONEncoder().encode(expected)
+        let restored = try JSONDecoder().decode(
+            BookmarkFilter.self,
+            from: data
+        )
+
+        XCTAssertEqual(restored, expected)
+    }
+
+    func testSaveFailureStoreClearsSuccessfulRetry() async throws {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathComponent("save-failures.json")
+        defer {
+            try? FileManager.default.removeItem(
+                at: fileURL.deletingLastPathComponent()
+            )
+        }
+        let post = makePost(
+            id: "failed-post",
+            date: Date(timeIntervalSince1970: 100),
+            types: [.photo]
+        )
+        let mediaKey = post.media[0].mediaKey
+        let store = MediaSaveFailureStore(fileURL: fileURL)
+
+        let failed = try await store.recordAttempt(
+            posts: [post],
+            successfulMediaKeys: [],
+            failureReasons: [mediaKey: "network unavailable"]
+        )
+        XCTAssertEqual(failed.map(\.id), [post.id])
+        XCTAssertEqual(failed[0].failureReasons[mediaKey], "network unavailable")
+
+        let recovered = try await store.recordAttempt(
+            posts: [post],
+            successfulMediaKeys: [mediaKey],
+            failureReasons: [:]
+        )
+        XCTAssertTrue(recovered.isEmpty)
+        let persisted = try await store.load()
+        XCTAssertTrue(persisted.isEmpty)
+    }
+
     private func makePost(
         id: String,
         date: Date?,

@@ -248,7 +248,8 @@ private struct FullScreenPhotoView: View {
                 media: media,
                 maximumPixelSize: 4_096,
                 contentMode: .fit,
-                remoteImageName: "orig"
+                remoteImageName: "orig",
+                showsLocalIndicator: false
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .scaleEffect(scale)

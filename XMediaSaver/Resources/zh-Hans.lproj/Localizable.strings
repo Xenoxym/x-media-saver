@@ -29,3 +29,8 @@
 "The server returned HTTP %lld. Please try again later." = "服务器返回 HTTP %lld，请稍后重试。";
 "Photos access is off. Allow “Add Photos Only” access in Settings, then try again." = "照片权限已关闭。请在系统设置中允许“仅添加照片”后重试。";
 "The Photos library is unavailable on this device." = "此设备上的照片图库不可用。";
+"没有可下载的直接地址" = "没有可下载的直接地址";
+"查看保存失败的 Post（%lld）" = "查看保存失败的 Post（%lld）";
+"这里保留最近未成功保存的 Post。对应媒体后续保存成功后会自动移除记录。" = "这里保留最近未成功保存的 Post。对应媒体后续保存成功后会自动移除记录。";
+"%lld 个媒体保存失败" = "%lld 个媒体保存失败";
+"保存失败" = "保存失败";

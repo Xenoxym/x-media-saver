@@ -3,8 +3,11 @@ import Foundation
 
 @MainActor
 final class BookmarksViewModel: ObservableObject {
-    @Published var filter = BookmarkFilter() {
-        didSet { scheduleRecompute() }
+    @Published var filter: BookmarkFilter {
+        didSet {
+            Self.saveFilter(filter)
+            scheduleRecompute()
+        }
     }
     @Published var searchText = "" {
         didSet { scheduleRecompute() }
@@ -48,10 +51,12 @@ final class BookmarksViewModel: ObservableObject {
         currentType: nil
     )
     @Published private(set) var exportResult: FolderExportResult?
+    @Published private(set) var saveFailures: [SaveFailureRecord] = []
     @Published var presentedError: PresentedError?
 
     private let saver: BatchMediaSaver
     private let exporter: FolderMediaExporter
+    private let failureStore: MediaSaveFailureStore
     private var sourcePosts: [BookmarkedPost] = []
     private var localFileMediaKeys: Set<String> = []
     private var hashtagsByPostID: [String: [String]] = [:]
@@ -61,14 +66,18 @@ final class BookmarksViewModel: ObservableObject {
 
     init(
         saver: BatchMediaSaver = BatchMediaSaver(),
-        exporter: FolderMediaExporter = FolderMediaExporter()
+        exporter: FolderMediaExporter = FolderMediaExporter(),
+        failureStore: MediaSaveFailureStore = MediaSaveFailureStore()
     ) {
+        filter = Self.loadSavedFilter()
         self.saver = saver
         self.exporter = exporter
+        self.failureStore = failureStore
         Task { [weak self] in
             guard let self else { return }
             localFileMediaKeys =
                 await LocalMediaLibrary.shared.availableMediaKeys()
+            saveFailures = (try? await failureStore.load()) ?? []
             recomputeNow()
         }
     }
@@ -101,7 +110,8 @@ final class BookmarksViewModel: ObservableObject {
     func startSaving(posts: [BookmarkedPost]) {
         update(posts: posts)
         guard !isSaving, !isExporting else { return }
-        let media = deduplicatedMedia(from: calculateFilteredPosts(posts))
+        let attemptedPosts = calculateFilteredPosts(posts)
+        let media = deduplicatedMedia(from: attemptedPosts)
 
         guard !media.isEmpty else {
             show(AppError.noMediaSelected)
@@ -129,6 +139,11 @@ final class BookmarksViewModel: ObservableObject {
                     }
                 )
                 result = savedResult
+                await updateSaveFailures(
+                    posts: attemptedPosts,
+                    successfulMediaKeys: savedResult.successfulMediaKeys,
+                    failureReasons: savedResult.failureReasons
+                )
                 recomputeNow()
             } catch is CancellationError {
                 // User cancellation is intentionally silent.
@@ -179,6 +194,11 @@ final class BookmarksViewModel: ObservableObject {
                     }
                 }
                 exportResult = completedExport
+                await updateSaveFailures(
+                    posts: filtered,
+                    successfulMediaKeys: completedExport.successfulMediaKeys,
+                    failureReasons: completedExport.failureReasons
+                )
                 await LocalMediaLibrary.shared.register(
                     root: completedExport.destination
                 )
@@ -401,6 +421,38 @@ final class BookmarksViewModel: ObservableObject {
             message: message,
             offersSettings: (error as? AppError) == .photoPermissionDenied
         )
+    }
+
+    private func updateSaveFailures(
+        posts: [BookmarkedPost],
+        successfulMediaKeys: Set<String>,
+        failureReasons: [String: String]
+    ) async {
+        guard let updated = try? await failureStore.recordAttempt(
+            posts: posts,
+            successfulMediaKeys: successfulMediaKeys,
+            failureReasons: failureReasons
+        ) else { return }
+        saveFailures = updated
+    }
+
+    private static let filterDefaultsKey = "bookmarkDownloadBrowseFilter"
+
+    private static func loadSavedFilter() -> BookmarkFilter {
+        guard let data = UserDefaults.standard.data(
+            forKey: filterDefaultsKey
+        ), let filter = try? JSONDecoder().decode(
+            BookmarkFilter.self,
+            from: data
+        ) else {
+            return BookmarkFilter()
+        }
+        return filter
+    }
+
+    private static func saveFilter(_ filter: BookmarkFilter) {
+        guard let data = try? JSONEncoder().encode(filter) else { return }
+        UserDefaults.standard.set(data, forKey: filterDefaultsKey)
     }
 
     private static func newestFirst(

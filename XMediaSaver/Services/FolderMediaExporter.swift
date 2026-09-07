@@ -13,6 +13,8 @@ struct FolderExportResult: Equatable {
     let failed: Int
     let destination: URL
     let issues: [String]
+    let successfulMediaKeys: Set<String>
+    let failureReasons: [String: String]
 }
 
 final class FolderMediaExporter: @unchecked Sendable {
@@ -50,6 +52,8 @@ final class FolderMediaExporter: @unchecked Sendable {
         var skipped = 0
         var failed = 0
         var issues: [String] = []
+        var successfulMediaKeys: Set<String> = []
+        var failureReasons: [String: String] = [:]
 
         for (index, item) in ordered.enumerated() {
             try Task.checkCancellation()
@@ -60,6 +64,7 @@ final class FolderMediaExporter: @unchecked Sendable {
                     .path
                ) {
                 skipped += 1
+                successfulMediaKeys.insert(item.media.mediaKey)
                 progress(
                     FolderExportProgress(
                         completed: index + 1,
@@ -72,8 +77,18 @@ final class FolderMediaExporter: @unchecked Sendable {
             }
 
             guard let remoteURL = item.media.downloadURL else {
-                skipped += 1
-                issues.append("\(item.media.mediaKey)：没有直接媒体地址")
+                failed += 1
+                let message = L10n.string("没有可下载的直接地址")
+                failureReasons[item.media.mediaKey] = message
+                issues.append("\(item.media.mediaKey)：\(message)")
+                progress(
+                    FolderExportProgress(
+                        completed: index + 1,
+                        total: ordered.count,
+                        currentFraction: 1,
+                        currentType: item.media.type
+                    )
+                )
                 continue
             }
 
@@ -130,6 +145,7 @@ final class FolderMediaExporter: @unchecked Sendable {
                     at: destination
                 )
                 saved += 1
+                successfulMediaKeys.insert(item.media.mediaKey)
             } catch is CancellationError {
                 if let temporaryURL {
                     try? FileManager.default.removeItem(at: temporaryURL)
@@ -140,6 +156,7 @@ final class FolderMediaExporter: @unchecked Sendable {
                     try? FileManager.default.removeItem(at: temporaryURL)
                 }
                 failed += 1
+                failureReasons[item.media.mediaKey] = error.localizedDescription
                 issues.append(
                     "\(item.media.mediaKey)：\(error.localizedDescription)"
                 )
@@ -167,7 +184,9 @@ final class FolderMediaExporter: @unchecked Sendable {
             skipped: skipped,
             failed: failed,
             destination: destination,
-            issues: issues
+            issues: issues,
+            successfulMediaKeys: successfulMediaKeys,
+            failureReasons: failureReasons
         )
     }
 

@@ -314,7 +314,8 @@ struct MediaGalleryView: View {
 
                 LocalMediaThumbnailView(
                     media: item.media,
-                    maximumPixelSize: 420
+                    maximumPixelSize: 420,
+                    showsLocalIndicator: false
                 )
                 .frame(
                     width: geometry.size.width,
@@ -337,6 +338,14 @@ struct MediaGalleryView: View {
                         selected: selectedMediaKeys.contains(item.id)
                     )
                 }
+
+                GalleryLocalMediaBadge(mediaKey: item.media.mediaKey)
+                    .frame(
+                        maxWidth: .infinity,
+                        maxHeight: .infinity,
+                        alignment: .topTrailing
+                    )
+                    .padding(5)
             }
             .frame(
                 width: geometry.size.width,
@@ -843,6 +852,28 @@ private struct GalleryFullScreenViewer: View {
     }
 }
 
+private struct GalleryLocalMediaBadge: View {
+    let mediaKey: String
+    @State private var isAvailable = false
+
+    var body: some View {
+        Group {
+            if isAvailable {
+                Image(systemName: "iphone")
+                    .font(.caption2.weight(.bold))
+                    .padding(5)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+        }
+        .task(id: mediaKey) {
+            isAvailable = await LocalMediaLibrary.shared.localURL(
+                for: mediaKey
+            ) != nil
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 private struct GalleryAdjacentMediaPreview: View {
     let item: GalleryMediaItem
 
@@ -866,6 +897,7 @@ private struct GalleryMediaCover: View {
                     media.type == .photo ? "orig" : "small",
                 showsPlaceholder: false,
                 showsPlayIndicator: false,
+                showsLocalIndicator: false,
                 alignment: .center
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1386,6 +1418,7 @@ private struct ZoomableGalleryPhoto: View {
                         contentMode: .fit,
                         remoteImageName: "orig",
                         showsPlaceholder: false,
+                        showsLocalIndicator: false,
                         alignment: .center
                     )
 
@@ -1395,6 +1428,7 @@ private struct ZoomableGalleryPhoto: View {
                         contentMode: .fit,
                         remoteImageName: "orig",
                         showsPlaceholder: false,
+                        showsLocalIndicator: false,
                         alignment: .center
                     )
                 }

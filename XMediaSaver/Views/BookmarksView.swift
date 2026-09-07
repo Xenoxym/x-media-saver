@@ -6,6 +6,7 @@ struct BookmarksView: View {
     private enum LocalIndexRoute: Hashable {
         case indexedPosts
         case gallery(BookmarkMediaType?)
+        case saveFailures
     }
 
     @ObservedObject var session: BrowserSessionModel
@@ -17,14 +18,20 @@ struct BookmarksView: View {
     @State private var groupLimits: [String: Int] = [:]
     @State private var postLimit = 100
     @State private var choosesExportFolder = false
-    @State private var showsRangeFilters = false
-    @State private var dateRange: BookmarkDateRange = .all
+    @AppStorage("bookmarkShowsRangeFilters")
+    private var showsRangeFilters = false
     @State private var localIndexPath = NavigationPath()
+    @AppStorage("bookmarkDateRange")
+    private var dateRangeRawValue = BookmarkDateRange.all.rawValue
     @AppStorage("bookmarkPostPreviewMode")
     private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
 
     private var previewMode: BookmarkPostPreviewMode {
         BookmarkPostPreviewMode(rawValue: previewModeRaw) ?? .media
+    }
+
+    private var dateRange: BookmarkDateRange {
+        BookmarkDateRange(rawValue: dateRangeRawValue) ?? .all
     }
 
     private var statistics: BookmarkStatistics {
@@ -300,6 +307,11 @@ struct BookmarksView: View {
                 mediaType: type,
                 onClose: closeLocalIndex
             )
+        case .saveFailures:
+            SaveFailuresView(
+                records: viewModel.saveFailures,
+                onClose: closeLocalIndex
+            )
         }
     }
 
@@ -416,7 +428,7 @@ struct BookmarksView: View {
     }
 
     private func applyDateRange(_ range: BookmarkDateRange) {
-        dateRange = range
+        dateRangeRawValue = range.rawValue
         viewModel.filter.useEndDate = false
         switch range {
         case .all:
@@ -574,18 +586,6 @@ struct BookmarksView: View {
                 operationProgress
             } else {
                 Button {
-                    viewModel.startSaving(posts: session.capturedPosts)
-                } label: {
-                    Label(
-                        "批量下载并保存到照片",
-                        systemImage: "photo.badge.arrow.down"
-                    )
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(viewModel.selectedMediaCount == 0)
-
-                Button {
                     viewModel.startExporting(posts: session.capturedPosts)
                 } label: {
                     Label(
@@ -596,7 +596,8 @@ struct BookmarksView: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
+                .disabled(viewModel.selectedMediaCount == 0)
 
                 Button {
                     choosesExportFolder = true
@@ -608,6 +609,42 @@ struct BookmarksView: View {
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+
+                Button {
+                    viewModel.startSaving(posts: session.capturedPosts)
+                } label: {
+                    Label(
+                        "批量下载并保存到照片",
+                        systemImage: "photo.badge.arrow.down"
+                    )
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(viewModel.selectedMediaCount == 0)
+            }
+
+            if !viewModel.saveFailures.isEmpty {
+                Button {
+                    openLocalIndex(.saveFailures)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text(
+                            L10n.format(
+                                "查看保存失败的 Post（%lld）",
+                                viewModel.saveFailures.count
+                            )
+                        )
+                        .font(.subheadline)
+                        Spacer()
+                        Image(systemName: "chevron.forward")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
 
             if let result = viewModel.result {
@@ -924,6 +961,78 @@ struct BookmarksView: View {
         formatter.countStyle = .file
         return formatter
     }()
+}
+
+private struct SaveFailuresView: View {
+    let records: [SaveFailureRecord]
+    let onClose: () -> Void
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                Text("这里保留最近未成功保存的 Post。对应媒体后续保存成功后会自动移除记录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+
+                ForEach(records) { record in
+                    NavigationLink {
+                        BookmarkPostDetailView(post: record.post)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 8) {
+                            BookmarkPostRowView(
+                                post: record.post,
+                                showsAuthor: true,
+                                previewMode: .media
+                            )
+
+                            Label(
+                                L10n.format(
+                                    "%lld 个媒体保存失败",
+                                    record.failedMediaCount
+                                ),
+                                systemImage: "exclamationmark.triangle.fill"
+                            )
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.orange)
+
+                            ForEach(
+                                record.failureReasons.keys.sorted(),
+                                id: \.self
+                            ) { mediaKey in
+                                if let reason = record.failureReasons[mediaKey] {
+                                    Text("\(mediaKey)：\(reason)")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
+                        }
+                        .padding(.horizontal)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider().padding(.leading)
+                }
+            }
+        }
+        .background(Color(uiColor: .systemBackground))
+        .navigationTitle(L10n.string("保存失败"))
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .edgeSwipeBack(action: onClose)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: onClose) {
+                    Image(systemName: "chevron.backward")
+                }
+                .accessibilityLabel(L10n.string("返回"))
+            }
+        }
+    }
 }
 
 private enum BookmarkDateRange: String, CaseIterable, Identifiable {

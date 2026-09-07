@@ -12,6 +12,7 @@ struct LocalMediaThumbnailView: View {
     let remoteImageName: String
     let showsPlaceholder: Bool
     let showsPlayIndicator: Bool
+    let showsLocalIndicator: Bool
     let alignment: Alignment
     @StateObject private var loader: LocalMediaThumbnailLoader
 
@@ -22,6 +23,7 @@ struct LocalMediaThumbnailView: View {
         remoteImageName: String = "small",
         showsPlaceholder: Bool = true,
         showsPlayIndicator: Bool = true,
+        showsLocalIndicator: Bool = true,
         alignment: Alignment = .topTrailing
     ) {
         self.media = media
@@ -30,6 +32,7 @@ struct LocalMediaThumbnailView: View {
         self.remoteImageName = remoteImageName
         self.showsPlaceholder = showsPlaceholder
         self.showsPlayIndicator = showsPlayIndicator
+        self.showsLocalIndicator = showsLocalIndicator
         self.alignment = alignment
         _loader = StateObject(
             wrappedValue: LocalMediaThumbnailLoader(
@@ -69,7 +72,7 @@ struct LocalMediaThumbnailView: View {
                 }
             }
 
-            if loader.isLocal {
+            if loader.isLocal, showsLocalIndicator {
                 Image(systemName: "iphone")
                     .font(.caption2.weight(.bold))
                     .padding(5)

@@ -33,6 +33,8 @@ final class BatchMediaSaver: @unchecked Sendable {
         var skipped = 0
         var failed = 0
         var issues: [String] = []
+        var successfulMediaKeys: Set<String> = []
+        var failureReasons: [String: String] = [:]
 
         for (index, media) in mediaItems.enumerated() {
             try Task.checkCancellation()
@@ -40,10 +42,10 @@ final class BatchMediaSaver: @unchecked Sendable {
                 for: media.mediaKey
             )
             guard existingLocalURL != nil || media.downloadURL != nil else {
-                skipped += 1
-                issues.append(
-                    "\(media.type.title) \(media.mediaKey)：没有可下载的直接地址"
-                )
+                failed += 1
+                let message = L10n.string("没有可下载的直接地址")
+                failureReasons[media.mediaKey] = message
+                issues.append("\(media.type.title) \(media.mediaKey)：\(message)")
                 progress(
                     BatchSaveProgress(
                         completed: index + 1,
@@ -100,6 +102,7 @@ final class BatchMediaSaver: @unchecked Sendable {
                     try await photoSaver.saveVideo(at: localURL)
                 }
                 saved += 1
+                successfulMediaKeys.insert(media.mediaKey)
                 let values = try? localURL.resourceValues(
                     forKeys: [.fileSizeKey, .totalFileAllocatedSizeKey]
                 )
@@ -122,6 +125,7 @@ final class BatchMediaSaver: @unchecked Sendable {
                 failed += 1
                 let message = (error as? LocalizedError)?.errorDescription
                     ?? error.localizedDescription
+                failureReasons[media.mediaKey] = message
                 issues.append(
                     "\(media.type.title) \(media.mediaKey)：\(message)"
                 )
@@ -141,7 +145,9 @@ final class BatchMediaSaver: @unchecked Sendable {
             saved: saved,
             skipped: skipped,
             failed: failed,
-            issues: issues
+            issues: issues,
+            successfulMediaKeys: successfulMediaKeys,
+            failureReasons: failureReasons
         )
     }
 

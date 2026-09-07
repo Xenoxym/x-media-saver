@@ -186,7 +186,7 @@ enum BookmarkHashtagSort: String, CaseIterable, Identifiable {
     }
 }
 
-enum MediaDurationLimit: Int, CaseIterable, Identifiable {
+enum MediaDurationLimit: Int, Codable, CaseIterable, Identifiable {
     case zero
     case oneMinute
     case tenMinutes
@@ -219,7 +219,7 @@ enum MediaDurationLimit: Int, CaseIterable, Identifiable {
     }
 }
 
-enum MediaSizeLimit: Int, CaseIterable, Identifiable {
+enum MediaSizeLimit: Int, Codable, CaseIterable, Identifiable {
     case zero
     case tenMB
     case fiftyMB
@@ -291,7 +291,7 @@ struct BookmarkPage: Equatable {
     let nextToken: String?
 }
 
-struct BookmarkFilter: Equatable {
+struct BookmarkFilter: Codable, Equatable {
     var includePhotos = true
     var includeGIFs = true
     var includeVideos = true
@@ -431,6 +431,17 @@ struct BatchSaveResult: Equatable {
     let skipped: Int
     let failed: Int
     let issues: [String]
+    let successfulMediaKeys: Set<String>
+    let failureReasons: [String: String]
+}
+
+struct SaveFailureRecord: Codable, Equatable, Identifiable {
+    let post: BookmarkedPost
+    let failureReasons: [String: String]
+    let lastAttemptAt: Date
+
+    var id: String { post.id }
+    var failedMediaCount: Int { failureReasons.count }
 }
 
 struct MediaStorageEstimate: Equatable {
