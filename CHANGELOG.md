@@ -12,10 +12,12 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 - Save & Export now prioritizes the app's Files library, keeps alternate folder export next, and places the non-deduplicating Photos action last to reduce accidental bulk saves.
 - Download and browse filter values, date-range selection, and range-section expansion now persist across app launches.
+- The entire Download & Browse Filters card is collapsed by default and can be expanded from its header; the nested range section still remembers its own state.
 
 ### Fixed
 
 - Full-screen local media no longer shows the phone-shaped local-file badge. The badge remains in media grids and is anchored to the square grid cell so portrait or landscape source dimensions cannot push it outside the tile.
+- The grid local-file badge now performs its availability check from an always-present cell overlay, restoring badges that could disappear when their initial conditional view was empty.
 
 ## [1.3.0] - 2026-07-31
 

@@ -18,6 +18,7 @@ struct BookmarksView: View {
     @State private var groupLimits: [String: Int] = [:]
     @State private var postLimit = 100
     @State private var choosesExportFolder = false
+    @State private var showsFilterCard = false
     @AppStorage("bookmarkShowsRangeFilters")
     private var showsRangeFilters = false
     @State private var localIndexPath = NavigationPath()
@@ -330,8 +331,40 @@ struct BookmarksView: View {
 
     private var filterCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("下载与浏览筛选", systemImage: "line.3.horizontal.decrease.circle")
-                .font(.headline)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    showsFilterCard.toggle()
+                }
+            } label: {
+                HStack(spacing: 7) {
+                    Label(
+                        "下载与浏览筛选",
+                        systemImage: "line.3.horizontal.decrease.circle"
+                    )
+                    .font(.headline)
+                    Image(
+                        systemName: showsFilterCard
+                            ? "chevron.up"
+                            : "chevron.down"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if showsFilterCard {
+                filterCardContents
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .saverCard()
+    }
+
+    @ViewBuilder
+    private var filterCardContents: some View {
             Toggle("图片", isOn: $viewModel.filter.includePhotos)
             Toggle("动图（MP4）", isOn: $viewModel.filter.includeGIFs)
             Toggle("视频", isOn: $viewModel.filter.includeVideos)
@@ -413,8 +446,6 @@ struct BookmarksView: View {
             Text("时间范围按 Post 发布时间筛选至今天；媒体大小是该 Post 内全部媒体的合计。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        }
-        .saverCard()
     }
 
     private var rangeFiltersSummary: String {

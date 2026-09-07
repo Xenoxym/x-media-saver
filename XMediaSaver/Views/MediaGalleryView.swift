@@ -857,7 +857,8 @@ private struct GalleryLocalMediaBadge: View {
     @State private var isAvailable = false
 
     var body: some View {
-        Group {
+        ZStack(alignment: .topTrailing) {
+            Color.clear
             if isAvailable {
                 Image(systemName: "iphone")
                     .font(.caption2.weight(.bold))
