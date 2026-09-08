@@ -280,6 +280,19 @@ final class FolderMediaExporter: @unchecked Sendable {
         let targetURL = destination.appendingPathComponent("posts.jsonl")
         var recordsByID = try loadPostManifest(at: targetURL)
         for post in posts {
+            // Include every media from this Post that is already present in
+            // this export root. This merges separate partial exports without
+            // inventing placeholders for media that has never been saved.
+            let exportedMedia = post.media.filter { media in
+                guard let relativePath = state[media.mediaKey] else {
+                    return false
+                }
+                return FileManager.default.fileExists(
+                    atPath: destination
+                        .appendingPathComponent(relativePath)
+                        .path
+                )
+            }
             recordsByID[post.id] = ExportedPostRecord(
                 id: post.id,
                 postURL: post.postURL,
@@ -288,7 +301,7 @@ final class FolderMediaExporter: @unchecked Sendable {
                 authorID: post.authorID,
                 authorName: post.authorName,
                 authorUsername: post.authorUsername,
-                media: (mediaByPostID[post.id] ?? []).map { media in
+                media: exportedMedia.map { media in
                     let relativePath = state[media.mediaKey]
                     return ExportedMediaRecord(
                         mediaKey: media.mediaKey,

@@ -322,16 +322,10 @@ struct MediaGalleryView: View {
                     height: geometry.size.height
                 )
 
-                HStack(spacing: 4) {
-                    Image(systemName: item.media.type.systemImage)
-                    if let duration = item.media.durationMilliseconds {
-                        Text(Self.durationText(duration))
-                    }
-                }
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white)
-                .padding(5)
-                .background(.black.opacity(0.55))
+                GalleryMediaInfoBadge(
+                    media: item.media,
+                    refreshID: mediaSaver.localLibraryRevision
+                )
 
                 if isSelecting {
                     selectionIndicator(
@@ -339,13 +333,6 @@ struct MediaGalleryView: View {
                     )
                 }
 
-                GalleryLocalMediaBadge(mediaKey: item.media.mediaKey)
-                    .frame(
-                        maxWidth: .infinity,
-                        maxHeight: .infinity,
-                        alignment: .topTrailing
-                    )
-                    .padding(5)
             }
             .frame(
                 width: geometry.size.width,
@@ -400,29 +387,43 @@ struct MediaGalleryView: View {
                     Button("取消", role: .cancel) {
                         mediaSaver.cancel()
                     }
-                } else {
+                }
+            }
+
+            if !mediaSaver.isSaving {
+                HStack(spacing: 10) {
                     Button {
-                        mediaSaver.save(
-                            galleryItems
-                                .filter {
-                                    selectedMediaKeys.contains($0.id)
-                                }
-                                .map(\.media)
+                        mediaSaver.saveToFolder(selectedGalleryItems)
+                    } label: {
+                        Label(
+                            "保存到文件夹",
+                            systemImage: "folder.badge.plus"
                         )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button {
+                        mediaSaver.saveToPhotos(selectedGalleryItems)
                     } label: {
                         Label(
                             "保存到照片",
                             systemImage: "photo.badge.arrow.down"
                         )
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(selectedMediaKeys.isEmpty)
+                    .buttonStyle(.bordered)
                 }
+                .disabled(selectedMediaKeys.isEmpty)
             }
         }
         .padding(.horizontal)
         .padding(.vertical, 10)
         .background(.ultraThinMaterial)
+    }
+
+    private var selectedGalleryItems: [GalleryMediaItem] {
+        galleryItems.filter { selectedMediaKeys.contains($0.id) }
     }
 
     private var title: String {
@@ -434,7 +435,7 @@ struct MediaGalleryView: View {
         }
     }
 
-    private static func durationText(_ milliseconds: Int) -> String {
+    fileprivate static func durationText(_ milliseconds: Int) -> String {
         let seconds = milliseconds / 1_000
         if seconds >= 3_600 {
             return String(
@@ -852,23 +853,26 @@ private struct GalleryFullScreenViewer: View {
     }
 }
 
-private struct GalleryLocalMediaBadge: View {
-    let mediaKey: String
+private struct GalleryMediaInfoBadge: View {
+    let media: BookmarkedMedia
+    let refreshID: Int
     @State private var isAvailable = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            Color.clear
-            if isAvailable {
-                Image(systemName: "iphone")
-                    .font(.caption2.weight(.bold))
-                    .padding(5)
-                    .background(.ultraThinMaterial, in: Circle())
+        HStack(spacing: 4) {
+            Image(systemName: media.type.systemImage)
+                .foregroundStyle(isAvailable ? Color.accentColor : .white)
+            if let duration = media.durationMilliseconds {
+                Text(MediaGalleryView.durationText(duration))
+                    .foregroundStyle(.white)
             }
         }
-        .task(id: mediaKey) {
+        .font(.caption2.weight(.semibold))
+        .padding(5)
+        .background(.black.opacity(0.55))
+        .task(id: "\(media.mediaKey)-\(refreshID)") {
             isAvailable = await LocalMediaLibrary.shared.localURL(
-                for: mediaKey
+                for: media.mediaKey
             ) != nil
         }
         .allowsHitTesting(false)
@@ -2698,9 +2702,11 @@ private final class GalleryMediaSaveModel: ObservableObject {
         currentType: nil
     )
     @Published private(set) var resultMessage: String?
+    @Published private(set) var localLibraryRevision = 0
     @Published var presentedError: PresentedError?
 
     private let saver = BatchMediaSaver()
+    private let exporter = FolderMediaExporter()
     private var task: Task<Void, Never>?
 
     var progressValue: Double {
@@ -2712,8 +2718,9 @@ private final class GalleryMediaSaveModel: ObservableObject {
         )
     }
 
-    func save(_ media: [BookmarkedMedia]) {
-        guard !isSaving, !media.isEmpty else { return }
+    func saveToPhotos(_ items: [GalleryMediaItem]) {
+        guard !isSaving, !items.isEmpty else { return }
+        let media = items.map(\.media)
         resultMessage = nil
         isSaving = true
         task = Task { [weak self] in
@@ -2764,8 +2771,76 @@ private final class GalleryMediaSaveModel: ObservableObject {
         }
     }
 
+    func saveToFolder(_ items: [GalleryMediaItem]) {
+        guard !isSaving, !items.isEmpty else { return }
+        var seenPostIDs: Set<String> = []
+        let posts = items.compactMap { item in
+            seenPostIDs.insert(item.post.id).inserted ? item.post : nil
+        }
+        let mediaByPostID = Dictionary(grouping: items, by: \.post.id)
+            .mapValues { $0.map(\.media) }
+
+        resultMessage = nil
+        isSaving = true
+        task = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                isSaving = false
+                task = nil
+            }
+            do {
+                progress = BatchSaveProgress(
+                    completed: 0,
+                    total: items.count,
+                    currentFraction: 0,
+                    currentType: nil
+                )
+                let result = try await exporter.export(
+                    posts: posts,
+                    mediaByPostID: mediaByPostID,
+                    destination: StorageManager.appDocumentsLibraryURL
+                ) { update in
+                    Task { @MainActor [weak self] in
+                        self?.progress = BatchSaveProgress(
+                            completed: update.completed,
+                            total: update.total,
+                            currentFraction: update.currentFraction,
+                            currentType: update.currentType
+                        )
+                    }
+                }
+                await LocalMediaLibrary.shared.register(
+                    root: result.destination
+                )
+                localLibraryRevision += 1
+                resultMessage = L10n.format(
+                    "Files：写入 %lld，已存在 %lld，失败 %lld",
+                    result.saved,
+                    result.skipped,
+                    result.failed
+                )
+                if result.failed > 0, let issue = result.issues.first {
+                    presentedError = PresentedError(
+                        message: issue,
+                        offersSettings: false
+                    )
+                }
+            } catch is CancellationError {
+                resultMessage = L10n.string("保存已取消。")
+            } catch {
+                let message = (error as? LocalizedError)?.errorDescription
+                    ?? error.localizedDescription
+                presentedError = PresentedError(
+                    message: message,
+                    offersSettings: false
+                )
+            }
+        }
+    }
+
     func cancel() {
         saver.cancel()
+        exporter.cancel()
         task?.cancel()
     }
 
