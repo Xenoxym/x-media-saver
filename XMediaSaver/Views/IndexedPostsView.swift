@@ -276,6 +276,237 @@ struct IndexedPostsView: View {
     }
 }
 
+struct FolderPostsView: View {
+    @ObservedObject var model: LocalFolderLibraryModel
+    let onClose: () -> Void
+    @State private var searchText = ""
+    @State private var sort = BookmarkPostSort.newest
+    @State private var visibleLimit = 100
+    @State private var isSelecting = false
+    @State private var selectedPostIDs: Set<String> = []
+    @State private var confirmsDeletion = false
+    @State private var deletionError: String?
+    @AppStorage("bookmarkPostPreviewMode")
+    private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
+
+    private var previewMode: BookmarkPostPreviewMode {
+        BookmarkPostPreviewMode(rawValue: previewModeRaw) ?? .media
+    }
+
+    private var posts: [BookmarkedPost] {
+        let query = searchText.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let filtered = model.posts.filter { post in
+            guard !query.isEmpty else { return true }
+            return post.text.localizedCaseInsensitiveContains(query)
+                || post.authorName?.localizedCaseInsensitiveContains(query)
+                    == true
+                || post.authorUsername?.localizedCaseInsensitiveContains(
+                    query.trimmingCharacters(
+                        in: CharacterSet(charactersIn: "@")
+                    )
+                ) == true
+        }
+        switch sort {
+        case .bookmarkNewest, .newest:
+            return filtered.sorted(by: Self.newestFirst)
+        case .bookmarkOldest, .oldest:
+            return filtered.sorted { Self.newestFirst($1, $0) }
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(posts.prefix(visibleLimit))) { post in
+                    if isSelecting {
+                        Button {
+                            toggleSelection(post.id)
+                        } label: {
+                            row(post, showsSelection: true)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        NavigationLink {
+                            BookmarkPostDetailView(post: post)
+                        } label: {
+                            row(post, showsSelection: false)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Divider().padding(.leading)
+                }
+                if posts.count > visibleLimit {
+                    Button("再显示 100 条") { visibleLimit += 100 }
+                        .padding()
+                }
+            }
+        }
+        .background(Color(uiColor: .systemBackground))
+        .navigationTitle(L10n.string("已保存 Post"))
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
+        .edgeSwipeBack(action: onClose)
+        .searchable(text: $searchText, prompt: "搜索账号或正文")
+        .onReceive(model.$posts) { updated in
+            selectedPostIDs.formIntersection(updated.map(\.id))
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .navigationBarLeading) {
+                Button(action: onClose) {
+                    Image(systemName: "chevron.backward")
+                }
+                if !isSelecting {
+                    Button {
+                        previewModeRaw = previewMode == .media
+                            ? BookmarkPostPreviewMode.text.rawValue
+                            : BookmarkPostPreviewMode.media.rawValue
+                    } label: {
+                        Image(
+                            systemName: previewMode == .media
+                                ? "photo.on.rectangle"
+                                : "text.alignleft"
+                        )
+                    }
+                }
+            }
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if isSelecting {
+                    Button("完成") {
+                        isSelecting = false
+                        selectedPostIDs.removeAll()
+                    }
+                } else {
+                    Menu {
+                        Picker("Post 排序", selection: $sort) {
+                            Text(BookmarkPostSort.newest.title)
+                                .tag(BookmarkPostSort.newest)
+                            Text(BookmarkPostSort.oldest.title)
+                                .tag(BookmarkPostSort.oldest)
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    Button {
+                        isSelecting = true
+                    } label: {
+                        Image(systemName: "checkmark.circle")
+                    }
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                HStack {
+                    Text(L10n.format("已选择 %lld 项", selectedPostIDs.count))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("删除 Post", role: .destructive) {
+                        confirmsDeletion = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(selectedPostIDs.isEmpty || model.isWorking)
+                }
+                .padding()
+                .background(.regularMaterial)
+            }
+        }
+        .confirmationDialog(
+            "从 Files 删除所选 Post？",
+            isPresented: $confirmsDeletion
+        ) {
+            Button("取消", role: .cancel) {}
+            Button("删除 Post", role: .destructive) {
+                deleteSelectedPosts()
+            }
+        } message: {
+            Text("将删除 Post 结构及其独占媒体；书签索引和照片图库不受影响。")
+        }
+        .alert(
+            "删除失败",
+            isPresented: Binding(
+                get: { deletionError != nil },
+                set: { if !$0 { deletionError = nil } }
+            )
+        ) {
+            Button("好") { deletionError = nil }
+        } message: {
+            Text(deletionError ?? "")
+        }
+    }
+
+    private func row(
+        _ post: BookmarkedPost,
+        showsSelection: Bool
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            if showsSelection {
+                Image(
+                    systemName: selectedPostIDs.contains(post.id)
+                        ? "checkmark.circle.fill"
+                        : "circle"
+                )
+                .font(.title3)
+                .foregroundStyle(
+                    selectedPostIDs.contains(post.id)
+                        ? Color.accentColor
+                        : Color.secondary
+                )
+                .padding(.top, 2)
+            }
+            BookmarkPostRowView(
+                post: post,
+                showsAuthor: true,
+                previewMode: previewMode
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedPostIDs.contains(id) {
+            selectedPostIDs.remove(id)
+        } else {
+            selectedPostIDs.insert(id)
+        }
+    }
+
+    private func deleteSelectedPosts() {
+        let ids = selectedPostIDs
+        Task { @MainActor in
+            do {
+                try await model.deletePosts(withIDs: ids)
+                selectedPostIDs.removeAll()
+                isSelecting = false
+            } catch {
+                deletionError = error.localizedDescription
+            }
+        }
+    }
+
+    private static func newestFirst(
+        _ lhs: BookmarkedPost,
+        _ rhs: BookmarkedPost
+    ) -> Bool {
+        switch (lhs.createdAt, rhs.createdAt) {
+        case let (left?, right?) where left != right:
+            return left > right
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            return lhs.id > rhs.id
+        }
+    }
+}
+
 struct BookmarkPostRowView: View {
     let post: BookmarkedPost
     let showsAuthor: Bool

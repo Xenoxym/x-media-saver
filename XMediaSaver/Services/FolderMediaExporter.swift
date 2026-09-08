@@ -454,7 +454,7 @@ final class FolderMediaExporter: @unchecked Sendable {
     }
 }
 
-private struct ExportedPostRecord: Codable {
+struct ExportedPostRecord: Codable {
     let id: String
     let postURL: URL?
     let text: String
@@ -465,12 +465,12 @@ private struct ExportedPostRecord: Codable {
     let media: [ExportedMediaRecord]
 }
 
-private struct ExportStateRecord: Codable {
+struct ExportStateRecord: Codable {
     let mediaKey: String
     let relativePath: String
 }
 
-private struct ExportedMediaRecord: Codable {
+struct ExportedMediaRecord: Codable {
     let mediaKey: String
     let type: BookmarkMediaType
     let remoteURL: URL?

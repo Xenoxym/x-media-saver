@@ -12,6 +12,7 @@ private enum GallerySelectionDragIntent: Equatable {
 struct MediaGalleryView: View {
     let mediaType: BookmarkMediaType?
     let onClose: () -> Void
+    let deleteFolderMedia: ((Set<String>) async throws -> Void)?
     @Environment(\.openURL) private var openURL
     @State private var visibleLimit = 90
     @State private var isSelecting = false
@@ -23,6 +24,9 @@ struct MediaGalleryView: View {
     @State private var selectionDragIntent =
         GallerySelectionDragIntent.undecided
     @State private var viewerSelection: GalleryViewerSelection?
+    @State private var confirmsFolderDeletion = false
+    @State private var isDeletingFolderMedia = false
+    @State private var removedMediaKeys: Set<String> = []
     @State private var sort = BookmarkPostSort.bookmarkNewest
     @State private var galleryItems: [GalleryMediaItem]
     @State private var indexByMediaKey: [String: Int]
@@ -33,9 +37,11 @@ struct MediaGalleryView: View {
     init(
         posts: [BookmarkedPost],
         mediaType: BookmarkMediaType?,
+        deleteFolderMedia: ((Set<String>) async throws -> Void)? = nil,
         onClose: @escaping () -> Void
     ) {
         self.mediaType = mediaType
+        self.deleteFolderMedia = deleteFolderMedia
         self.onClose = onClose
         var seen: Set<String> = []
         let items: [GalleryMediaItem] = posts.enumerated()
@@ -151,7 +157,7 @@ struct MediaGalleryView: View {
                         }
                     }
                 }
-                .disabled(mediaSaver.isSaving)
+                .disabled(mediaSaver.isSaving || isDeletingFolderMedia)
             }
         }
         .safeAreaInset(edge: .bottom) {
@@ -184,6 +190,17 @@ struct MediaGalleryView: View {
                 message: Text(error.message),
                 dismissButton: .default(Text("好"))
             )
+        }
+        .confirmationDialog(
+            "从 Files 删除所选媒体？",
+            isPresented: $confirmsFolderDeletion
+        ) {
+            Button("取消", role: .cancel) {}
+            Button("删除媒体", role: .destructive) {
+                deleteSelectedFolderMedia()
+            }
+        } message: {
+            Text("只删除所选媒体文件；所属 Post 及其余媒体会继续保留。照片图库和书签索引不受影响。")
         }
     }
 
@@ -257,9 +274,11 @@ struct MediaGalleryView: View {
     }
 
     private func applySort(_ value: BookmarkPostSort) {
-        galleryItems = baseGalleryItems.sorted {
+        galleryItems = baseGalleryItems
+            .filter { !removedMediaKeys.contains($0.id) }
+            .sorted {
             Self.isOrderedBefore($0, $1, sort: value)
-        }
+            }
         indexByMediaKey = Dictionary(
             uniqueKeysWithValues: galleryItems.enumerated().map {
                 ($0.element.id, $0.offset)
@@ -374,7 +393,7 @@ struct MediaGalleryView: View {
 
     private var selectionBar: some View {
         VStack(spacing: 8) {
-            if mediaSaver.isSaving {
+            if mediaSaver.isSaving || isDeletingFolderMedia {
                 ProgressView(value: mediaSaver.progressValue, total: 1)
             }
             HStack {
@@ -389,25 +408,30 @@ struct MediaGalleryView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 Spacer()
-                if mediaSaver.isSaving {
+                if mediaSaver.isSaving || isDeletingFolderMedia {
                     Button("取消", role: .cancel) {
-                        mediaSaver.cancel()
+                        if mediaSaver.isSaving {
+                            mediaSaver.cancel()
+                        }
                     }
+                    .disabled(isDeletingFolderMedia)
                 }
             }
 
-            if !mediaSaver.isSaving {
+            if !mediaSaver.isSaving, !isDeletingFolderMedia {
                 HStack(spacing: 10) {
-                    Button {
-                        mediaSaver.saveToFolder(selectedGalleryItems)
-                    } label: {
-                        Label(
-                            "保存到文件夹",
-                            systemImage: "folder.badge.plus"
-                        )
-                        .frame(maxWidth: .infinity)
+                    if deleteFolderMedia == nil {
+                        Button {
+                            mediaSaver.saveToFolder(selectedGalleryItems)
+                        } label: {
+                            Label(
+                                "保存到文件夹",
+                                systemImage: "folder.badge.plus"
+                            )
+                            .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
 
                     Button {
                         mediaSaver.saveToPhotos(selectedGalleryItems)
@@ -419,6 +443,16 @@ struct MediaGalleryView: View {
                         .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.bordered)
+
+                    if deleteFolderMedia != nil {
+                        Button(role: .destructive) {
+                            confirmsFolderDeletion = true
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+                    }
                 }
                 .disabled(selectedMediaKeys.isEmpty)
             }
@@ -430,6 +464,31 @@ struct MediaGalleryView: View {
 
     private var selectedGalleryItems: [GalleryMediaItem] {
         galleryItems.filter { selectedMediaKeys.contains($0.id) }
+    }
+
+    private func deleteSelectedFolderMedia() {
+        guard let deleteFolderMedia, !selectedMediaKeys.isEmpty else { return }
+        let keys = selectedMediaKeys
+        isDeletingFolderMedia = true
+        Task { @MainActor in
+            defer { isDeletingFolderMedia = false }
+            do {
+                try await deleteFolderMedia(keys)
+                removedMediaKeys.formUnion(keys)
+                galleryItems.removeAll { keys.contains($0.id) }
+                indexByMediaKey = Dictionary(
+                    uniqueKeysWithValues: galleryItems.enumerated().map {
+                        ($0.element.id, $0.offset)
+                    }
+                )
+                selectedMediaKeys.removeAll()
+            } catch {
+                mediaSaver.presentedError = PresentedError(
+                    message: error.localizedDescription,
+                    offersSettings: false
+                )
+            }
+        }
     }
 
     private var title: String {

@@ -3,15 +3,21 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct BookmarksView: View {
+    private enum LocalLibrarySource: String, Hashable {
+        case index
+        case files
+    }
+
     private enum LocalIndexRoute: Hashable {
-        case indexedPosts
-        case gallery(BookmarkMediaType?)
+        case indexedPosts(LocalLibrarySource)
+        case gallery(BookmarkMediaType?, LocalLibrarySource)
         case saveFailures
-        case unavailablePosts
+        case unavailablePosts(LocalLibrarySource)
     }
 
     @ObservedObject var session: BrowserSessionModel
     @ObservedObject var viewModel: BookmarksViewModel
+    @StateObject private var folderLibrary = LocalFolderLibraryModel()
     let onRequestVisibleSync: () -> Void
     @Environment(\.openURL) private var openURL
     @State private var expandedAccounts: Set<String> = []
@@ -23,6 +29,7 @@ struct BookmarksView: View {
     @AppStorage("bookmarkShowsRangeFilters")
     private var showsRangeFilters = false
     @State private var localIndexPath = NavigationPath()
+    @State private var localLibrarySource = LocalLibrarySource.index
     @AppStorage("bookmarkDateRange")
     private var dateRangeRawValue = BookmarkDateRange.all.rawValue
     @AppStorage("bookmarkPostPreviewMode")
@@ -37,7 +44,19 @@ struct BookmarksView: View {
     }
 
     private var statistics: BookmarkStatistics {
-        BookmarkStatistics.calculate(from: session.capturedPosts)
+        BookmarkStatistics.calculate(from: localLibraryPosts)
+    }
+
+    private var localLibraryPosts: [BookmarkedPost] {
+        localLibrarySource == .index
+            ? session.capturedPosts
+            : folderLibrary.posts
+    }
+
+    private var localLibraryUnavailablePosts: [SaveFailureRecord] {
+        localLibrarySource == .index
+            ? viewModel.unavailablePosts
+            : folderLibrary.unavailablePosts
     }
 
     var body: some View {
@@ -46,11 +65,9 @@ struct BookmarksView: View {
                 LazyVStack(spacing: 16) {
                     if session.capturedPosts.isEmpty {
                         emptyState
-                        if !viewModel.unavailablePosts.isEmpty {
-                            statisticsCard
-                        }
-                    } else {
-                        statisticsCard
+                    }
+                    statisticsCard
+                    if !session.capturedPosts.isEmpty {
                         filterCard
                         saveCard
                         browseCard
@@ -93,6 +110,7 @@ struct BookmarksView: View {
         .onAppear {
             viewModel.update(posts: session.capturedPosts)
             viewModel.reloadUnavailablePosts()
+            folderLibrary.reload()
         }
         .onReceive(session.$capturedPosts) {
             viewModel.update(posts: $0)
@@ -171,8 +189,40 @@ struct BookmarksView: View {
 
     private var statisticsCard: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("本地增量索引", systemImage: "chart.bar.xaxis")
+            HStack {
+                Label(
+                    localLibrarySource == .index
+                        ? "本地增量索引"
+                        : "本地 Files 资料库",
+                    systemImage: localLibrarySource == .index
+                        ? "chart.bar.xaxis"
+                        : "folder"
+                )
                 .font(.headline)
+                Spacer()
+                Button {
+                    var transaction = Transaction(animation: nil)
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        localLibrarySource = localLibrarySource == .index
+                            ? .files
+                            : .index
+                    }
+                    if localLibrarySource == .files {
+                        folderLibrary.reload()
+                    }
+                } label: {
+                    Label(
+                        localLibrarySource == .index ? "Files" : "Index",
+                        systemImage: localLibrarySource == .index
+                            ? "folder"
+                            : "bookmark"
+                    )
+                    .font(.caption.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
             LazyVGrid(
                 columns: [GridItem(.flexible()), GridItem(.flexible())],
                 spacing: 10
@@ -207,23 +257,25 @@ struct BookmarksView: View {
                 unavailablePostsStat
             }
 
-            if session.isAutoCapturing {
+            if localLibrarySource == .index, session.isAutoCapturing {
                 ProgressView(
                     session.syncStatusText
                         ?? L10n.string("正在快速增量同步…")
                 )
-            } else if let status = session.syncStatusText {
+            } else if localLibrarySource == .index,
+                      let status = session.syncStatusText {
                 Text(status)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            if session.sizeAnalysisRemaining > 0 {
+            if localLibrarySource == .index,
+               session.sizeAnalysisRemaining > 0 {
                 ProgressView(
                     "后台分析媒体大小：剩余 \(session.sizeAnalysisRemaining) 项"
                 )
                 .font(.caption)
-            } else {
+            } else if localLibrarySource == .index {
                 Button {
                     session.analyzeMissingMediaSizes(
                         retryUnavailable: true
@@ -234,16 +286,22 @@ struct BookmarksView: View {
                 .font(.caption)
             }
 
-            Text("重新同步只更新已有 Post 并追加新 Post；不会因 X 端删除而移除本地记录。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if localLibrarySource == .index {
+                Text("重新同步只更新已有 Post 并追加新 Post；不会因 X 端删除而移除本地记录。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Files 模式独立读取已持久化的 Post 和媒体；删除书签索引不会影响这里。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .saverCard()
     }
 
     private var indexedPostsStat: some View {
         Button {
-            openLocalIndex(.indexedPosts)
+            openLocalIndex(.indexedPosts(localLibrarySource))
         } label: {
             HStack {
                 Image(systemName: "bookmark")
@@ -251,7 +309,11 @@ struct BookmarksView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(statistics.bookmarkCount, format: .number)
                         .font(.title3.bold().monospacedDigit())
-                    Text("已索引 Post")
+                    Text(
+                        localLibrarySource == .index
+                            ? "已索引 Post"
+                            : "已保存 Post"
+                    )
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -269,13 +331,16 @@ struct BookmarksView: View {
 
     private var unavailablePostsStat: some View {
         Button {
-            openLocalIndex(.unavailablePosts)
+            openLocalIndex(.unavailablePosts(localLibrarySource))
         } label: {
             HStack {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(viewModel.unavailablePosts.count, format: .number)
+                    Text(
+                        localLibraryUnavailablePosts.count,
+                        format: .number
+                    )
                         .font(.title3.bold().monospacedDigit())
                     Text("失效 Post")
                         .font(.caption)
@@ -300,7 +365,7 @@ struct BookmarksView: View {
         type: BookmarkMediaType?
     ) -> some View {
         Button {
-            openLocalIndex(.gallery(type))
+            openLocalIndex(.gallery(type, localLibrarySource))
         } label: {
             HStack {
                 Image(systemName: systemImage)
@@ -329,15 +394,29 @@ struct BookmarksView: View {
         _ route: LocalIndexRoute
     ) -> some View {
         switch route {
-        case .indexedPosts:
-            IndexedPostsView(
-                session: session,
-                onClose: closeLocalIndex
-            )
-        case .gallery(let type):
+        case .indexedPosts(let source):
+            if source == .index {
+                IndexedPostsView(
+                    session: session,
+                    onClose: closeLocalIndex
+                )
+            } else {
+                FolderPostsView(
+                    model: folderLibrary,
+                    onClose: closeLocalIndex
+                )
+            }
+        case .gallery(let type, let source):
             MediaGalleryView(
-                posts: session.capturedPosts,
+                posts: source == .index
+                    ? session.capturedPosts
+                    : folderLibrary.posts,
                 mediaType: type,
+                deleteFolderMedia: source == .files
+                    ? { keys in
+                        try await folderLibrary.deleteMedia(withKeys: keys)
+                    }
+                    : nil,
                 onClose: closeLocalIndex
             )
         case .saveFailures:
@@ -349,13 +428,20 @@ struct BookmarksView: View {
                 ),
                 onClose: closeLocalIndex
             )
-        case .unavailablePosts:
+        case .unavailablePosts(let source):
             SaveFailuresView(
-                records: viewModel.unavailablePosts,
+                records: source == .index
+                    ? viewModel.unavailablePosts
+                    : folderLibrary.unavailablePosts,
                 title: L10n.string("失效 Post"),
                 description: L10n.string(
                     "这些 Post 的索引内容已持久化到 Files 资料库，但媒体下载未成功；对应媒体后续保存成功后会自动移除记录。"
                 ),
+                deletePosts: source == .files
+                    ? { ids in
+                        try await folderLibrary.deletePosts(withIDs: ids)
+                    }
+                    : nil,
                 onClose: closeLocalIndex
             )
         }
@@ -1043,7 +1129,13 @@ private struct SaveFailuresView: View {
     let records: [SaveFailureRecord]
     let title: String
     let description: String
+    var deletePosts: ((Set<String>) async throws -> Void)? = nil
     let onClose: () -> Void
+    @State private var isSelecting = false
+    @State private var selectedPostIDs: Set<String> = []
+    @State private var confirmsDeletion = false
+    @State private var isDeleting = false
+    @State private var deletionError: String?
 
     var body: some View {
         ScrollView {
@@ -1055,41 +1147,20 @@ private struct SaveFailuresView: View {
                     .padding()
 
                 ForEach(records) { record in
-                    NavigationLink {
-                        BookmarkPostDetailView(post: record.post)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 8) {
-                            BookmarkPostRowView(
-                                post: record.post,
-                                showsAuthor: true,
-                                previewMode: .media
-                            )
-
-                            Label(
-                                L10n.format(
-                                    "%lld 个媒体保存失败",
-                                    record.failedMediaCount
-                                ),
-                                systemImage: "exclamationmark.triangle.fill"
-                            )
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.orange)
-
-                            ForEach(
-                                record.failureReasons.keys.sorted(),
-                                id: \.self
-                            ) { mediaKey in
-                                if let reason = record.failureReasons[mediaKey] {
-                                    Text("\(mediaKey)：\(reason)")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(2)
-                                }
+                    Group {
+                        if isSelecting {
+                            Button {
+                                toggleSelection(record.id)
+                            } label: {
+                                failureRow(record, showsSelection: true)
+                            }
+                        } else {
+                            NavigationLink {
+                                BookmarkPostDetailView(post: record.post)
+                            } label: {
+                                failureRow(record, showsSelection: false)
                             }
                         }
-                        .padding(.horizontal)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
 
@@ -1108,6 +1179,134 @@ private struct SaveFailuresView: View {
                     Image(systemName: "chevron.backward")
                 }
                 .accessibilityLabel(L10n.string("返回"))
+            }
+            if deletePosts != nil {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(isSelecting ? "完成" : "多选") {
+                        isSelecting.toggle()
+                        if !isSelecting { selectedPostIDs.removeAll() }
+                    }
+                    .disabled(isDeleting)
+                }
+            }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if isSelecting {
+                HStack {
+                    Text(L10n.format("已选择 %lld 项", selectedPostIDs.count))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("删除 Post", role: .destructive) {
+                        confirmsDeletion = true
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(selectedPostIDs.isEmpty || isDeleting)
+                }
+                .padding()
+                .background(.regularMaterial)
+            }
+        }
+        .confirmationDialog(
+            "从 Files 删除所选 Post？",
+            isPresented: $confirmsDeletion
+        ) {
+            Button("取消", role: .cancel) {}
+            Button("删除 Post", role: .destructive) {
+                performDeletion()
+            }
+        } message: {
+            Text("将删除持久化 Post 及其独占媒体；书签索引和照片图库不受影响。")
+        }
+        .alert(
+            "删除失败",
+            isPresented: Binding(
+                get: { deletionError != nil },
+                set: { if !$0 { deletionError = nil } }
+            )
+        ) {
+            Button("好") { deletionError = nil }
+        } message: {
+            Text(deletionError ?? "")
+        }
+    }
+
+    private func failureRow(
+        _ record: SaveFailureRecord,
+        showsSelection: Bool
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            if showsSelection {
+                Image(
+                    systemName: selectedPostIDs.contains(record.id)
+                        ? "checkmark.circle.fill"
+                        : "circle"
+                )
+                .font(.title3)
+                .foregroundStyle(
+                    selectedPostIDs.contains(record.id)
+                        ? Color.accentColor
+                        : Color.secondary
+                )
+                .padding(.top, 12)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                BookmarkPostRowView(
+                    post: record.post,
+                    showsAuthor: true,
+                    previewMode: .media
+                )
+
+                Label(
+                    L10n.format(
+                        "%lld 个媒体保存失败",
+                        record.failedMediaCount
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+
+                ForEach(
+                    record.failureReasons.keys.sorted(),
+                    id: \.self
+                ) { mediaKey in
+                    if let reason = record.failureReasons[mediaKey] {
+                        Text("\(mediaKey)：\(reason)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+    }
+
+    private func toggleSelection(_ id: String) {
+        if selectedPostIDs.contains(id) {
+            selectedPostIDs.remove(id)
+        } else {
+            selectedPostIDs.insert(id)
+        }
+    }
+
+    private func performDeletion() {
+        guard let deletePosts, !selectedPostIDs.isEmpty else { return }
+        let ids = selectedPostIDs
+        isDeleting = true
+        Task { @MainActor in
+            defer { isDeleting = false }
+            do {
+                try await deletePosts(ids)
+                selectedPostIDs.removeAll()
+                isSelecting = false
+            } catch {
+                deletionError = error.localizedDescription
             }
         }
     }

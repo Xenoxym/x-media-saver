@@ -211,6 +211,18 @@
 "保存失败" = "Save Failures";
 "失效 Post" = "Unavailable Posts";
 "这些 Post 的索引内容已持久化到 Files 资料库，但媒体下载未成功；对应媒体后续保存成功后会自动移除记录。" = "These indexed Posts are persisted in the Files library, but their media could not be downloaded. A record is removed automatically after its media saves successfully.";
+"本地 Files 资料库" = "Local Files Library";
+"Files 模式独立读取已持久化的 Post 和媒体；删除书签索引不会影响这里。" = "Files mode reads persisted Posts and media independently. Deleting the bookmark index does not affect this library.";
+"已保存 Post" = "Saved Posts";
+"从 Files 删除所选媒体？" = "Delete Selected Media from Files?";
+"删除媒体" = "Delete Media";
+"只删除所选媒体文件；所属 Post 及其余媒体会继续保留。照片图库和书签索引不受影响。" = "Only the selected media files will be deleted. Their Posts and remaining media stay intact. Photos and the bookmark index are unaffected.";
+"删除" = "Delete";
+"删除 Post" = "Delete Posts";
+"从 Files 删除所选 Post？" = "Delete Selected Posts from Files?";
+"将删除持久化 Post 及其独占媒体；书签索引和照片图库不受影响。" = "The persisted Posts and media used only by them will be deleted. The bookmark index and Photos are unaffected.";
+"将删除 Post 结构及其独占媒体；书签索引和照片图库不受影响。" = "The Post records and media used only by them will be deleted. The bookmark index and Photos are unaffected.";
+"删除失败" = "Deletion Failed";
 
 "Settings" = "Settings";
 "Bookmarks" = "Bookmarks";

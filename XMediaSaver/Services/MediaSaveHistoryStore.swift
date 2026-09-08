@@ -171,6 +171,14 @@ actor MediaSaveFailureStore {
         return updated
     }
 
+    func removePosts(withIDs ids: Set<String>) throws -> [SaveFailureRecord] {
+        guard !ids.isEmpty else { return try load() }
+        let updated = try load().filter { !ids.contains($0.id) }
+        try persist(updated)
+        cachedRecords = updated
+        return updated
+    }
+
     private func persist(_ records: [SaveFailureRecord]) throws {
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),

@@ -6,6 +6,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ### Added
 
+- Local Incremental Index can now switch in place between bookmark Index data and the independently persisted Files library. Files mode mirrors Saved Posts, all media, photos, animated GIFs, videos, and unavailable Posts without adding a duplicate dashboard.
+- Files media grids support multi-select deletion while retaining the owning Post and all unselected media. Saved Posts and Unavailable Posts support deleting complete persisted Post records and media used only by those Posts.
 - Failed batch saves are recorded with their cached Post details and error reasons, with a compact Save & Export entry for later inspection. Successful retries automatically clear the corresponding failures.
 - Media-grid multi-selection can now save the selected items directly to the app's Files folder as well as Photos, while retaining the owning Post metadata.
 - Local Incremental Index now includes an Unavailable Posts destination. Folder exports persist failed Post snapshots and download reasons in `unavailable-posts.json`; successful media retries remove the corresponding failures.

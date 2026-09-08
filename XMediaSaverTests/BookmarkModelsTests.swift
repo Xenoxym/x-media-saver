@@ -384,6 +384,153 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertTrue(persisted.isEmpty)
     }
 
+    func testFolderLibraryMediaDeletionKeepsPostManifest() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let images = root.appendingPathComponent("Images", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: images,
+            withIntermediateDirectories: true
+        )
+        try Data([0x01]).write(
+            to: images.appendingPathComponent("one.jpg")
+        )
+        try Data([0x02]).write(
+            to: images.appendingPathComponent("two.jpg")
+        )
+
+        let media = [
+            ExportedMediaRecord(
+                mediaKey: "media-1",
+                type: .photo,
+                remoteURL: URL(string: "https://example.com/one.jpg"),
+                localRelativePath: "Images/one.jpg",
+                width: 100,
+                height: 100,
+                durationMilliseconds: nil,
+                byteSize: 1
+            ),
+            ExportedMediaRecord(
+                mediaKey: "media-2",
+                type: .photo,
+                remoteURL: URL(string: "https://example.com/two.jpg"),
+                localRelativePath: "Images/two.jpg",
+                width: 100,
+                height: 100,
+                durationMilliseconds: nil,
+                byteSize: 1
+            )
+        ]
+        let post = ExportedPostRecord(
+            id: "post-1",
+            postURL: URL(string: "https://x.com/user/status/post-1"),
+            text: "Persist this Post",
+            createdAt: Date(timeIntervalSince1970: 100),
+            authorID: "author-1",
+            authorName: "Author",
+            authorUsername: "user",
+            media: media
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try lineData([post], encoder: encoder).write(
+            to: root.appendingPathComponent("posts.jsonl")
+        )
+        try lineData([
+            ExportStateRecord(
+                mediaKey: "media-1",
+                relativePath: "Images/one.jpg"
+            ),
+            ExportStateRecord(
+                mediaKey: "media-2",
+                relativePath: "Images/two.jpg"
+            )
+        ]).write(to: root.appendingPathComponent("export-state.jsonl"))
+
+        let library = LocalFolderLibrary(root: root)
+        try await library.deleteMedia(withKeys: ["media-1"])
+        var restored = try await library.loadPosts()
+        XCTAssertEqual(restored.count, 1)
+        XCTAssertEqual(restored[0].media.map(\.mediaKey), ["media-2"])
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: images.appendingPathComponent("one.jpg").path
+            )
+        )
+
+        try await library.deleteMedia(withKeys: ["media-2"])
+        restored = try await library.loadPosts()
+        XCTAssertEqual(restored.count, 1)
+        XCTAssertEqual(restored[0].text, "Persist this Post")
+        XCTAssertTrue(restored[0].media.isEmpty)
+    }
+
+    func testFolderLibraryPostDeletionRemovesItsExclusiveMedia() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let images = root.appendingPathComponent("Images", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: images,
+            withIntermediateDirectories: true
+        )
+        try Data([0x01]).write(
+            to: images.appendingPathComponent("only.jpg")
+        )
+        let media = ExportedMediaRecord(
+            mediaKey: "only-media",
+            type: .photo,
+            remoteURL: URL(string: "https://example.com/only.jpg"),
+            localRelativePath: "Images/only.jpg",
+            width: nil,
+            height: nil,
+            durationMilliseconds: nil,
+            byteSize: 1
+        )
+        let post = ExportedPostRecord(
+            id: "delete-me",
+            postURL: nil,
+            text: "Delete this Post",
+            createdAt: nil,
+            authorID: nil,
+            authorName: nil,
+            authorUsername: nil,
+            media: [media]
+        )
+        try lineData([post]).write(
+            to: root.appendingPathComponent("posts.jsonl")
+        )
+        try lineData([
+            ExportStateRecord(
+                mediaKey: "only-media",
+                relativePath: "Images/only.jpg"
+            )
+        ]).write(to: root.appendingPathComponent("export-state.jsonl"))
+
+        let library = LocalFolderLibrary(root: root)
+        try await library.deletePosts(withIDs: ["delete-me"])
+
+        XCTAssertTrue(try await library.loadPosts().isEmpty)
+        XCTAssertFalse(
+            FileManager.default.fileExists(
+                atPath: images.appendingPathComponent("only.jpg").path
+            )
+        )
+    }
+
+    private func lineData<T: Encodable>(
+        _ values: [T],
+        encoder: JSONEncoder = JSONEncoder()
+    ) throws -> Data {
+        var result = Data()
+        for value in values {
+            result.append(try encoder.encode(value))
+            result.append(0x0A)
+        }
+        return result
+    }
+
     private func makePost(
         id: String,
         date: Date?,
