@@ -13,6 +13,9 @@ struct MediaGalleryView: View {
     let mediaType: BookmarkMediaType?
     let onClose: () -> Void
     let deleteFolderMedia: ((Set<String>) async throws -> Void)?
+    let titleOverride: String?
+    let switchToPosts: (() -> Void)?
+    let detailSourcePosts: [BookmarkedPost]
     @Environment(\.openURL) private var openURL
     @State private var visibleLimit = 90
     @State private var isSelecting = false
@@ -38,10 +41,16 @@ struct MediaGalleryView: View {
         posts: [BookmarkedPost],
         mediaType: BookmarkMediaType?,
         deleteFolderMedia: ((Set<String>) async throws -> Void)? = nil,
+        titleOverride: String? = nil,
+        switchToPosts: (() -> Void)? = nil,
+        detailSourcePosts: [BookmarkedPost]? = nil,
         onClose: @escaping () -> Void
     ) {
         self.mediaType = mediaType
         self.deleteFolderMedia = deleteFolderMedia
+        self.titleOverride = titleOverride
+        self.switchToPosts = switchToPosts
+        self.detailSourcePosts = detailSourcePosts ?? posts
         self.onClose = onClose
         var seen: Set<String> = []
         let items: [GalleryMediaItem] = posts.enumerated()
@@ -136,6 +145,12 @@ struct MediaGalleryView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if let switchToPosts {
+                    Button(action: switchToPosts) {
+                        Image(systemName: "list.bullet")
+                    }
+                    .accessibilityLabel("切换到 Post 模式")
+                }
                 Menu {
                     Picker("媒体排序", selection: $sort) {
                         ForEach(BookmarkPostSort.allCases) {
@@ -145,9 +160,11 @@ struct MediaGalleryView: View {
                 } label: {
                     Image(systemName: "arrow.up.arrow.down")
                 }
-                Text("\(galleryItems.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                if switchToPosts == nil {
+                    Text("\(galleryItems.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
                 Button(isSelecting ? "完成" : "多选") {
                     withAnimation {
                         isSelecting.toggle()
@@ -168,7 +185,8 @@ struct MediaGalleryView: View {
         .fullScreenCover(item: $viewerSelection) { selection in
             GalleryFullScreenViewer(
                 items: galleryItems,
-                initialIndex: selection.index
+                initialIndex: selection.index,
+                detailSourcePosts: detailSourcePosts
             )
         }
         .alert(item: $mediaSaver.presentedError) { error in
@@ -492,6 +510,7 @@ struct MediaGalleryView: View {
     }
 
     private var title: String {
+        if let titleOverride { return titleOverride }
         switch mediaType {
         case nil: return L10n.string("全部媒体")
         case .some(.photo): return L10n.string("图片")
@@ -556,6 +575,7 @@ private enum GalleryNavigationDragAxis {
 private struct GalleryFullScreenViewer: View {
     let items: [GalleryMediaItem]
     let initialIndex: Int
+    let detailSourcePosts: [BookmarkedPost]
     @Environment(\.dismiss) private var dismiss
     @State private var currentIndex: Int
     @State private var imageIsZoomed = false
@@ -568,9 +588,14 @@ private struct GalleryFullScreenViewer: View {
     @StateObject private var playbackController =
         GalleryPlaybackController()
 
-    init(items: [GalleryMediaItem], initialIndex: Int) {
+    init(
+        items: [GalleryMediaItem],
+        initialIndex: Int,
+        detailSourcePosts: [BookmarkedPost]
+    ) {
         self.items = items
         self.initialIndex = initialIndex
+        self.detailSourcePosts = detailSourcePosts
         _currentIndex = State(
             initialValue: min(max(initialIndex, 0), max(items.count - 1, 0))
         )
@@ -648,6 +673,7 @@ private struct GalleryFullScreenViewer: View {
             NavigationStack {
                 BookmarkPostDetailView(
                     post: post,
+                    relatedPosts: detailSourcePosts,
                     preservesAudioSessionOnDismiss: true
                 )
                 .toolbar {

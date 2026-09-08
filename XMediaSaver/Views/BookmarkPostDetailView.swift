@@ -5,20 +5,30 @@ import UIKit
 
 struct BookmarkPostDetailView: View {
     let post: BookmarkedPost
-    var preservesAudioSessionOnDismiss = false
+    let relatedPosts: [BookmarkedPost]
+    var preservesAudioSessionOnDismiss: Bool
     @Environment(\.openURL) private var openURL
     @StateObject private var mediaSaver = PostMediaSaveModel()
+    @State private var relatedDestination: RelatedBookmarkDestination?
+
+    init(
+        post: BookmarkedPost,
+        relatedPosts: [BookmarkedPost] = [],
+        preservesAudioSessionOnDismiss: Bool = false
+    ) {
+        self.post = post
+        if relatedPosts.contains(where: { $0.id == post.id }) {
+            self.relatedPosts = relatedPosts
+        } else {
+            self.relatedPosts = [post] + relatedPosts
+        }
+        self.preservesAudioSessionOnDismiss = preservesAudioSessionOnDismiss
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                authorHeader
-
-                if !post.text.isEmpty {
-                    Text(post.text)
-                        .font(.body)
-                        .textSelection(.enabled)
-                }
+                postInformationCard
 
                 ForEach(post.media) { media in
                     mediaCard(media)
@@ -59,6 +69,19 @@ struct BookmarkPostDetailView: View {
                 }
             }
         }
+        .navigationDestination(
+            isPresented: Binding(
+                get: { relatedDestination != nil },
+                set: { if !$0 { relatedDestination = nil } }
+            )
+        ) {
+            if let relatedDestination {
+                RelatedBookmarksView(
+                    destination: relatedDestination,
+                    sourcePosts: relatedPosts
+                )
+            }
+        }
         .alert(item: $mediaSaver.presentedError) { error in
             if error.offersSettings {
                 return Alert(
@@ -81,34 +104,118 @@ struct BookmarkPostDetailView: View {
         }
     }
 
-    private var authorHeader: some View {
+    private var postInformationCard: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(post.authorName ?? "未知作者")
-                .font(.headline)
-            HStack(spacing: 8) {
-                if let username = post.authorUsername {
-                    Text("@\(username)")
+            Button {
+                relatedDestination = .author(
+                    id: post.authorID,
+                    username: post.authorUsername,
+                    displayName: post.authorName
+                )
+            } label: {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(post.authorName ?? "未知作者")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                        HStack(spacing: 8) {
+                            if let username = post.authorUsername {
+                                Text("@\(username)")
+                            }
+                            if let date = post.createdAt {
+                                Text(
+                                    date,
+                                    format: .dateTime
+                                        .year()
+                                        .month(.abbreviated)
+                                        .day()
+                                        .hour()
+                                        .minute()
+                                )
+                            }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    if post.authorID != nil || post.authorUsername != nil {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
-                if let date = post.createdAt {
-                    Text(
-                        date,
-                        format: .dateTime
-                            .year()
-                            .month(.abbreviated)
-                            .day()
-                            .hour()
-                            .minute()
-                    )
-                }
+                .contentShape(Rectangle())
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .buttonStyle(.plain)
+            .disabled(post.authorID == nil && post.authorUsername == nil)
+
+            if !post.text.isEmpty {
+                Divider().padding(.vertical, 6)
+                Text(interactivePostText)
+                    .font(.body)
+                    .textSelection(.enabled)
+                    .environment(\.openURL, OpenURLAction { url in
+                        openRelatedDestination(url)
+                    })
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(Color(uiColor: .secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 14))
     }
+
+    private var interactivePostText: AttributedString {
+        var result = AttributedString(post.text)
+        let fullRange = NSRange(post.text.startIndex..., in: post.text)
+        for match in Self.localTokenExpression.matches(
+            in: post.text,
+            range: fullRange
+        ) {
+            guard let stringRange = Range(match.range, in: post.text),
+                  let attributedRange = Range(stringRange, in: result)
+            else {
+                continue
+            }
+            let token = String(post.text[stringRange])
+            let value = String(token.dropFirst())
+            let destination: RelatedBookmarkDestination
+            if token.hasPrefix("@") {
+                guard let authorPost = relatedPosts.first(where: {
+                    $0.authorUsername?.caseInsensitiveCompare(value)
+                        == .orderedSame
+                }) else {
+                    continue
+                }
+                destination = .author(
+                    id: authorPost.authorID,
+                    username: authorPost.authorUsername,
+                    displayName: authorPost.authorName
+                )
+            } else {
+                destination = .hashtag(value)
+            }
+            if let url = destination.localURL {
+                result[attributedRange].link = url
+                result[attributedRange].foregroundColor = .accentColor
+            }
+        }
+        return result
+    }
+
+    private func openRelatedDestination(_ url: URL) -> OpenURLAction.Result {
+        guard let destination = RelatedBookmarkDestination(url: url) else {
+            return .systemAction
+        }
+        relatedDestination = destination
+        return .handled
+    }
+
+    private static let localTokenExpression: NSRegularExpression = {
+        try! NSRegularExpression(
+            pattern: #"(?<![\p{L}\p{M}\p{N}_])@[A-Za-z0-9_]{1,15}|#[\p{L}\p{M}\p{N}_]+"#
+        )
+    }()
 
     private func mediaCard(_ media: BookmarkedMedia) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -197,6 +304,186 @@ struct BookmarkPostDetailView: View {
         formatter.unitsStyle = .abbreviated
         return formatter
     }()
+}
+
+private enum RelatedBookmarkDestination: Hashable {
+    case author(id: String?, username: String?, displayName: String?)
+    case hashtag(String)
+
+    var title: String {
+        switch self {
+        case .author(_, let username, let displayName):
+            if let displayName, !displayName.isEmpty { return displayName }
+            if let username, !username.isEmpty { return "@\(username)" }
+            return L10n.string("未知作者")
+        case .hashtag(let value):
+            return "#\(value)"
+        }
+    }
+
+    var localURL: URL? {
+        var components = URLComponents()
+        components.scheme = "x-media-saver"
+        switch self {
+        case .author(let id, let username, let displayName):
+            components.host = "author"
+            components.queryItems = [
+                URLQueryItem(name: "id", value: id),
+                URLQueryItem(name: "username", value: username),
+                URLQueryItem(name: "name", value: displayName)
+            ]
+        case .hashtag(let value):
+            components.host = "hashtag"
+            components.queryItems = [URLQueryItem(name: "value", value: value)]
+        }
+        return components.url
+    }
+
+    init?(url: URL) {
+        guard url.scheme == "x-media-saver",
+              let components = URLComponents(
+                url: url,
+                resolvingAgainstBaseURL: false
+              )
+        else {
+            return nil
+        }
+        func value(named name: String) -> String? {
+            components.queryItems?.first { $0.name == name }?.value
+        }
+        switch components.host {
+        case "author":
+            self = .author(
+                id: value(named: "id"),
+                username: value(named: "username"),
+                displayName: value(named: "name")
+            )
+        case "hashtag":
+            guard let value = value(named: "value"), !value.isEmpty else {
+                return nil
+            }
+            self = .hashtag(value)
+        default:
+            return nil
+        }
+    }
+
+    func matches(_ post: BookmarkedPost) -> Bool {
+        switch self {
+        case .author(let id, let username, _):
+            if let id, !id.isEmpty, post.authorID == id { return true }
+            if let username, !username.isEmpty {
+                return post.authorUsername?.caseInsensitiveCompare(username)
+                    == .orderedSame
+            }
+            return false
+        case .hashtag(let value):
+            return BookmarksViewModel.hashtags(in: post.text).contains {
+                $0.caseInsensitiveCompare(value) == .orderedSame
+            }
+        }
+    }
+}
+
+private enum RelatedBookmarkBrowseMode {
+    case media
+    case posts
+}
+
+private struct RelatedBookmarksView: View {
+    let destination: RelatedBookmarkDestination
+    let sourcePosts: [BookmarkedPost]
+    @Environment(\.dismiss) private var dismiss
+    @State private var mode = RelatedBookmarkBrowseMode.media
+
+    private var matchingPosts: [BookmarkedPost] {
+        sourcePosts.filter(destination.matches)
+    }
+
+    var body: some View {
+        Group {
+            switch mode {
+            case .media:
+                MediaGalleryView(
+                    posts: matchingPosts,
+                    mediaType: nil,
+                    titleOverride: destination.title,
+                    switchToPosts: { mode = .posts },
+                    detailSourcePosts: sourcePosts,
+                    onClose: { dismiss() }
+                )
+            case .posts:
+                RelatedPostsListView(
+                    title: destination.title,
+                    posts: matchingPosts,
+                    sourcePosts: sourcePosts,
+                    switchToMedia: { mode = .media },
+                    onClose: { dismiss() }
+                )
+            }
+        }
+    }
+}
+
+private struct RelatedPostsListView: View {
+    let title: String
+    let posts: [BookmarkedPost]
+    let sourcePosts: [BookmarkedPost]
+    let switchToMedia: () -> Void
+    let onClose: () -> Void
+    @State private var visibleLimit = 100
+    @AppStorage("bookmarkPostPreviewMode")
+    private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
+
+    private var previewMode: BookmarkPostPreviewMode {
+        BookmarkPostPreviewMode(rawValue: previewModeRaw) ?? .media
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(posts.prefix(visibleLimit))) { post in
+                    NavigationLink {
+                        BookmarkPostDetailView(
+                            post: post,
+                            relatedPosts: sourcePosts
+                        )
+                    } label: {
+                        BookmarkPostRowView(
+                            post: post,
+                            showsAuthor: true,
+                            previewMode: previewMode
+                        )
+                        .padding(.horizontal)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    Divider().padding(.leading)
+                }
+                if posts.count > visibleLimit {
+                    Button("再显示 100 条") { visibleLimit += 100 }
+                        .padding()
+                }
+            }
+        }
+        .background(Color(uiColor: .systemBackground))
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .compactBackButton(action: onClose)
+        .edgeSwipeBack(action: onClose)
+        .toolbar {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Button(action: switchToMedia) {
+                    Image(systemName: "square.grid.3x3")
+                }
+                .accessibilityLabel("切换到九宫格")
+                Text("\(posts.count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
 }
 
 private struct FullScreenPhotoPreview: View {

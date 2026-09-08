@@ -422,6 +422,7 @@ struct BookmarksView: View {
         case .saveFailures:
             SaveFailuresView(
                 records: viewModel.saveFailures,
+                relatedPosts: session.capturedPosts,
                 title: L10n.string("保存失败"),
                 description: L10n.string(
                     "这里保留最近未成功保存的 Post。对应媒体后续保存成功后会自动移除记录。"
@@ -433,6 +434,9 @@ struct BookmarksView: View {
                 records: source == .index
                     ? viewModel.unavailablePosts
                     : folderLibrary.unavailablePosts,
+                relatedPosts: source == .index
+                    ? session.capturedPosts
+                    : folderLibrary.posts,
                 title: L10n.string("失效 Post"),
                 description: L10n.string(
                     "这些 Post 的索引内容已持久化到 Files 资料库，但媒体下载未成功；对应媒体后续保存成功后会自动移除记录。"
@@ -1077,7 +1081,10 @@ struct BookmarksView: View {
         showsAuthor: Bool
     ) -> some View {
         NavigationLink {
-            BookmarkPostDetailView(post: post)
+            BookmarkPostDetailView(
+                post: post,
+                relatedPosts: session.capturedPosts
+            )
         } label: {
             BookmarkPostRowView(
                 post: post,
@@ -1127,6 +1134,7 @@ struct BookmarksView: View {
 
 private struct SaveFailuresView: View {
     let records: [SaveFailureRecord]
+    let relatedPosts: [BookmarkedPost]
     let title: String
     let description: String
     var deletePosts: ((Set<String>) async throws -> Void)? = nil
@@ -1156,7 +1164,10 @@ private struct SaveFailuresView: View {
                             }
                         } else {
                             NavigationLink {
-                                BookmarkPostDetailView(post: record.post)
+                                BookmarkPostDetailView(
+                                    post: record.post,
+                                    relatedPosts: relatedPosts
+                                )
                             } label: {
                                 failureRow(record, showsSelection: false)
                             }

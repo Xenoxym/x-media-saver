@@ -6,6 +6,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ### Added
 
+- The author card in Post Preview now opens all locally indexed Posts by that author in a media-first grid, with a toolbar switch to a full Post feed. Local `@mentions` and `#hashtags` in Post text open the same reusable browser when matching indexed content exists.
 - Local Incremental Index can now switch in place between bookmark Index data and the independently persisted Files library. Files mode mirrors Saved Posts, all media, photos, animated GIFs, videos, and unavailable Posts without adding a duplicate dashboard.
 - Files media grids support multi-select deletion while retaining the owning Post and all unselected media. Saved Posts and Unavailable Posts support deleting complete persisted Post records and media used only by those Posts.
 - Failed batch saves are recorded with their cached Post details and error reasons, with a compact Save & Export entry for later inspection. Successful retries automatically clear the corresponding failures.
@@ -14,6 +15,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ### Changed
 
+- Post Preview now places the author identity and selectable Post text in one compact information card.
 - Save & Export now prioritizes the app's Files library, keeps alternate folder export next, and places the non-deduplicating Photos action last to reduce accidental bulk saves.
 - Download and browse filter values, date-range selection, and range-section expansion now persist across app launches.
 - The entire Download & Browse Filters card is collapsed by default and can be expanded from its header; the nested range section still remembers its own state.

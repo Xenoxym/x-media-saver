@@ -64,7 +64,10 @@ struct IndexedPostsView: View {
                         .buttonStyle(.plain)
                     } else {
                         NavigationLink {
-                            BookmarkPostDetailView(post: post)
+                            BookmarkPostDetailView(
+                                post: post,
+                                relatedPosts: session.capturedPosts
+                            )
                         } label: {
                             indexedPostRow(post, showsSelection: false)
                         }
@@ -329,7 +332,10 @@ struct FolderPostsView: View {
                         .buttonStyle(.plain)
                     } else {
                         NavigationLink {
-                            BookmarkPostDetailView(post: post)
+                            BookmarkPostDetailView(
+                                post: post,
+                                relatedPosts: model.posts
+                            )
                         } label: {
                             row(post, showsSelection: false)
                         }

@@ -223,6 +223,8 @@
 "将删除持久化 Post 及其独占媒体；书签索引和照片图库不受影响。" = "The persisted Posts and media used only by them will be deleted. The bookmark index and Photos are unaffected.";
 "将删除 Post 结构及其独占媒体；书签索引和照片图库不受影响。" = "The Post records and media used only by them will be deleted. The bookmark index and Photos are unaffected.";
 "删除失败" = "Deletion Failed";
+"切换到 Post 模式" = "Switch to Post View";
+"切换到九宫格" = "Switch to Media Grid";
 
 "Settings" = "Settings";
 "Bookmarks" = "Bookmarks";
