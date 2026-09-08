@@ -345,24 +345,30 @@ struct MediaGalleryView: View {
     }
 
     private func selectionIndicator(selected: Bool) -> some View {
-        ZStack(alignment: .topTrailing) {
-            if selected {
-                Color.accentColor.opacity(0.10)
+        GeometryReader { geometry in
+            ZStack(alignment: .topTrailing) {
+                if selected {
+                    Color.accentColor.opacity(0.10)
+                }
+                Image(
+                    systemName: selected
+                        ? "checkmark.circle.fill"
+                        : "circle"
+                )
+                .font(.title3)
+                .foregroundStyle(
+                    selected ? Color.white : Color.white.opacity(0.9),
+                    Color.accentColor
+                )
+                .shadow(radius: 2)
+                .padding(7)
             }
-            Image(
-                systemName: selected
-                    ? "checkmark.circle.fill"
-                    : "circle"
+            .frame(
+                width: geometry.size.width,
+                height: geometry.size.height,
+                alignment: .topTrailing
             )
-            .font(.title3)
-            .foregroundStyle(
-                selected ? Color.white : Color.white.opacity(0.9),
-                Color.accentColor
-            )
-            .shadow(radius: 2)
-            .padding(7)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(false)
     }
 

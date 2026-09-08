@@ -8,6 +8,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 - Failed batch saves are recorded with their cached Post details and error reasons, with a compact Save & Export entry for later inspection. Successful retries automatically clear the corresponding failures.
 - Media-grid multi-selection can now save the selected items directly to the app's Files folder as well as Photos, while retaining the owning Post metadata.
+- Local Incremental Index now includes an Unavailable Posts destination. Folder exports persist failed Post snapshots and download reasons in `unavailable-posts.json`; successful media retries remove the corresponding failures.
 
 ### Changed
 
@@ -21,6 +22,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - The grid local-file badge now performs its availability check from an always-present cell overlay, restoring badges that could disappear when their initial conditional view was empty.
 - The overlapping top-right phone badge has been removed from media grids. A blue media-type icon in the lower-left metadata strip now indicates that the item exists in the Files library.
 - Repeated partial exports from the same Post now merge all media already present in the destination into `posts.jsonl`, without blank placeholders for unselected media.
+- Media-grid selection circles are explicitly laid out against the full square cell and remain fixed in its upper-right corner after the local-cache badge was removed.
 
 ## [1.3.0] - 2026-07-31
 

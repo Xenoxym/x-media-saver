@@ -125,6 +125,11 @@ actor MediaSaveFailureStore {
         return records
     }
 
+    func reload() throws -> [SaveFailureRecord] {
+        cachedRecords = nil
+        return try load()
+    }
+
     func recordAttempt(
         posts: [BookmarkedPost],
         successfulMediaKeys: Set<String>,

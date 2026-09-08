@@ -52,11 +52,13 @@ final class BookmarksViewModel: ObservableObject {
     )
     @Published private(set) var exportResult: FolderExportResult?
     @Published private(set) var saveFailures: [SaveFailureRecord] = []
+    @Published private(set) var unavailablePosts: [SaveFailureRecord] = []
     @Published var presentedError: PresentedError?
 
     private let saver: BatchMediaSaver
     private let exporter: FolderMediaExporter
     private let failureStore: MediaSaveFailureStore
+    private let unavailablePostStore: MediaSaveFailureStore
     private var sourcePosts: [BookmarkedPost] = []
     private var localFileMediaKeys: Set<String> = []
     private var hashtagsByPostID: [String: [String]] = [:]
@@ -67,18 +69,51 @@ final class BookmarksViewModel: ObservableObject {
     init(
         saver: BatchMediaSaver = BatchMediaSaver(),
         exporter: FolderMediaExporter = FolderMediaExporter(),
-        failureStore: MediaSaveFailureStore = MediaSaveFailureStore()
+        failureStore: MediaSaveFailureStore = MediaSaveFailureStore(),
+        unavailablePostStore: MediaSaveFailureStore = MediaSaveFailureStore(
+            fileURL: StorageManager.appDocumentsLibraryURL
+                .appendingPathComponent("unavailable-posts.json")
+        )
     ) {
         filter = Self.loadSavedFilter()
         self.saver = saver
         self.exporter = exporter
         self.failureStore = failureStore
+        self.unavailablePostStore = unavailablePostStore
         Task { [weak self] in
             guard let self else { return }
             localFileMediaKeys =
                 await LocalMediaLibrary.shared.availableMediaKeys()
-            saveFailures = (try? await failureStore.load()) ?? []
+            let storedFailures = (try? await failureStore.load()) ?? []
+            saveFailures = storedFailures
+            var storedUnavailable =
+                (try? await unavailablePostStore.load()) ?? []
+            if storedUnavailable.isEmpty, !storedFailures.isEmpty {
+                var reasons: [String: String] = [:]
+                for record in storedFailures {
+                    reasons.merge(
+                        record.failureReasons,
+                        uniquingKeysWith: { _, new in new }
+                    )
+                }
+                storedUnavailable = (
+                    try? await unavailablePostStore.recordAttempt(
+                        posts: storedFailures.map(\.post),
+                        successfulMediaKeys: [],
+                        failureReasons: reasons
+                    )
+                ) ?? []
+            }
+            unavailablePosts = storedUnavailable
             recomputeNow()
+        }
+    }
+
+    func reloadUnavailablePosts() {
+        Task { [weak self] in
+            guard let self else { return }
+            unavailablePosts =
+                (try? await unavailablePostStore.reload()) ?? []
         }
     }
 
@@ -199,6 +234,8 @@ final class BookmarksViewModel: ObservableObject {
                     successfulMediaKeys: completedExport.successfulMediaKeys,
                     failureReasons: completedExport.failureReasons
                 )
+                unavailablePosts =
+                    (try? await unavailablePostStore.reload()) ?? []
                 await LocalMediaLibrary.shared.register(
                     root: completedExport.destination
                 )

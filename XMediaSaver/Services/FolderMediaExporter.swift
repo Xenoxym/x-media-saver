@@ -54,6 +54,8 @@ final class FolderMediaExporter: @unchecked Sendable {
         var issues: [String] = []
         var successfulMediaKeys: Set<String> = []
         var failureReasons: [String: String] = [:]
+        var remotelyUnavailableReasons: [String: String] = [:]
+        var locallyOrRemotelyAvailableKeys: Set<String> = []
 
         for (index, item) in ordered.enumerated() {
             try Task.checkCancellation()
@@ -65,6 +67,7 @@ final class FolderMediaExporter: @unchecked Sendable {
                ) {
                 skipped += 1
                 successfulMediaKeys.insert(item.media.mediaKey)
+                locallyOrRemotelyAvailableKeys.insert(item.media.mediaKey)
                 progress(
                     FolderExportProgress(
                         completed: index + 1,
@@ -80,6 +83,7 @@ final class FolderMediaExporter: @unchecked Sendable {
                 failed += 1
                 let message = L10n.string("没有可下载的直接地址")
                 failureReasons[item.media.mediaKey] = message
+                remotelyUnavailableReasons[item.media.mediaKey] = message
                 issues.append("\(item.media.mediaKey)：\(message)")
                 progress(
                     FolderExportProgress(
@@ -102,6 +106,7 @@ final class FolderMediaExporter: @unchecked Sendable {
             )
 
             var temporaryURL: URL?
+            var downloadCompleted = false
             do {
                 let fileExtension = Self.fileExtension(
                     for: item.media,
@@ -123,6 +128,8 @@ final class FolderMediaExporter: @unchecked Sendable {
                 guard let downloadedURL = temporaryURL else {
                     throw AppError.downloadFailed
                 }
+                downloadCompleted = true
+                locallyOrRemotelyAvailableKeys.insert(item.media.mediaKey)
 
                 let relativePath = Self.relativePath(
                     postID: item.post.id,
@@ -156,9 +163,13 @@ final class FolderMediaExporter: @unchecked Sendable {
                     try? FileManager.default.removeItem(at: temporaryURL)
                 }
                 failed += 1
-                failureReasons[item.media.mediaKey] = error.localizedDescription
+                let message = error.localizedDescription
+                failureReasons[item.media.mediaKey] = message
+                if !downloadCompleted {
+                    remotelyUnavailableReasons[item.media.mediaKey] = message
+                }
                 issues.append(
-                    "\(item.media.mediaKey)：\(error.localizedDescription)"
+                    "\(item.media.mediaKey)：\(message)"
                 )
             }
 
@@ -177,6 +188,16 @@ final class FolderMediaExporter: @unchecked Sendable {
             mediaByPostID: mediaByPostID,
             state: state,
             destination: destination
+        )
+        let unavailableStore = MediaSaveFailureStore(
+            fileURL: destination.appendingPathComponent(
+                "unavailable-posts.json"
+            )
+        )
+        _ = try await unavailableStore.recordAttempt(
+            posts: posts,
+            successfulMediaKeys: locallyOrRemotelyAvailableKeys,
+            failureReasons: remotelyUnavailableReasons
         )
 
         return FolderExportResult(

@@ -7,6 +7,7 @@ struct BookmarksView: View {
         case indexedPosts
         case gallery(BookmarkMediaType?)
         case saveFailures
+        case unavailablePosts
     }
 
     @ObservedObject var session: BrowserSessionModel
@@ -45,6 +46,9 @@ struct BookmarksView: View {
                 LazyVStack(spacing: 16) {
                     if session.capturedPosts.isEmpty {
                         emptyState
+                        if !viewModel.unavailablePosts.isEmpty {
+                            statisticsCard
+                        }
                     } else {
                         statisticsCard
                         filterCard
@@ -88,6 +92,7 @@ struct BookmarksView: View {
         }
         .onAppear {
             viewModel.update(posts: session.capturedPosts)
+            viewModel.reloadUnavailablePosts()
         }
         .onReceive(session.$capturedPosts) {
             viewModel.update(posts: $0)
@@ -199,6 +204,7 @@ struct BookmarksView: View {
                     "video",
                     type: .video
                 )
+                unavailablePostsStat
             }
 
             if session.isAutoCapturing {
@@ -246,6 +252,32 @@ struct BookmarksView: View {
                     Text(statistics.bookmarkCount, format: .number)
                         .font(.title3.bold().monospacedDigit())
                     Text("已索引 Post")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(10)
+            .background(Color(uiColor: .tertiarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var unavailablePostsStat: some View {
+        Button {
+            openLocalIndex(.unavailablePosts)
+        } label: {
+            HStack {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(viewModel.unavailablePosts.count, format: .number)
+                        .font(.title3.bold().monospacedDigit())
+                    Text("失效 Post")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -311,6 +343,19 @@ struct BookmarksView: View {
         case .saveFailures:
             SaveFailuresView(
                 records: viewModel.saveFailures,
+                title: L10n.string("保存失败"),
+                description: L10n.string(
+                    "这里保留最近未成功保存的 Post。对应媒体后续保存成功后会自动移除记录。"
+                ),
+                onClose: closeLocalIndex
+            )
+        case .unavailablePosts:
+            SaveFailuresView(
+                records: viewModel.unavailablePosts,
+                title: L10n.string("失效 Post"),
+                description: L10n.string(
+                    "这些 Post 的索引内容已持久化到 Files 资料库，但媒体下载未成功；对应媒体后续保存成功后会自动移除记录。"
+                ),
                 onClose: closeLocalIndex
             )
         }
@@ -996,12 +1041,14 @@ struct BookmarksView: View {
 
 private struct SaveFailuresView: View {
     let records: [SaveFailureRecord]
+    let title: String
+    let description: String
     let onClose: () -> Void
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                Text("这里保留最近未成功保存的 Post。对应媒体后续保存成功后会自动移除记录。")
+                Text(description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1051,7 +1098,7 @@ private struct SaveFailuresView: View {
             }
         }
         .background(Color(uiColor: .systemBackground))
-        .navigationTitle(L10n.string("保存失败"))
+        .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .edgeSwipeBack(action: onClose)
