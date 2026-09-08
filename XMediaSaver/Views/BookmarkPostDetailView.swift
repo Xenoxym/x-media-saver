@@ -378,11 +378,25 @@ private enum RelatedBookmarkDestination: Hashable {
             }
             return false
         case .hashtag(let value):
-            return BookmarksViewModel.hashtags(in: post.text).contains {
+            return Self.hashtags(in: post.text).contains {
                 $0.caseInsensitiveCompare(value) == .orderedSame
             }
         }
     }
+
+    private static func hashtags(in text: String) -> [String] {
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return hashtagExpression.matches(in: text, range: range).compactMap {
+            guard let swiftRange = Range($0.range, in: text) else {
+                return nil
+            }
+            return String(text[swiftRange].dropFirst())
+        }
+    }
+
+    private static let hashtagExpression: NSRegularExpression = {
+        try! NSRegularExpression(pattern: #"#[\p{L}\p{M}\p{N}_]+"#)
+    }()
 }
 
 private enum RelatedBookmarkBrowseMode {
