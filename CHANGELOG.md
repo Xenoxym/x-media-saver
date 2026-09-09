@@ -4,6 +4,8 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-09
+
 ### Added
 
 - The author card in Post Preview now opens all locally indexed Posts by that author in a media-first grid, with a toolbar switch to a full Post feed. Local `@mentions` and `#hashtags` in Post text open the same reusable browser when matching indexed content exists.

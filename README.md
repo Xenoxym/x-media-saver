@@ -1,23 +1,43 @@
-# X Media Saver
+<p align="center"><img src="XMediaSaver/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" width="112" alt="X Media Saver icon"></p>
 
-**English** | [简体中文](README.zh-CN.md)
+<h1 align="center">X Media Saver</h1>
 
-X Media Saver is a personal, sideloadable SwiftUI app for iOS 16 and later. It keeps the original single-link video/GIF downloader and adds an authenticated, browser-session workflow for capturing media metadata from X bookmarks.
+<p align="center"><strong>Turn the X posts you care about into a private, searchable media library on your iPhone.</strong></p>
 
-The app has no custom backend, proxy, or third-party download API. It does not use X OAuth, developer API keys, or user bearer tokens.
+<p align="center"><a href="README.zh-CN.md">简体中文</a> · <a href="https://github.com/Xenoxym/x-media-saver/releases/latest">Download</a> · <a href="CHANGELOG.md">Changelog</a></p>
 
-Current release: **1.2.1 (build 9)**. The current development build identifies as **1.3.0 (build 10)**. See [CHANGELOG.md](CHANGELOG.md) for release history.
+<p align="center"><img alt="iOS 16+" src="https://img.shields.io/badge/iOS-16%2B-111827"> <img alt="SwiftUI" src="https://img.shields.io/badge/SwiftUI-native-0ea5e9"> <img alt="Local first" src="https://img.shields.io/badge/data-local--first-16a34a"> <img alt="MIT license" src="https://img.shields.io/badge/license-MIT-7c3aed"></p>
 
-## Current features
+![X Media Saver product overview](docs/images/x-media-saver-overview.svg)
 
-- **Single-link downloads:** Paste an `x.com` or `twitter.com` post URL, select an MP4 variant, and save a video or animated GIF to Photos.
+X Media Saver is a personal, sideloadable iOS app for saving media from posts you can view on X. Paste one post, or sign in once and turn your bookmarks into an organized, locally browsable library—without a custom cloud backend, OAuth app, developer API key, or cookie export.
+
+## Save, organize, and keep the context
+
+- **Save one post:** Paste an X link, preview its photos, videos, or animated GIFs, and save what you want. Photos request the original image variant; video defaults to the highest-bitrate MP4.
+- **Build a bookmark library:** Sync post text, author, date, bookmark order, hashtags, media type, duration, and known size. Search, filter, group, and browse it as a feed or three-column gallery.
+- **Keep an inspectable local copy:** Stream selected media to Photos or `On My iPhone/X Media Saver/Library`, alongside manifests that preserve the Post-to-media relationship for offline browsing.
+
+## Quick start
+
+1. Download the unsigned IPA from the [latest release](https://github.com/Xenoxym/x-media-saver/releases/latest), sign it locally with Sideloadly or another tool you trust, and install it on an iPhone running iOS 16 or later.
+2. Open **X Browser**, sign in directly on `x.com`, and tap **Sync Bookmarks**. The visible browser scrolls until no new bookmarks arrive for roughly six seconds.
+3. Return to **Bookmarks** to search, filter, preview, and save. Use **Single Post** whenever you only need one link.
+
+The interface follows the system language—Simplified Chinese for Chinese systems and English otherwise—or can be overridden in **Settings**.
+
+## Detailed features
+
+- **Single-link downloads:** Paste an `x.com` or `twitter.com` Post URL, save all photos together, or select an MP4 video/animated-GIF variant.
 - **In-app X browser:** Sign in on the real X website inside a persistent `WKWebView`.
 - **Fast incremental bookmark sync:** Bookmark scrolling starts only after the user taps **Sync bookmarks** in X Browser. The approximately one-second scroll loop observes every bookmark response; existing post IDs are updated in place, new IDs are appended, and locally indexed posts are not deleted merely because they disappeared from X.
 - **Local post index:** Each captured post, its author/text/date, and its media metadata are stored on-device and restored after relaunch. Media files are downloaded only when Save is used.
 - **Browse and search:** Browse the current filtered posts directly or group them by account or hashtag; search handle, display name, numeric user ID, post text, or hashtag.
 - **Native post preview and saving:** Open a captured post to read its full text, preview original photos or highest-quality MP4 media, and save that post's deduplicated media directly to Photos.
 - **Indexed-post timeline:** The Indexed Posts statistic opens a live, X-like stream of every locally indexed post. It defaults to media, supports bookmark/publication sorting and search, offers a remembered text-only mode, and can multi-select Posts for removal from the index without deleting exported media.
-- **Media galleries:** The All media, Photos, Animated GIFs, and Videos counters open three-column lazy galleries.
+- **Index and Files libraries:** Switch the same dashboard between lightweight captured metadata and media deliberately exported to Files. Saved and unavailable Posts remain browsable independently of the bookmark index.
+- **Author and tag exploration:** Open an author card, local @mention, or #hashtag to browse matching indexed Posts as a media grid or Post feed.
+- **Media galleries:** The All media, Photos, Animated GIFs, and Videos counters open three-column lazy galleries with multi-select save and deletion tools appropriate to the current library.
 - **Bookmark-order sorting:** Indexed posts and media galleries can follow the locally captured bookmark order in either direction, in addition to post publication time.
 - **Full-screen media browsing:** Photos support zooming and panning; media galleries support direct previous/next navigation and multi-selection for saving to Photos.
 - **Native video playback:** Post videos autoplay muted in an adaptive inline player, loop at the end, and use the native full-screen player with user-initiated Picture in Picture. Animated GIF MP4s loop silently.
@@ -30,7 +50,7 @@ Current release: **1.2.1 (build 9)**. The current development build identifies a
 - **Streaming Files export:** Save one media item at a time into a visible `Images / Animated GIFs / Videos` folder tree and write a line-oriented `posts.jsonl` manifest. No ZIP or whole-batch memory buffer is used.
 - **Persistent duplicate protection:** Successful Photos saves and Files exports keep separate on-device `media_key` ledgers and skip completed media by default.
 - **Storage management:** Inspect controlled storage categories and clear temporary, URLSession, and X WebKit caches without removing the X login cookie.
-- **Media filters:** Select photos, animated GIFs, videos, or any combination.
+- **Persistent media filters:** Select photos, animated GIFs, videos, or any combination; date, duration, size, and filter state survive relaunches.
 - **Date filters:** Filter by the post publication date.
 - **Local-index statistics:** Count indexed bookmarks, bookmarks with media, photos, animated GIFs, and videos.
 - **Highest available quality:** Select the highest-bitrate MP4 by default and request X photos with `name=orig`.
@@ -65,7 +85,7 @@ After signing in once, single-link mode automatically opens the pasted post in t
 
 If a matching browser capture is unavailable, the app falls back to X's public syndication/embed response. That fallback is unofficial and may not resolve login-only content.
 
-The current single-link screen saves videos and animated GIFs. Photo saving is currently available through the bookmark batch workflow.
+The single-link screen supports photos, videos, and animated GIFs. Photos can be saved together; video-like media retain selectable MP4 variants.
 
 ### Protected and private content
 

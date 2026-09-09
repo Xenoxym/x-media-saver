@@ -1,23 +1,43 @@
-# X Media Saver
+<p align="center"><img src="XMediaSaver/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png" width="112" alt="X Media Saver 图标"></p>
 
-[English](README.md) | **简体中文**
+<h1 align="center">X Media Saver</h1>
 
-X Media Saver 是一个供个人侧载使用的 iOS 16+ SwiftUI App。当前版本保留单链接视频/动图下载，同时新增持久的浏览器登录会话：首次在 App 内登录 X 后，单链接和书签同步都可以从原生界面自动驱动同一个 WebView 加载数据。
+<p align="center"><strong>把你在 X 上珍藏的 Post，变成 iPhone 里的私人、可搜索媒体资料库。</strong></p>
 
-本项目没有自建后端、代理或第三方下载 API；也不使用 X OAuth、开发者 API key 或用户 Bearer Token。
+<p align="center"><a href="README.md">English</a> · <a href="https://github.com/Xenoxym/x-media-saver/releases/latest">下载</a> · <a href="CHANGELOG.zh-CN.md">更新记录</a></p>
 
-当前正式版：**1.2.1（build 9）**。当前开发构建标识为 **1.3.0（build 10）**。版本记录见 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
+<p align="center"><img alt="iOS 16+" src="https://img.shields.io/badge/iOS-16%2B-111827"> <img alt="SwiftUI" src="https://img.shields.io/badge/SwiftUI-native-0ea5e9"> <img alt="本地优先" src="https://img.shields.io/badge/data-local--first-16a34a"> <img alt="MIT 许可" src="https://img.shields.io/badge/license-MIT-7c3aed"></p>
 
-## 当前功能
+![X Media Saver 产品概览](docs/images/x-media-saver-overview.svg)
 
-- 单链接下载：粘贴 `x.com` / `twitter.com` 帖子地址，选择 MP4 质量并保存视频或动图。
+X Media Saver 是一款供个人侧载使用的 iOS App，用来保存你在 X 上有权查看的 Post 媒体。你可以粘贴单个链接，也可以登录一次，把书签整理成可搜索、可离线浏览的本地资料库。整个流程不依赖自建云端、OAuth App、开发者 API Key 或 Cookie 导出。
+
+## 保存、整理，并保留上下文
+
+- **保存单个 Post：** 粘贴 X 链接，预览照片、视频或动图，再选择保存。照片请求原始图像版本；视频默认选择最高码率 MP4。
+- **建立书签资料库：** 同步正文、作者、日期、书签顺序、Hashtag、媒体类型、时长和已知大小，再按信息流或三列九宫格搜索、筛选和浏览。
+- **保留可查看的本地副本：** 将媒体流式保存到照片或 `我的 iPhone/X Media Saver/Library`，并用清单保留 Post 与媒体之间的关系，支持离线浏览。
+
+## 60 秒开始使用
+
+1. 从[最新 Release](https://github.com/Xenoxym/x-media-saver/releases/latest)下载未签名 IPA，用 Sideloadly 或你信任的工具在本机签名并安装到 iOS 16 或更高版本的 iPhone。
+2. 打开 **X 浏览器**，直接在 `x.com` 登录并点击 **同步书签**。可见浏览器会自动滚动，约六秒没有新增内容后停止。
+3. 回到 **书签** 搜索、筛选、预览和保存；只处理一个链接时使用 **单个 Post**。
+
+界面默认跟随系统语言：中文系统使用简体中文，其他系统使用英语；也可以在 **设置** 中手动切换。
+
+## 详细功能
+
+- 单链接下载：粘贴 `x.com` / `twitter.com` Post 地址，一次保存全部照片，或选择视频/动图的 MP4 变体。
 - 内置 X 浏览器：登录由 `WKWebView` 中的 X 官方网页完成。
 - 快速增量书签同步：打开“X 浏览器”不会自动滚动；只有点击顶部“同步书签”后才开始约每秒一次的滚动并捕获书签响应。已有 Post ID 原位更新，新 ID 才追加，本地记录不会因 X 端删除而自动移除。
 - 本地 Post 索引：以 post 为最小单位保存作者、正文、发布时间和媒体元数据，重启 App 后仍保留；媒体文件只在点击保存时下载。
 - 分类与搜索：“帖子”显示当前筛选条件后的结果，也可按账号或 Hashtag 聚合；可搜索 @用户名、显示昵称、数字 User ID、正文和 Hashtag。
 - 原生 Post 详情与保存：点击列表即可查看完整正文、原图和最高质量 MP4 预览，并把该 Post 去重后的媒体直接保存到系统照片。
 - 已索引 Post 时间线：点击“已索引 Post”统计即可进入本地索引的连续媒体流，支持书签/发布时间排序、搜索、可记忆的纯文字切换，以及多选移除索引但不删除已导出媒体。
-- 媒体聚合页：“含媒体、图片、动图、视频”四个统计入口均可进入三列懒加载网格。
+- Index 与 Files 资料库：在同一面板切换轻量抓取索引和主动导出到 Files 的媒体；Saved Posts 与 unavailable Posts 可独立于书签索引浏览。
+- 作者与标签浏览：点击作者卡片、本地 @mention 或 #hashtag，以媒体九宫格或 Post 信息流浏览匹配的已索引内容。
+- 媒体聚合页：“含媒体、图片、动图、视频”四个统计入口均可进入三列懒加载网格，并按当前资料库提供多选保存或删除。
 - 书签加入顺序：已索引 Post 与媒体聚合页可按本机捕获到的书签先后顺序正排或倒排，也可按帖子发布时间排序。
 - 全屏媒体浏览：图片支持缩放和拖动；媒体聚合页支持直接查看上一个/下一个媒体，并可多选保存到照片。
 - 原生视频播放：Post 视频在自适应小窗中默认静音自动播放并循环，使用系统原生全屏播放器及用户主动触发的画中画；动图 MP4 静音循环。
@@ -30,7 +50,7 @@ X Media Saver 是一个供个人侧载使用的 iOS 16+ SwiftUI App。当前版�
 - Files 流式导出：逐个写入可见的 Images、Animated GIFs、Videos 文件夹，并生成逐行 `posts.jsonl`；不使用 ZIP，也不把整个批次放进内存。
 - 跨重启防重复：照片保存和 Files 导出分别记录成功的 `media_key`，默认跳过已完成媒体。
 - 存储管理：显示受控存储分类，可清理临时、URLSession 和 X WebKit 缓存，同时保留 X 登录 Cookie。
-- 批量筛选：可分别选择图片、动图和视频。
+- 可记忆的批量筛选：可分别选择图片、动图和视频；日期、时长、大小及筛选状态在重启后保留。
 - 时间筛选：按帖子的发布时间选择起止日期。
 - 本地索引统计：显示已索引书签、含媒体帖子、图片、动图与视频数量。
 - 本机保存：直接从 X 的 `pbs.twimg.com` / `video.twimg.com` 媒体地址下载，并以“仅添加”权限写入照片图库。
