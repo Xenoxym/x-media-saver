@@ -92,6 +92,16 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        AudioComparisonView()
+                    } label: {
+                        Label("Audio Comparison Test", systemImage: "waveform")
+                    }
+                } header: {
+                    Text("Temporary Tests")
+                }
+
+                Section {
                     LabeledContent("Version") {
                         Text(versionText)
                             .foregroundStyle(.secondary)

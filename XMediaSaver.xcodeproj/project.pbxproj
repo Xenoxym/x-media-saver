@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000029 /* AudioComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002E /* AudioComparisonView.swift */; };
 		A10000000000000000000001 /* XMediaSaverApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* XMediaSaverApp.swift */; };
 		A10000000000000000000002 /* PostMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* PostMedia.swift */; };
 		A10000000000000000000003 /* PostURLParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* PostURLParser.swift */; };
@@ -60,6 +61,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A2000000000000000000002E /* AudioComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioComparisonView.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* XMediaSaverApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMediaSaverApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* PostMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostMedia.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* PostURLParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostURLParser.swift; sourceTree = "<group>"; };
@@ -205,6 +207,7 @@
 				A20000000000000000000026 /* MediaGalleryView.swift */,
 				A20000000000000000000027 /* IndexedPostsView.swift */,
 				A20000000000000000000029 /* SettingsView.swift */,
+				A2000000000000000000002E /* AudioComparisonView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -381,6 +384,7 @@
 				A10000000000000000000024 /* IndexedPostsView.swift in Sources */,
 				A10000000000000000000025 /* Localization.swift in Sources */,
 				A10000000000000000000026 /* SettingsView.swift in Sources */,
+				A10000000000000000000029 /* AudioComparisonView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

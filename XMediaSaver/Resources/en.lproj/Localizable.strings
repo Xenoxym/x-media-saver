@@ -227,6 +227,26 @@
 "切换到九宫格" = "Switch to Media Grid";
 
 "Settings" = "Settings";
+"Audio Comparison Test" = "Audio Comparison Test";
+"Temporary Tests" = "Temporary Tests";
+"Choose Test Video" = "Choose Test Video";
+"Play Full Screen" = "Play Full Screen";
+"Mark Test Start" = "Mark Test Start";
+"Replay Test Segment" = "Replay Test Segment";
+"Comparison starts at %.1f s" = "Comparison starts at %.1f s";
+"Test Video" = "Test Video";
+"Audio Configuration" = "Audio Configuration";
+"Mix with Other Audio" = "Mix with Other Audio";
+"Disable Item Spatialization" = "Disable Item Spatialization";
+"Apply and Replay" = "Apply and Replay";
+"Test Configuration" = "Test Configuration";
+"Select a configuration, then Apply and Replay. All tests use the same video and marked start. Changes only affect this test page." = "Select a configuration, then Apply and Replay. All tests use the same video and marked start. Changes only affect this test page.";
+"Audio Status" = "Audio Status";
+"Refresh Audio Status" = "Refresh Audio Status";
+"Unable to play this file." = "Unable to play this file.";
+"No audio track found." = "No audio track found.";
+"Listening Notes" = "Listening Notes";
+"Record the best configuration here" = "Record the best configuration here";
 "Bookmarks" = "Bookmarks";
 "Back" = "Back";
 "App Language" = "App Language";
