@@ -27,6 +27,9 @@ final class BookmarksViewModel: ObservableObject {
     @Published var hashtagSort = BookmarkHashtagSort.countDescending {
         didSet { scheduleRecompute() }
     }
+    @Published var localSaveFilter = BookmarkLocalSaveFilter.all {
+        didSet { scheduleRecompute() }
+    }
     @Published private(set) var visiblePosts: [BookmarkedPost] = []
     @Published private(set) var visibleAccountGroups: [BookmarkAccountGroup] = []
     @Published private(set) var visibleHashtagGroups: [BookmarkHashtagGroup] = []
@@ -117,6 +120,12 @@ final class BookmarksViewModel: ObservableObject {
         }
     }
 
+    func refreshLocalMedia() async {
+        await LocalMediaLibrary.shared.reload()
+        localFileMediaKeys = await LocalMediaLibrary.shared.availableMediaKeys()
+        recomputeNow()
+    }
+
     func update(posts: [BookmarkedPost]) {
         sourcePosts = posts
         let validIDs = Set(posts.map(\.id))
@@ -203,10 +212,10 @@ final class BookmarksViewModel: ObservableObject {
             }
         )
         let total = mediaByPostID.values.flatMap { $0 }.count
-        guard total > 0 else {
-            show(AppError.noMediaSelected)
-            return
-        }
+        let selectedIDs = Set(filtered.map(\.id))
+        let exclusions = Dictionary(uniqueKeysWithValues: posts.filter { !selectedIDs.contains($0.id) }.map { post in
+            (post.id, post.media.isEmpty ? "no_parsed_media" : "filter_search_or_local_save_state")
+        })
 
         exportResult = nil
         exportProgress = FolderExportProgress(
@@ -222,6 +231,8 @@ final class BookmarksViewModel: ObservableObject {
                 let completedExport = try await exporter.export(
                     posts: filtered,
                     mediaByPostID: mediaByPostID,
+                    auditPosts: posts,
+                    exclusionReasons: exclusions,
                     destination: destination
                 ) { update in
                     Task { @MainActor [weak self] in
@@ -309,21 +320,9 @@ final class BookmarksViewModel: ObservableObject {
     ) -> [BookmarkedPost] {
         let filtered = posts.filter {
             filter.contains($0) && matchesSearch($0)
+                && localSaveFilter.matches($0, localKeys: localFileMediaKeys)
         }
-        switch postSort {
-        case .bookmarkNewest:
-            return filtered
-        case .bookmarkOldest:
-            return Array(filtered.reversed())
-        case .newest:
-            return filtered.sorted {
-                Self.newestFirst($0, $1)
-            }
-        case .oldest:
-            return filtered.sorted {
-                Self.newestFirst($1, $0)
-            }
-        }
+        return BookmarkPostOrdering.sorted(filtered, by: postSort)
     }
 
     private func calculateAccountGroups(

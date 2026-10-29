@@ -20,6 +20,7 @@ struct BookmarksView: View {
     @StateObject private var folderLibrary = LocalFolderLibraryModel()
     let onRequestVisibleSync: () -> Void
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     @State private var expandedAccounts: Set<String> = []
     @State private var expandedHashtags: Set<String> = []
     @State private var groupLimits: [String: Int] = [:]
@@ -114,6 +115,16 @@ struct BookmarksView: View {
         }
         .onReceive(session.$capturedPosts) {
             viewModel.update(posts: $0)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .localMediaLibraryChanged).receive(on: RunLoop.main)) { _ in
+            folderLibrary.reload()
+            Task { await viewModel.refreshLocalMedia() }
+        }
+        .onChange(of: scenePhase) { value in
+            if value == .active {
+                folderLibrary.reload()
+                Task { await viewModel.refreshLocalMedia() }
+            }
         }
         .fileImporter(
             isPresented: $choosesExportFolder,
@@ -412,11 +423,10 @@ struct BookmarksView: View {
                     ? session.capturedPosts
                     : folderLibrary.posts,
                 mediaType: type,
-                deleteFolderMedia: source == .files
-                    ? { keys in
+                deleteFolderMedia: { keys in
                         try await folderLibrary.deleteMedia(withKeys: keys)
-                    }
-                    : nil,
+                    },
+                isFolderLibrary: source == .files,
                 onClose: closeLocalIndex
             )
         case .saveFailures:
@@ -819,6 +829,18 @@ struct BookmarksView: View {
                     failed: result.failed
                 )
             }
+            NavigationLink {
+                FolderExportAuditView()
+            } label: {
+                Label("最近保存报告", systemImage: "list.bullet.clipboard")
+                    .font(.subheadline)
+            }
+            NavigationLink {
+                DuplicateMediaView(posts: session.capturedPosts + folderLibrary.posts)
+            } label: {
+                Label("重复媒体", systemImage: "square.on.square")
+                    .font(.subheadline)
+            }
             if let result = viewModel.exportResult {
                 resultLabel(
                     "Files：写入 \(result.saved)，已存在 \(result.skipped)，失败 \(result.failed)",
@@ -932,6 +954,12 @@ struct BookmarksView: View {
             .pickerStyle(.segmented)
 
             sortMenu
+            Picker("Folder 保存状态", selection: $viewModel.localSaveFilter) {
+                ForEach(BookmarkLocalSaveFilter.allCases) { value in
+                    Text(value.title).tag(value)
+                }
+            }
+            .font(.subheadline)
             Divider()
 
             switch viewModel.browseMode {
@@ -1133,6 +1161,20 @@ struct BookmarksView: View {
 }
 
 private struct SaveFailuresView: View {
+    private enum FailureSort: String, CaseIterable, Identifiable {
+        case attempted, newest, oldest, largest, smallest
+        var id: String { rawValue }
+        var postSort: BookmarkPostSort? {
+            switch self {
+            case .attempted: return nil
+            case .newest: return .newest
+            case .oldest: return .oldest
+            case .largest: return .sizeDescending
+            case .smallest: return .sizeAscending
+            }
+        }
+        var title: String { postSort?.title ?? L10n.string("默认：最近失败优先") }
+    }
     let records: [SaveFailureRecord]
     let relatedPosts: [BookmarkedPost]
     let title: String
@@ -1144,6 +1186,13 @@ private struct SaveFailuresView: View {
     @State private var confirmsDeletion = false
     @State private var isDeleting = false
     @State private var deletionError: String?
+    @State private var sort = FailureSort.attempted
+    @State private var visibleLimit = 100
+
+    private var sortedRecords: [SaveFailureRecord] {
+        guard let postSort = sort.postSort else { return records }
+        return records.sorted { BookmarkPostOrdering.precedes($0.post, $1.post, by: postSort) }
+    }
 
     var body: some View {
         ScrollView {
@@ -1154,7 +1203,7 @@ private struct SaveFailuresView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding()
 
-                ForEach(records) { record in
+                ForEach(Array(sortedRecords.prefix(visibleLimit))) { record in
                     Group {
                         if isSelecting {
                             Button {
@@ -1177,6 +1226,9 @@ private struct SaveFailuresView: View {
 
                     Divider().padding(.leading)
                 }
+                if sortedRecords.count > visibleLimit {
+                    Button("再显示 100 条") { visibleLimit += 100 }.padding()
+                }
             }
         }
         .background(Color(uiColor: .systemBackground))
@@ -1184,12 +1236,22 @@ private struct SaveFailuresView: View {
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
         .edgeSwipeBack(action: onClose)
+        .onChange(of: sort) { _ in visibleLimit = 100 }
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button(action: onClose) {
                     Image(systemName: "chevron.backward")
                 }
                 .accessibilityLabel(L10n.string("返回"))
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Menu {
+                    Picker("Post 排序", selection: $sort) {
+                        ForEach(FailureSort.allCases) { Text($0.title).tag($0) }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
             }
             if deletePosts != nil {
                 ToolbarItem(placement: .navigationBarTrailing) {

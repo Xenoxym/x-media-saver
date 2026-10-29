@@ -1,0 +1,214 @@
+import CryptoKit
+import Foundation
+
+struct DuplicateMediaReference: Identifiable {
+    let post: BookmarkedPost
+    let media: BookmarkedMedia
+    var id: String { post.id + ":" + media.mediaKey }
+}
+
+struct DuplicateMediaGroup: Identifiable {
+    let id: String
+    let references: [DuplicateMediaReference]
+    let matchedByFileHash: Bool
+    var posts: [BookmarkedPost] {
+        var seen: Set<String> = []
+        return references.compactMap { seen.insert($0.post.id).inserted ? $0.post : nil }
+    }
+}
+
+actor MediaDuplicateAnalyzer {
+    private struct FileHashRecord: Codable {
+        let size: Int
+        let modified: Date?
+        let hash: String
+    }
+
+    // A shared X asset is still the same source at different image sizes.
+    // This is source identity, not a claim of byte-for-byte equality.
+    static func sourceIdentity(_ media: BookmarkedMedia) -> String? {
+        guard let url = media.downloadURL,
+              var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        parts.query = nil
+        parts.fragment = nil
+        if url.host?.lowercased() == "pbs.twimg.com" {
+            if let colon = parts.path.lastIndex(of: ":") { parts.path = String(parts.path[..<colon]) }
+            if ["jpg", "jpeg", "png", "webp"].contains(URL(fileURLWithPath: parts.path).pathExtension.lowercased()) {
+                parts.path = (parts.path as NSString).deletingPathExtension
+            }
+        }
+        return parts.string
+    }
+
+    static func groups(
+        posts: [BookmarkedPost], hashesByMediaKey: [String: String] = [:]
+    ) -> [DuplicateMediaGroup] {
+        var seen: Set<String> = []
+        let refs = posts.flatMap { post in post.media.map { DuplicateMediaReference(post: post, media: $0) } }
+            .filter { seen.insert($0.id).inserted }
+        var parents = Array(refs.indices)
+        func root(_ index: Int) -> Int {
+            var current = index
+            while parents[current] != current { current = parents[current] }
+            var node = index
+            while parents[node] != current {
+                let next = parents[node]; parents[node] = current; node = next
+            }
+            return current
+        }
+        var owner: [String: Int] = [:]
+        for (index, ref) in refs.enumerated() {
+            var tokens = ["key:" + ref.media.mediaKey]
+            if let source = sourceIdentity(ref.media) { tokens.append("source:" + source) }
+            if let hash = hashesByMediaKey[ref.media.mediaKey] { tokens.append("hash:" + hash) }
+            for token in tokens {
+                if let other = owner[token] {
+                    let left = root(index), right = root(other)
+                    parents[left] = right
+                }
+                else { owner[token] = index }
+            }
+        }
+        var grouped: [Int: [DuplicateMediaReference]] = [:]
+        for index in refs.indices { grouped[root(index), default: []].append(refs[index]) }
+        return grouped.values.filter { $0.count > 1 }.map { refs in
+            DuplicateMediaGroup(
+                id: refs.map(\.id).min()!, references: refs,
+                matchedByFileHash: {
+                    let hashes = refs.compactMap { hashesByMediaKey[$0.media.mediaKey] }
+                        .filter { !$0.hasPrefix("same-file:") }
+                    return hashes.count > Set(hashes).count
+                }()
+            )
+        }.sorted {
+            $0.references.count == $1.references.count ? $0.id < $1.id : $0.references.count > $1.references.count
+        }
+    }
+
+    func scan(
+        posts: [BookmarkedPost], hashLocalFiles: Bool,
+        progress: @escaping @Sendable (Int, Int) -> Void
+    ) async throws -> [DuplicateMediaGroup] {
+        guard hashLocalFiles else { return Self.groups(posts: posts) }
+        await LocalMediaLibrary.shared.reload()
+        let files = await LocalMediaLibrary.shared.availableFiles()
+        let cacheURL = StorageManager.appDocumentsLibraryURL.appendingPathComponent("file-hashes.json")
+        var cache = (try? Data(contentsOf: cacheURL)).flatMap {
+            try? JSONDecoder().decode([String: FileHashRecord].self, from: $0)
+        } ?? [:]
+        let uniqueFiles = Set(files.values)
+        var bySize: [Int: [URL]] = [:]
+        for url in uniqueFiles {
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey])
+            if let size = values?.fileSize { bySize[size, default: []].append(url) }
+        }
+        // Different file lengths cannot be byte-identical. One shared path is
+        // included without reading twice; media-key/source matches need no I/O.
+        let candidates = bySize.values.filter { $0.count > 1 }.flatMap { $0 }.sorted { $0.path < $1.path }
+        var hashesByPath: [String: String] = [:]
+        for (index, url) in candidates.enumerated() {
+            try Task.checkCancellation()
+            progress(index, candidates.count)
+            guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                  let size = values.fileSize else { continue }
+            if let cached = cache[url.path], cached.size == size, cached.modified == values.contentModificationDate {
+                hashesByPath[url.path] = cached.hash
+                continue
+            }
+            // Stream at most 1 MiB at a time; never load a whole video in RAM.
+            let handle = try FileHandle(forReadingFrom: url)
+            var hasher = SHA256()
+            do {
+                while let block = try handle.read(upToCount: 1_048_576), !block.isEmpty {
+                    try Task.checkCancellation()
+                    hasher.update(data: block)
+                }
+                try handle.close()
+            } catch { try? handle.close(); throw error }
+            let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
+            hashesByPath[url.path] = digest
+            cache[url.path] = FileHashRecord(size: size, modified: values.contentModificationDate, hash: digest)
+            await Task.yield()
+        }
+        let validPaths = Set(uniqueFiles.map(\.path))
+        cache = cache.filter { validPaths.contains($0.key) }
+        try FileManager.default.createDirectory(at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(cache).write(to: cacheURL, options: .atomic)
+        progress(candidates.count, candidates.count)
+        var hashes: [String: String] = [:]
+        for (key, url) in files {
+            // The path itself also identifies aliased keys for the same file.
+            hashes[key] = hashesByPath[url.path] ?? "same-file:" + url.path
+        }
+        return Self.groups(posts: posts, hashesByMediaKey: hashes)
+    }
+}
+
+struct LibraryStorageNode: Identifiable {
+    let relativePath: String
+    let name: String
+    let bytes: Int64
+    let children: [LibraryStorageNode]
+    var id: String { relativePath }
+    var isFolder: Bool { !children.isEmpty }
+}
+
+actor LibraryStorageScanner {
+    func scan(root: URL = StorageManager.appDocumentsLibraryURL) throws -> LibraryStorageNode {
+        if !FileManager.default.fileExists(atPath: root.path) {
+            return LibraryStorageNode(relativePath: "", name: "Library", bytes: 0, children: [])
+        }
+        return try node(at: root, root: root)
+    }
+
+    private func node(at url: URL, root: URL) throws -> LibraryStorageNode {
+        try Task.checkCancellation()
+        let values = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey])
+        let relative = url == root ? "" : String(url.path.dropFirst(root.path.count + 1))
+        if values.isSymbolicLink == true {
+            return LibraryStorageNode(relativePath: relative, name: url.lastPathComponent, bytes: 0, children: [])
+        }
+        if values.isDirectory == true {
+            let urls = try FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+            let children = try urls.map { try node(at: $0, root: root) }
+                .sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes }
+            return LibraryStorageNode(relativePath: relative, name: url.lastPathComponent,
+                                      bytes: children.reduce(0) { $0 + $1.bytes }, children: children)
+        }
+        return LibraryStorageNode(relativePath: relative, name: url.lastPathComponent,
+                                  bytes: Int64(values.fileSize ?? 0), children: [])
+    }
+}
+
+enum LibraryTreemapLayout {
+    struct Tile: Identifiable {
+        let node: LibraryStorageNode
+        let rect: CGRect
+        var id: String { node.id }
+    }
+
+    static func tiles(_ nodes: [LibraryStorageNode], in rect: CGRect) -> [Tile] {
+        let nonempty = nodes.filter { $0.bytes > 0 }
+        guard !nonempty.isEmpty else { return [] }
+        if nonempty.count == 1 { return [Tile(node: nonempty[0], rect: rect)] }
+        let total = nonempty.reduce(Int64(0)) { $0 + $1.bytes }
+        var firstBytes: Int64 = 0
+        var split = 1
+        for index in 0..<(nonempty.count - 1) {
+            firstBytes += nonempty[index].bytes
+            split = index + 1
+            if firstBytes >= total / 2 { break }
+        }
+        let fraction = CGFloat(Double(firstBytes) / Double(total))
+        let first: CGRect
+        let second: CGRect
+        if rect.width >= rect.height {
+            first = CGRect(x: rect.minX, y: rect.minY, width: rect.width * fraction, height: rect.height)
+            second = CGRect(x: first.maxX, y: rect.minY, width: rect.width - first.width, height: rect.height)
+        } else {
+            first = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height * fraction)
+            second = CGRect(x: rect.minX, y: first.maxY, width: rect.width, height: rect.height - first.height)
+        }
+        return tiles(Array(nonempty[..<split]), in: first) + tiles(Array(nonempty[split...]), in: second)
+    }
+}

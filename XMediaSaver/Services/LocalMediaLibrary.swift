@@ -1,6 +1,22 @@
 import Combine
 import Foundation
 
+extension Notification.Name {
+    static let localMediaLibraryChanged = Notification.Name("XMediaSaver.LocalMediaLibraryChanged")
+}
+
+enum FolderPathSafety {
+    static func mediaURL(_ relativePath: String, root: URL) -> URL? {
+        guard ["Images/", "Animated GIFs/", "Videos/"].contains(where: relativePath.hasPrefix) else { return nil }
+        let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        let candidate = base.appendingPathComponent(relativePath).standardizedFileURL.resolvingSymlinksInPath()
+        guard candidate.path.hasPrefix(base.path + "/"),
+              (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
+        else { return nil }
+        return candidate
+    }
+}
+
 actor LocalMediaLibrary {
     static let shared = LocalMediaLibrary()
 
@@ -27,6 +43,7 @@ actor LocalMediaLibrary {
         }
         loadState(from: root)
         hasLoaded = true
+        NotificationCenter.default.post(name: .localMediaLibraryChanged, object: nil)
     }
 
     func localURL(for mediaKey: String) -> URL? {
@@ -52,19 +69,28 @@ actor LocalMediaLibrary {
         return Set(localURLsByMediaKey.keys)
     }
 
+    func availableFiles() -> [String: URL] {
+        _ = availableMediaKeys()
+        return localURLsByMediaKey
+    }
+
     private func loadState(from root: URL) {
         let stateURL = root.appendingPathComponent("export-state.jsonl")
         guard let data = try? Data(contentsOf: stateURL) else { return }
-        for line in data.split(separator: 0x0A) {
-            guard let record = try? JSONDecoder().decode(
-                LocalExportStateRecord.self,
-                from: Data(line)
-            ) else {
-                continue
+        let records: [LocalExportStateRecord]
+        if let legacy = try? JSONDecoder().decode([String: String].self, from: data) {
+            records = legacy.map { LocalExportStateRecord(mediaKey: $0.key, relativePath: $0.value) }
+        } else {
+            records = data.split(separator: 0x0A).compactMap {
+                try? JSONDecoder().decode(LocalExportStateRecord.self, from: Data($0))
             }
-            let url = root.appendingPathComponent(record.relativePath)
+        }
+        for record in records {
+            guard let url = FolderPathSafety.mediaURL(record.relativePath, root: root) else { continue }
             if FileManager.default.fileExists(atPath: url.path) {
                 localURLsByMediaKey[record.mediaKey] = url
+            } else {
+                localURLsByMediaKey.removeValue(forKey: record.mediaKey)
             }
         }
     }
@@ -115,6 +141,7 @@ actor LocalFolderLibrary {
     func deleteMedia(withKeys keys: Set<String>) throws {
         guard !keys.isEmpty else { return }
         var state = try loadExportState()
+        guard !keys.isDisjoint(with: Set(state.keys)) else { return }
         let records = try loadPostRecords().map { record in
             ExportedPostRecord(
                 id: record.id,
@@ -128,13 +155,15 @@ actor LocalFolderLibrary {
             )
         }
 
-        for key in keys {
-            if let relativePath = state[key],
-               let fileURL = safeFileURL(for: relativePath),
-               FileManager.default.fileExists(atPath: fileURL.path) {
+        let pathsToRemove = Set(keys.compactMap { state[$0] })
+        for key in keys { state.removeValue(forKey: key) }
+        // Distinct media keys can point at one physical file. Never break a
+        // retained reference when deleting one media or one Post.
+        let retainedPaths = Set(state.values)
+        for path in pathsToRemove.subtracting(retainedPaths) {
+            if let fileURL = safeFileURL(for: path), FileManager.default.fileExists(atPath: fileURL.path) {
                 try FileManager.default.removeItem(at: fileURL)
             }
-            state.removeValue(forKey: key)
         }
         try rewriteExportState(state)
         try rewritePostRecords(records)
@@ -162,13 +191,14 @@ actor LocalFolderLibrary {
             + remainingUnavailable.flatMap(\.post.media).map(\.mediaKey)
         )
 
-        for key in removedMediaKeys.subtracting(retainedMediaKeys) {
-            if let relativePath = state[key],
-               let fileURL = safeFileURL(for: relativePath),
-               FileManager.default.fileExists(atPath: fileURL.path) {
+        let keysToRemove = removedMediaKeys.subtracting(retainedMediaKeys)
+        let pathsToRemove = Set(keysToRemove.compactMap { state[$0] })
+        for key in keysToRemove { state.removeValue(forKey: key) }
+        let retainedPaths = Set(state.values)
+        for path in pathsToRemove.subtracting(retainedPaths) {
+            if let fileURL = safeFileURL(for: path), FileManager.default.fileExists(atPath: fileURL.path) {
                 try FileManager.default.removeItem(at: fileURL)
             }
-            state.removeValue(forKey: key)
         }
         try rewriteExportState(state)
         try rewritePostRecords(remainingRecords)
@@ -204,6 +234,7 @@ actor LocalFolderLibrary {
         guard FileManager.default.fileExists(atPath: exportStateURL.path)
         else { return [:] }
         let data = try Data(contentsOf: exportStateURL)
+        if let legacy = try? JSONDecoder().decode([String: String].self, from: data) { return legacy }
         var result: [String: String] = [:]
         for line in data.split(separator: 0x0A) {
             if let record = try? JSONDecoder().decode(
@@ -252,14 +283,7 @@ actor LocalFolderLibrary {
     }
 
     private func safeFileURL(for relativePath: String) -> URL? {
-        let standardizedRoot = root.standardizedFileURL
-        let candidate = root.appendingPathComponent(relativePath)
-            .standardizedFileURL
-        let rootPrefix = standardizedRoot.path.hasSuffix("/")
-            ? standardizedRoot.path
-            : standardizedRoot.path + "/"
-        guard candidate.path.hasPrefix(rootPrefix) else { return nil }
-        return candidate
+        FolderPathSafety.mediaURL(relativePath, root: root)
     }
 
     private static func bookmarkedPost(
@@ -331,6 +355,7 @@ final class LocalFolderLibraryModel: ObservableObject {
         posts = try await library.loadPosts()
         unavailablePosts = try await library.loadUnavailablePosts()
         await LocalMediaLibrary.shared.reload()
+        NotificationCenter.default.post(name: .localMediaLibraryChanged, object: nil)
     }
 
     func deletePosts(withIDs ids: Set<String>) async throws {
@@ -340,6 +365,7 @@ final class LocalFolderLibraryModel: ObservableObject {
         posts = try await library.loadPosts()
         unavailablePosts = try await library.loadUnavailablePosts()
         await LocalMediaLibrary.shared.reload()
+        NotificationCenter.default.post(name: .localMediaLibraryChanged, object: nil)
     }
 
     private func show(_ error: Error) {

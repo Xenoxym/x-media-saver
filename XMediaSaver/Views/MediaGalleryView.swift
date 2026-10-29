@@ -16,7 +16,11 @@ struct MediaGalleryView: View {
     let titleOverride: String?
     let switchToPosts: (() -> Void)?
     let detailSourcePosts: [BookmarkedPost]
+    let isFolderLibrary: Bool
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var localMediaKeys: Set<String> = []
+    @State private var isShuffled = false
     @State private var visibleLimit = 90
     @State private var isSelecting = false
     @State private var selectedMediaKeys: Set<String> = []
@@ -44,6 +48,7 @@ struct MediaGalleryView: View {
         titleOverride: String? = nil,
         switchToPosts: (() -> Void)? = nil,
         detailSourcePosts: [BookmarkedPost]? = nil,
+        isFolderLibrary: Bool? = nil,
         onClose: @escaping () -> Void
     ) {
         self.mediaType = mediaType
@@ -51,6 +56,7 @@ struct MediaGalleryView: View {
         self.titleOverride = titleOverride
         self.switchToPosts = switchToPosts
         self.detailSourcePosts = detailSourcePosts ?? posts
+        self.isFolderLibrary = isFolderLibrary ?? (deleteFolderMedia != nil)
         self.onClose = onClose
         var seen: Set<String> = []
         let items: [GalleryMediaItem] = posts.enumerated()
@@ -141,7 +147,15 @@ struct MediaGalleryView: View {
         .compactBackButton(action: onClose)
         .edgeSwipeBack(action: onClose)
         .onChange(of: sort) { value in
+            isShuffled = false
             applySort(value)
+        }
+        .task { await refreshLocalAvailability() }
+        .onReceive(NotificationCenter.default.publisher(for: .localMediaLibraryChanged).receive(on: RunLoop.main)) { _ in
+            Task { await refreshLocalAvailability() }
+        }
+        .onChange(of: scenePhase) { value in
+            if value == .active { Task { await refreshLocalAvailability() } }
         }
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
@@ -157,8 +171,14 @@ struct MediaGalleryView: View {
                             Text($0.title).tag($0)
                         }
                     }
+                    Button { shuffleGallery() } label: {
+                        Label(isShuffled ? "重新随机排序" : "随机排序（按 Post）", systemImage: "shuffle")
+                    }
+                    if isShuffled {
+                        Button("恢复当前排序") { isShuffled = false; applySort(sort) }
+                    }
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
+                    Image(systemName: isShuffled ? "shuffle" : "arrow.up.arrow.down")
                 }
                 if switchToPosts == nil {
                     Text("\(galleryItems.count)")
@@ -325,6 +345,8 @@ struct MediaGalleryView: View {
             return postIsNewer(lhs.post, rhs.post)
         case .oldest:
             return postIsNewer(rhs.post, lhs.post)
+        case .sizeDescending, .sizeAscending:
+            return BookmarkPostOrdering.precedes(lhs.post, rhs.post, by: sort)
         }
     }
 
@@ -438,7 +460,7 @@ struct MediaGalleryView: View {
 
             if !mediaSaver.isSaving, !isDeletingFolderMedia {
                 HStack(spacing: 10) {
-                    if deleteFolderMedia == nil {
+                    if !isFolderLibrary {
                         Button {
                             mediaSaver.saveToFolder(selectedGalleryItems)
                         } label: {
@@ -470,6 +492,7 @@ struct MediaGalleryView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.red)
+                        .disabled(selectedMediaKeys.isDisjoint(with: localMediaKeys))
                     }
                 }
                 .disabled(selectedMediaKeys.isEmpty)
@@ -486,20 +509,24 @@ struct MediaGalleryView: View {
 
     private func deleteSelectedFolderMedia() {
         guard let deleteFolderMedia, !selectedMediaKeys.isEmpty else { return }
-        let keys = selectedMediaKeys
+        let keys = selectedMediaKeys.intersection(localMediaKeys)
+        guard !keys.isEmpty else { return }
         isDeletingFolderMedia = true
         Task { @MainActor in
             defer { isDeletingFolderMedia = false }
             do {
                 try await deleteFolderMedia(keys)
-                removedMediaKeys.formUnion(keys)
-                galleryItems.removeAll { keys.contains($0.id) }
+                if isFolderLibrary {
+                    removedMediaKeys.formUnion(keys)
+                    galleryItems.removeAll { keys.contains($0.id) }
+                }
                 indexByMediaKey = Dictionary(
                     uniqueKeysWithValues: galleryItems.enumerated().map {
                         ($0.element.id, $0.offset)
                     }
                 )
                 selectedMediaKeys.removeAll()
+                await refreshLocalAvailability()
             } catch {
                 mediaSaver.presentedError = PresentedError(
                     message: error.localizedDescription,
@@ -507,6 +534,25 @@ struct MediaGalleryView: View {
                 )
             }
         }
+    }
+
+    private func refreshLocalAvailability() async {
+        await LocalMediaLibrary.shared.reload()
+        localMediaKeys = await LocalMediaLibrary.shared.availableMediaKeys()
+        mediaSaver.refreshLocalIndicators()
+    }
+
+    private func shuffleGallery() {
+        let items = baseGalleryItems.filter { !removedMediaKeys.contains($0.id) }
+        let grouped = Dictionary(grouping: items, by: \.post.id)
+        let postIDs = BookmarkPostOrdering.shuffledPostIDs(items.map(\.post.id))
+        galleryItems = postIDs.flatMap { grouped[$0] ?? [] }
+        isShuffled = true
+        indexByMediaKey = Dictionary(uniqueKeysWithValues: galleryItems.enumerated().map { ($0.element.id, $0.offset) })
+        visibleLimit = 90
+        cellFrames = [:]
+        selectedMediaKeys.removeAll()
+        resetSelectionDrag()
     }
 
     private var title: String {
@@ -2939,5 +2985,9 @@ private final class GalleryMediaSaveModel: ObservableObject {
         if !isSaving {
             resultMessage = nil
         }
+    }
+
+    func refreshLocalIndicators() {
+        localLibraryRevision += 1
     }
 }

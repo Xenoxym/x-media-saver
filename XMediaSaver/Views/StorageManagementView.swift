@@ -13,6 +13,11 @@ struct StorageManagementView: View {
         NavigationStack {
             List {
                 Section("存储占用") {
+                    NavigationLink {
+                        StorageUsageView()
+                    } label: {
+                        Label("Folder 空间分布", systemImage: "square.grid.3x3.fill")
+                    }
                     storageRow(
                         "Post 索引",
                         bytes: snapshot?.bookmarkIndexBytes,
@@ -113,6 +118,8 @@ struct StorageManagementView: View {
                 Button("删除下载资料库", role: .destructive) {
                     Task {
                         try? await storageManager.clearDownloadLibrary()
+                        await LocalMediaLibrary.shared.reload()
+                        NotificationCenter.default.post(name: .localMediaLibraryChanged, object: nil)
                         await refresh()
                     }
                 }

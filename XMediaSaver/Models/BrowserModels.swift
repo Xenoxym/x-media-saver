@@ -160,6 +160,8 @@ enum BookmarkPostSort: String, CaseIterable, Identifiable {
     case bookmarkOldest
     case newest
     case oldest
+    case sizeDescending
+    case sizeAscending
 
     var id: String { rawValue }
     var title: String {
@@ -168,6 +170,68 @@ enum BookmarkPostSort: String, CaseIterable, Identifiable {
         case .bookmarkOldest: return L10n.string("最早加入书签")
         case .newest: return L10n.string("最新发布")
         case .oldest: return L10n.string("最早发布")
+        case .sizeDescending: return L10n.string("Post 大小：从大到小")
+        case .sizeAscending: return L10n.string("Post 大小：从小到大")
+        }
+    }
+}
+
+enum BookmarkPostOrdering {
+    static func sorted(_ posts: [BookmarkedPost], by sort: BookmarkPostSort) -> [BookmarkedPost] {
+        if sort == .bookmarkNewest { return posts }
+        if sort == .bookmarkOldest { return Array(posts.reversed()) }
+        return posts.sorted { precedes($0, $1, by: sort) }
+    }
+
+    static func precedes(_ lhs: BookmarkedPost, _ rhs: BookmarkedPost, by sort: BookmarkPostSort) -> Bool {
+        if sort == .sizeAscending || sort == .sizeDescending {
+            switch (lhs.totalKnownByteSize, rhs.totalKnownByteSize) {
+            case let (left?, right?) where left != right:
+                return sort == .sizeDescending ? left > right : left < right
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return lhs.id > rhs.id
+            }
+        }
+        switch (lhs.createdAt, rhs.createdAt) {
+        case let (left?, right?) where left != right:
+            return sort == .oldest ? left < right : left > right
+        case (_?, nil): return true
+        case (nil, _?): return false
+        default: return sort == .oldest ? lhs.id < rhs.id : lhs.id > rhs.id
+        }
+    }
+
+    static func shuffledPostRanks(_ postIDs: [String]) -> [String: Int] {
+        let unique = shuffledPostIDs(postIDs)
+        return Dictionary(uniqueKeysWithValues: unique.enumerated().map { ($0.element, $0.offset) })
+    }
+
+    static func shuffledPostIDs(_ postIDs: [String]) -> [String] {
+        var seen: Set<String> = []
+        return postIDs.filter { seen.insert($0).inserted }.shuffled()
+    }
+}
+
+enum BookmarkLocalSaveFilter: String, CaseIterable, Identifiable {
+    case all, anySaved, notFullySaved, fullySaved
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .all: return L10n.string("全部保存状态")
+        case .anySaved: return L10n.string("已保存到 Folder（含部分）")
+        case .notFullySaved: return L10n.string("尚未完整保存到 Folder")
+        case .fullySaved: return L10n.string("已完整保存到 Folder")
+        }
+    }
+    func matches(_ post: BookmarkedPost, localKeys: Set<String>) -> Bool {
+        if self == .all { return true }
+        let count = post.media.filter { localKeys.contains($0.mediaKey) }.count
+        switch self {
+        case .all: return true
+        case .anySaved: return count > 0
+        case .notFullySaved: return !post.media.isEmpty && count < post.media.count
+        case .fullySaved: return !post.media.isEmpty && count == post.media.count
         }
     }
 }

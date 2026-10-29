@@ -552,7 +552,8 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         let oldMedia = Dictionary(
             uniqueKeysWithValues: existing.media.map { ($0.mediaKey, $0) }
         )
-        let media = incoming.media.map { item in
+        let receivedMedia = incoming.media.isEmpty ? existing.media : incoming.media
+        let media = receivedMedia.map { item in
             guard let old = oldMedia[item.mediaKey],
                   item.byteSize == nil
             else {

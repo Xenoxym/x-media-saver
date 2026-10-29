@@ -2,6 +2,16 @@ import XCTest
 @testable import XMediaSaver
 
 final class BrowserCaptureParserTests: XCTestCase {
+    func testLegacyEntitiesMediaAndImageSuffixAreParsed() throws {
+        let json = #"{"data":{"tweet_results":{"result":{"rest_id":"2018","legacy":{"full_text":"old post","created_at":"Wed Oct 10 20:19:24 +0000 2018","entities":{"media":[{"id_str":"123","type":"photo","media_url_https":"https://pbs.twimg.com/media/old.jpg:large","sizes":{"large":{"w":1200,"h":800}}}]}}}}}}"#
+        let capture = try BrowserCaptureParser.parse(data: Data(json.utf8), sourceURL: "bookmarks")
+        let media = try XCTUnwrap(capture.posts.first?.media.first)
+        XCTAssertEqual(media.mediaKey, "123")
+        XCTAssertEqual(media.width, 1200)
+        XCTAssertEqual(media.url?.path, "/media/old.jpg")
+        XCTAssertEqual(URLComponents(url: media.url!, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "orig")
+    }
+
     func testParsesPhotoGIFVideoAndHighestMP4Variant() throws {
         let json = """
         {

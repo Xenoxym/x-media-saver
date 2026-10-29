@@ -2,6 +2,119 @@ import XCTest
 @testable import XMediaSaver
 
 final class BookmarkModelsTests: XCTestCase {
+    func testPostSizeOrderingKeepsUnknownSizesLast() {
+        let small = sizedPost("small", bytes: 10)
+        let large = sizedPost("large", bytes: 50)
+        let unknown = sizedPost("unknown", bytes: nil)
+        XCTAssertEqual(BookmarkPostOrdering.sorted([unknown, small, large], by: .sizeDescending).map(\.id), ["large", "small", "unknown"])
+        XCTAssertEqual(BookmarkPostOrdering.sorted([unknown, large, small], by: .sizeAscending).map(\.id), ["small", "large", "unknown"])
+    }
+
+    func testShuffleTenThousandPostsHasNoOmissionsOrDuplicates() {
+        let ids = (0..<10_000).map(String.init)
+        let start = Date()
+        let shuffled = BookmarkPostOrdering.shuffledPostIDs(ids + ids)
+        print("10,000-Post shuffle seconds: \(Date().timeIntervalSince(start))")
+        XCTAssertEqual(shuffled.count, ids.count)
+        XCTAssertEqual(Set(shuffled), Set(ids))
+    }
+
+    func testLocalSavedFiltersIncludePartialPosts() {
+        let post = makePost(id: "p", date: nil, types: [.photo, .video])
+        XCTAssertTrue(BookmarkLocalSaveFilter.anySaved.matches(post, localKeys: ["p-0"]))
+        XCTAssertTrue(BookmarkLocalSaveFilter.notFullySaved.matches(post, localKeys: ["p-0"]))
+        XCTAssertFalse(BookmarkLocalSaveFilter.fullySaved.matches(post, localKeys: ["p-0"]))
+        XCTAssertTrue(BookmarkLocalSaveFilter.fullySaved.matches(post, localKeys: ["p-0", "p-1"]))
+    }
+
+    func testDuplicatesMatchSourceAssetAndIdenticalFileHashes() {
+        let first = sizedPost("one", bytes: 3, source: "same.jpg?name=orig")
+        let second = sizedPost("two", bytes: 3, source: "same?format=jpg&name=small")
+        let third = sizedPost("three", bytes: 3, source: "other.jpg")
+        let indexed = MediaDuplicateAnalyzer.groups(posts: [first, second, third])
+        XCTAssertEqual(indexed.count, 1)
+        XCTAssertEqual(Set(indexed[0].posts.map(\.id)), ["one", "two"])
+        let hashed = MediaDuplicateAnalyzer.groups(posts: [first, third], hashesByMediaKey: ["one": "hash", "three": "hash"])
+        XCTAssertEqual(hashed.count, 1)
+        XCTAssertTrue(hashed[0].matchedByFileHash)
+    }
+
+    func testTreemapCoversAreaWithoutOverlappingTiles() {
+        let nodes = (1...20).map { value in
+            LibraryStorageNode(relativePath: String(value), name: String(value), bytes: Int64(value), children: [])
+        }
+        let rect = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let tiles = LibraryTreemapLayout.tiles(nodes, in: rect)
+        XCTAssertEqual(tiles.reduce(CGFloat(0)) { $0 + $1.rect.width * $1.rect.height }, rect.width * rect.height, accuracy: 0.01)
+        for left in tiles.indices {
+            for right in tiles.indices where right > left {
+                let intersection = tiles[left].rect.intersection(tiles[right].rect)
+                XCTAssertTrue(intersection.isNull || intersection.width * intersection.height < 0.001)
+            }
+        }
+    }
+
+    func testDeletingAliasedMediaDoesNotDeleteRetainedFile() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("Images/shared.jpg")
+        try Data([1, 2, 3]).write(to: file)
+        let states = [ExportStateRecord(mediaKey: "a", relativePath: "Images/shared.jpg"), ExportStateRecord(mediaKey: "b", relativePath: "Images/shared.jpg")]
+        try lineData(states).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let record = ExportedPostRecord(id: "keep-text", postURL: nil, text: "keep this", createdAt: nil,
+            authorID: nil, authorName: nil, authorUsername: nil, media: ["a", "b"].map {
+                ExportedMediaRecord(mediaKey: $0, type: .photo, remoteURL: nil, localRelativePath: "Images/shared.jpg",
+                    width: nil, height: nil, durationMilliseconds: nil, byteSize: 3)
+            })
+        try lineData([record]).write(to: root.appendingPathComponent("posts.jsonl"))
+        let library = LocalFolderLibrary(root: root)
+        try await library.deleteMedia(withKeys: ["a", "not-saved"])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path))
+        let restored = try await library.loadPosts()
+        XCTAssertEqual(restored[0].media.map(\.mediaKey), ["b"])
+        try await library.deleteMedia(withKeys: ["b"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        let emptyPost = try await library.loadPosts()
+        XCTAssertEqual(emptyPost[0].text, "keep this")
+        XCTAssertTrue(emptyPost[0].media.isEmpty)
+        XCTAssertNil(FolderPathSafety.mediaURL("Images/../../outside.jpg", root: root))
+    }
+
+    func testExportAuditIncludesPostsWithNoParsedMedia() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let empty = makePost(id: "old-empty", date: Date(timeIntervalSince1970: 0), types: [])
+        let result = try await FolderMediaExporter().export(posts: [], mediaByPostID: [:], auditPosts: [empty], destination: root) { _ in }
+        XCTAssertEqual(result.failed, 0)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let report = try decoder.decode(FolderExportAudit.self, from: Data(contentsOf: root.appendingPathComponent("last-export-report.json")))
+        XCTAssertEqual(report.posts[0].exclusionReason, "no_parsed_media")
+    }
+
+    func testManualFileDeletionUpdatesLocalAvailability() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("Images/test.jpg")
+        try Data([1]).write(to: file)
+        try lineData([ExportStateRecord(mediaKey: "key", relativePath: "Images/test.jpg")]).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let library = LocalMediaLibrary(roots: [root])
+        let before = await library.availableMediaKeys()
+        XCTAssertTrue(before.contains("key"))
+        try FileManager.default.removeItem(at: file)
+        let after = await library.availableMediaKeys()
+        XCTAssertFalse(after.contains("key"))
+    }
+
+    private func sizedPost(_ id: String, bytes: Int64?, source: String? = nil) -> BookmarkedPost {
+        BookmarkedPost(id: id, text: "", createdAt: nil, authorID: nil, authorName: nil, authorUsername: nil,
+            media: [BookmarkedMedia(mediaKey: id, type: .photo,
+                url: URL(string: "https://pbs.twimg.com/media/" + (source ?? id + ".jpg")), previewImageURL: nil,
+                variants: [], width: nil, height: nil, durationMilliseconds: nil, byteSize: bytes)])
+    }
+
     func testBrowseModesIncludeFilteredPostsAndAggregations() {
         XCTAssertEqual(
             BookmarkBrowseMode.allCases.map(\.rawValue),
@@ -511,7 +624,8 @@ final class BookmarkModelsTests: XCTestCase {
         let library = LocalFolderLibrary(root: root)
         try await library.deletePosts(withIDs: ["delete-me"])
 
-        XCTAssertTrue(try await library.loadPosts().isEmpty)
+        let remainingPosts = try await library.loadPosts()
+        XCTAssertTrue(remainingPosts.isEmpty)
         XCTAssertFalse(
             FileManager.default.fileExists(
                 atPath: images.appendingPathComponent("only.jpg").path

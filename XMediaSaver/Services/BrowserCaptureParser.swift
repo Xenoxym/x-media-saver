@@ -19,6 +19,9 @@ enum BrowserCaptureParser {
             if postsByID[post.id] == nil {
                 orderedIDs.append(post.id)
             }
+            if let existing = postsByID[post.id], post.media.isEmpty, !existing.media.isEmpty {
+                continue
+            }
             postsByID[post.id] = post
         }
 
@@ -159,14 +162,12 @@ enum BrowserCaptureParser {
     private static func parseMedia(
         from legacy: [String: Any]
     ) -> [BookmarkedMedia] {
-        guard let extended = legacy["extended_entities"] as? [String: Any],
-              let media = extended["media"] as? [[String: Any]]
-        else {
-            return []
-        }
+        let extended = (legacy["extended_entities"] as? [String: Any])?["media"] as? [[String: Any]]
+        let entities = (legacy["entities"] as? [String: Any])?["media"] as? [[String: Any]]
+        let media = (extended?.isEmpty == false ? extended : entities) ?? []
 
-        return media.compactMap { item in
-            guard let typeString = item["type"] as? String,
+        return media.enumerated().compactMap { offset, item in
+            guard let typeString = (item["type"] as? String) ?? (item["media_url_https"] != nil ? "photo" : nil),
                   let type = BookmarkMediaType(rawValue: typeString)
             else {
                 return nil
@@ -174,7 +175,9 @@ enum BrowserCaptureParser {
 
             let mediaKey = (item["media_key"] as? String)
                 ?? (item["id_str"] as? String)
-                ?? UUID().uuidString
+                ?? (item["id"] as? NSNumber)?.stringValue
+                ?? (item["media_url_https"] as? String)
+                ?? "\(legacy["id_str"] as? String ?? "unknown")-media-\(offset)"
             let videoInfo = item["video_info"] as? [String: Any]
             let variants = (videoInfo?["variants"] as? [[String: Any]] ?? [])
                 .compactMap { variant -> XMediaVariant? in
@@ -194,9 +197,10 @@ enum BrowserCaptureParser {
                     )
                 }
 
-            let imageURL = (item["media_url_https"] as? String)
+            let imageURL = ((item["media_url_https"] as? String) ?? (item["media_url"] as? String))
                 .flatMap(originalImageURL)
-            let sizes = ((item["original_info"] as? [String: Any]))
+            let sizes = (item["original_info"] as? [String: Any])
+                ?? ((item["sizes"] as? [String: Any])?["large"] as? [String: Any])
 
             return BookmarkedMedia(
                 mediaKey: mediaKey,
@@ -204,8 +208,8 @@ enum BrowserCaptureParser {
                 url: type == .photo ? imageURL : nil,
                 previewImageURL: imageURL,
                 variants: variants,
-                width: (sizes?["width"] as? Int),
-                height: (sizes?["height"] as? Int),
+                width: (sizes?["width"] as? Int) ?? (sizes?["w"] as? Int),
+                height: (sizes?["height"] as? Int) ?? (sizes?["h"] as? Int),
                 durationMilliseconds: videoInfo?["duration_millis"] as? Int
             )
         }
@@ -213,12 +217,17 @@ enum BrowserCaptureParser {
 
     private static func originalImageURL(_ value: String) -> URL? {
         guard var components = URLComponents(string: value),
-              components.scheme?.lowercased() == "https",
+              ["https", "http"].contains(components.scheme?.lowercased() ?? ""),
               components.host?.lowercased() == "pbs.twimg.com"
         else {
             return nil
         }
-        components.queryItems = [URLQueryItem(name: "name", value: "orig")]
+        components.scheme = "https"
+        if let colon = components.path.lastIndex(of: ":") {
+            components.path = String(components.path[..<colon])
+        }
+        let format = components.queryItems?.first { $0.name == "format" }
+        components.queryItems = (format.map { [$0] } ?? []) + [URLQueryItem(name: "name", value: "orig")]
         return components.url
     }
 

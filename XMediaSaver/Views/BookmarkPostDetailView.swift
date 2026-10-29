@@ -446,6 +446,7 @@ private struct RelatedPostsListView: View {
     let switchToMedia: () -> Void
     let onClose: () -> Void
     @State private var visibleLimit = 100
+    @State private var sort = BookmarkPostSort.bookmarkNewest
     @AppStorage("bookmarkPostPreviewMode")
     private var previewModeRaw = BookmarkPostPreviewMode.media.rawValue
 
@@ -456,7 +457,7 @@ private struct RelatedPostsListView: View {
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(Array(posts.prefix(visibleLimit))) { post in
+                ForEach(Array(BookmarkPostOrdering.sorted(posts, by: sort).prefix(visibleLimit))) { post in
                     NavigationLink {
                         BookmarkPostDetailView(
                             post: post,
@@ -488,6 +489,11 @@ private struct RelatedPostsListView: View {
         .edgeSwipeBack(action: onClose)
         .toolbar {
             ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Menu {
+                    Picker("Post 排序", selection: $sort) {
+                        ForEach(BookmarkPostSort.allCases) { Text($0.title).tag($0) }
+                    }
+                } label: { Image(systemName: "arrow.up.arrow.down") }
                 Button(action: switchToMedia) {
                     Image(systemName: "square.grid.3x3")
                 }

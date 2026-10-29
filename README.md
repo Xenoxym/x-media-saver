@@ -26,6 +26,16 @@ X Media Saver is a personal, sideloadable iOS app for saving media from posts yo
 
 The interface follows the system language—Simplified Chinese for Chinese systems and English otherwise—or can be overridden in **Settings**.
 
+## Manage your saved library
+
+- **Free space from a gallery:** Select media and tap Delete. In Index mode, only existing Folder copies are removed; Post text/index records stay. In Files mode, the deleted media disappear from that grid. A blue media-type icon means the file currently exists locally. Returning from Files or reopening the gallery rechecks availability.
+- **Browse your way:** Gallery sorting includes shuffle by Post (keeping that Post's media together), publication/bookmark order, and total Post media size. Browse & Search can filter partially or fully saved Posts. Unknown sizes sort last.
+- **See disk usage:** Settings → Storage Management → Folder Storage Map shows proportional blocks and a largest-first file tree. It counts physical file paths, not repeated Post references.
+- **Investigate missing saves:** Save & Export → Latest Save Report lists successful/failed items and Posts excluded before downloading, including missing parsed media. The same report is inspectable in `Library/last-export-report.json`.
+- **Find duplicates:** Save & Export → Duplicate Media groups shared media IDs/source URLs. Optionally scan local file contents with streaming SHA-256 to find byte-identical copies; no files are automatically merged or deleted. Resized/re-encoded files are not classified by visual similarity.
+
+The exporter reuses valid existing files by `mediaKey`; it does not automatically hash or consolidate different files. Removing a bookmark on X does not delete its local index. A media-CDN 404 is a download error, not proof that a Post was deleted or unbookmarked. Unavailable Posts defaults to the most recent failed attempt and also supports publication-time and size sorting.
+
 ## Detailed features
 
 - **Single-link downloads:** Paste an `x.com` or `twitter.com` Post URL, save all photos together, or select an MP4 video/animated-GIF variant.

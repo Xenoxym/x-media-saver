@@ -27,6 +27,8 @@ final class FolderMediaExporter: @unchecked Sendable {
     func export(
         posts: [BookmarkedPost],
         mediaByPostID: [String: [BookmarkedMedia]],
+        auditPosts: [BookmarkedPost]? = nil,
+        exclusionReasons: [String: String] = [:],
         destination: URL,
         progress: @escaping @Sendable (FolderExportProgress) -> Void
     ) async throws -> FolderExportResult {
@@ -60,11 +62,9 @@ final class FolderMediaExporter: @unchecked Sendable {
         for (index, item) in ordered.enumerated() {
             try Task.checkCancellation()
             if let relativePath = state[item.media.mediaKey],
-               FileManager.default.fileExists(
-                atPath: destination
-                    .appendingPathComponent(relativePath)
-                    .path
-               ) {
+               let fileURL = FolderPathSafety.mediaURL(relativePath, root: destination),
+               let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+               values.isRegularFile == true, (values.fileSize ?? 0) > 0 {
                 skipped += 1
                 successfulMediaKeys.insert(item.media.mediaKey)
                 locallyOrRemotelyAvailableKeys.insert(item.media.mediaKey)
@@ -200,6 +200,12 @@ final class FolderMediaExporter: @unchecked Sendable {
             failureReasons: remotelyUnavailableReasons
         )
 
+        try writeAudit(
+            posts: auditPosts ?? posts, mediaByPostID: mediaByPostID,
+            exclusionReasons: exclusionReasons, successfulKeys: successfulMediaKeys,
+            failureReasons: failureReasons, state: state, destination: destination
+        )
+
         return FolderExportResult(
             saved: saved,
             skipped: skipped,
@@ -322,7 +328,7 @@ final class FolderMediaExporter: @unchecked Sendable {
                 authorID: post.authorID,
                 authorName: post.authorName,
                 authorUsername: post.authorUsername,
-                media: exportedMedia.map { media in
+                media: mergedExportedMedia(existing: recordsByID[post.id]?.media ?? [], incoming: exportedMedia.map { media in
                     let relativePath = state[media.mediaKey]
                     return ExportedMediaRecord(
                         mediaKey: media.mediaKey,
@@ -337,7 +343,7 @@ final class FolderMediaExporter: @unchecked Sendable {
                             destination: destination
                         ) ?? media.byteSize
                     )
-                }
+                }, state: state, destination: destination)
             )
         }
 
@@ -402,6 +408,49 @@ final class FolderMediaExporter: @unchecked Sendable {
             }
         }
         return result
+    }
+
+    private func mergedExportedMedia(
+        existing: [ExportedMediaRecord], incoming: [ExportedMediaRecord],
+        state: [String: String], destination: URL
+    ) -> [ExportedMediaRecord] {
+        var result: [ExportedMediaRecord] = []
+        let incomingKeys = Set(incoming.map(\.mediaKey))
+        result.append(contentsOf: existing.filter { item in
+            guard !incomingKeys.contains(item.mediaKey), let path = state[item.mediaKey],
+                  let url = FolderPathSafety.mediaURL(path, root: destination) else { return false }
+            return FileManager.default.fileExists(atPath: url.path)
+        })
+        result.append(contentsOf: incoming)
+        return result
+    }
+
+    private func writeAudit(
+        posts: [BookmarkedPost], mediaByPostID: [String: [BookmarkedMedia]],
+        exclusionReasons: [String: String], successfulKeys: Set<String>,
+        failureReasons: [String: String], state: [String: String], destination: URL
+    ) throws {
+        let entries = posts.map { post -> FolderExportAudit.PostEntry in
+            let selected = mediaByPostID[post.id] ?? []
+            return .init(
+                postID: post.id, postURL: post.postURL,
+                indexedMediaCount: post.media.count, selectedMediaCount: selected.count,
+                exclusionReason: exclusionReasons[post.id]
+                    ?? (selected.isEmpty ? (post.media.isEmpty ? "no_parsed_media" : "not_selected") : nil),
+                media: selected.map { media in
+                    .init(mediaKey: media.mediaKey,
+                          outcome: successfulKeys.contains(media.mediaKey) ? "available_in_folder" : "failed",
+                          relativePath: state[media.mediaKey], error: failureReasons[media.mediaKey])
+                }
+            )
+        }
+        let report = FolderExportAudit(createdAt: Date(), posts: entries)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(report).write(
+            to: destination.appendingPathComponent("last-export-report.json"), options: .atomic
+        )
     }
 
     private func localFileSize(
@@ -479,4 +528,23 @@ struct ExportedMediaRecord: Codable {
     let height: Int?
     let durationMilliseconds: Int?
     let byteSize: Int64?
+}
+
+struct FolderExportAudit: Codable {
+    struct MediaEntry: Codable {
+        let mediaKey: String
+        let outcome: String
+        let relativePath: String?
+        let error: String?
+    }
+    struct PostEntry: Codable {
+        let postID: String
+        let postURL: URL?
+        let indexedMediaCount: Int
+        let selectedMediaCount: Int
+        let exclusionReason: String?
+        let media: [MediaEntry]
+    }
+    let createdAt: Date
+    let posts: [PostEntry]
 }

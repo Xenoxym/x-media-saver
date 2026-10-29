@@ -23,20 +23,7 @@ struct IndexedPostsView: View {
         let filtered = session.capturedPosts.filter {
             matches($0, query: query)
         }
-        switch sort {
-        case .bookmarkNewest:
-            return filtered
-        case .bookmarkOldest:
-            return Array(filtered.reversed())
-        case .newest:
-            return filtered.sorted {
-                Self.newestFirst($0, $1)
-            }
-        case .oldest:
-            return filtered.sorted {
-                Self.newestFirst($1, $0)
-            }
-        }
+        return BookmarkPostOrdering.sorted(filtered, by: sort)
     }
 
     var body: some View {
@@ -311,12 +298,7 @@ struct FolderPostsView: View {
                     )
                 ) == true
         }
-        switch sort {
-        case .bookmarkNewest, .newest:
-            return filtered.sorted(by: Self.newestFirst)
-        case .bookmarkOldest, .oldest:
-            return filtered.sorted { Self.newestFirst($1, $0) }
-        }
+        return BookmarkPostOrdering.sorted(filtered, by: sort)
     }
 
     var body: some View {
@@ -386,10 +368,9 @@ struct FolderPostsView: View {
                 } else {
                     Menu {
                         Picker("Post 排序", selection: $sort) {
-                            Text(BookmarkPostSort.newest.title)
-                                .tag(BookmarkPostSort.newest)
-                            Text(BookmarkPostSort.oldest.title)
-                                .tag(BookmarkPostSort.oldest)
+                            ForEach([BookmarkPostSort.newest, .oldest, .sizeDescending, .sizeAscending]) {
+                                Text($0.title).tag($0)
+                            }
                         }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
