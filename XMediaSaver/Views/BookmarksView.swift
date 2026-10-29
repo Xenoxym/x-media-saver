@@ -13,11 +13,14 @@ struct BookmarksView: View {
         case gallery(BookmarkMediaType?, LocalLibrarySource)
         case saveFailures
         case unavailablePosts(LocalLibrarySource)
+        case filteredGallery
+        case ruleGallery(UUID)
     }
 
     @ObservedObject var session: BrowserSessionModel
     @ObservedObject var viewModel: BookmarksViewModel
     @StateObject private var folderLibrary = LocalFolderLibraryModel()
+    @ObservedObject private var ruleStore = BookmarkRuleStore.shared
     let onRequestVisibleSync: () -> Void
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -109,6 +112,7 @@ struct BookmarksView: View {
             }
         }
         .onAppear {
+            viewModel.categoryRules = ruleStore.rules
             viewModel.update(posts: session.capturedPosts)
             viewModel.reloadUnavailablePosts()
             folderLibrary.reload()
@@ -116,6 +120,7 @@ struct BookmarksView: View {
         .onReceive(session.$capturedPosts) {
             viewModel.update(posts: $0)
         }
+        .onReceive(ruleStore.$rules) { viewModel.categoryRules = $0 }
         .onReceive(NotificationCenter.default.publisher(for: .localMediaLibraryChanged).receive(on: RunLoop.main)) { _ in
             folderLibrary.reload()
             Task { await viewModel.refreshLocalMedia() }
@@ -405,6 +410,21 @@ struct BookmarksView: View {
         _ route: LocalIndexRoute
     ) -> some View {
         switch route {
+        case .ruleGallery(let id):
+            MediaGalleryView(
+                posts: viewModel.visibleRuleGroups.first { $0.id == id }?.posts ?? [], mediaType: nil,
+                titleOverride: ruleStore.rules.first { $0.id == id }?.name ?? L10n.string("规则分组"),
+                detailSourcePosts: session.capturedPosts, mediaFilter: viewModel.filter,
+                onClose: closeLocalIndex
+            )
+        case .filteredGallery:
+            MediaGalleryView(
+                posts: viewModel.visiblePosts, mediaType: nil,
+                titleOverride: L10n.string("筛选结果九宫格"),
+                detailSourcePosts: session.capturedPosts,
+                mediaFilter: viewModel.filter,
+                onClose: closeLocalIndex
+            )
         case .indexedPosts(let source):
             if source == .index {
                 IndexedPostsView(
@@ -924,6 +944,11 @@ struct BookmarksView: View {
                 Text("浏览与搜索")
                     .font(.headline)
                 Spacer()
+                Button { openLocalIndex(.filteredGallery) } label: {
+                    Image(systemName: "square.grid.3x3")
+                }
+                .buttonStyle(.bordered).controlSize(.small)
+                .accessibilityLabel("用九宫格查看筛选结果")
                 Button {
                     previewModeRaw = previewMode == .media
                         ? BookmarkPostPreviewMode.text.rawValue
@@ -966,6 +991,7 @@ struct BookmarksView: View {
             case .posts: postResults
             case .accounts: accountResults
             case .hashtags: hashtagResults
+            case .rules: ruleResults
             }
         }
         .saverCard()
@@ -993,6 +1019,10 @@ struct BookmarksView: View {
                     ForEach(BookmarkHashtagSort.allCases) {
                         Text($0.title).tag($0)
                     }
+                }
+            case .rules:
+                NavigationLink { BookmarkRulesView(store: ruleStore) } label: {
+                    Label("管理规则分组", systemImage: "slider.horizontal.3")
                 }
             }
         }
@@ -1099,6 +1129,27 @@ struct BookmarksView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                Divider()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var ruleResults: some View {
+        if viewModel.visibleRuleGroups.isEmpty {
+            noResults("还没有启用的规则分组")
+        } else {
+            ForEach(viewModel.visibleRuleGroups) { group in
+                Button { openLocalIndex(.ruleGallery(group.id)) } label: {
+                    HStack {
+                        Label(group.rule.name, systemImage: "tag")
+                        Spacer()
+                        Text("\(group.posts.count)").monospacedDigit().foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                    }.font(.subheadline).padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+                .disabled(group.posts.isEmpty)
                 Divider()
             }
         }

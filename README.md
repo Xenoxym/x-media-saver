@@ -28,6 +28,9 @@ The interface follows the system language—Simplified Chinese for Chinese syste
 
 ## Manage your saved library
 
+- **Search as a media grid:** Search within any gallery by account, Post text, or hashtag. In Browse & Search, tap the grid icon to browse the current media-type/date/duration/size/search/Folder-state results as a gallery. Full-screen paging stays inside those results.
+- **Group related topics with rules:** Browse & Search → Groups → Manage Rule Groups lets you combine related hashtags and text keywords. Any matching hashtag or keyword assigns a Post to the group, even if it has no hashtags. Groups can overlap, be edited, or disabled. A gallery's sort menu also offers a group filter. Rules live separately in Documents/`rule-categories.json` and survive index/cache/media-library clearing.
+
 - **Free space from a gallery:** Select media and tap Delete. In Index mode, only existing Folder copies are removed; Post text/index records stay. In Files mode, the deleted media disappear from that grid. A blue media-type icon means the file currently exists locally. Returning from Files or reopening the gallery rechecks availability.
 - **Browse your way:** Gallery sorting includes shuffle by Post (keeping that Post's media together), publication/bookmark order, and total Post media size. Browse & Search can filter partially or fully saved Posts. Unknown sizes sort last.
 - **See disk usage:** Settings → Storage Management → Folder Storage Map shows proportional blocks and a largest-first file tree. It counts physical file paths, not repeated Post references.

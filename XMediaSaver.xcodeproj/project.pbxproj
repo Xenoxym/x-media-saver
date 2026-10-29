@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1000000000000000000002D /* BookmarkSearchRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000032 /* BookmarkSearchRules.swift */; };
+		A1000000000000000000002E /* BookmarkRulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000033 /* BookmarkRulesView.swift */; };
 		A1000000000000000000002A /* MediaLibraryAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002F /* MediaLibraryAnalysis.swift */; };
 		A1000000000000000000002B /* LibraryToolsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000030 /* LibraryToolsView.swift */; };
 		A1000000000000000000002C /* StorageUsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000031 /* StorageUsageView.swift */; };
@@ -64,6 +66,8 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A20000000000000000000032 /* BookmarkSearchRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkSearchRules.swift; sourceTree = "<group>"; };
+		A20000000000000000000033 /* BookmarkRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BookmarkRulesView.swift; sourceTree = "<group>"; };
 		A2000000000000000000002F /* MediaLibraryAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaLibraryAnalysis.swift; sourceTree = "<group>"; };
 		A20000000000000000000030 /* LibraryToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryToolsView.swift; sourceTree = "<group>"; };
 		A20000000000000000000031 /* StorageUsageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageUsageView.swift; sourceTree = "<group>"; };
@@ -186,6 +190,7 @@
 				A20000000000000000000024 /* LocalMediaLibrary.swift */,
 				A20000000000000000000028 /* Localization.swift */,
 				A2000000000000000000002F /* MediaLibraryAnalysis.swift */,
+				A20000000000000000000032 /* BookmarkSearchRules.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -216,6 +221,7 @@
 				A20000000000000000000029 /* SettingsView.swift */,
 				A20000000000000000000030 /* LibraryToolsView.swift */,
 				A20000000000000000000031 /* StorageUsageView.swift */,
+				A20000000000000000000033 /* BookmarkRulesView.swift */,
 				A2000000000000000000002E /* AudioComparisonView.swift */,
 			);
 			path = Views;
@@ -396,6 +402,8 @@
 				A1000000000000000000002A /* MediaLibraryAnalysis.swift in Sources */,
 				A1000000000000000000002B /* LibraryToolsView.swift in Sources */,
 				A1000000000000000000002C /* StorageUsageView.swift in Sources */,
+				A1000000000000000000002D /* BookmarkSearchRules.swift in Sources */,
+				A1000000000000000000002E /* BookmarkRulesView.swift in Sources */,
 				A10000000000000000000029 /* AudioComparisonView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

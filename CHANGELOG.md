@@ -4,6 +4,9 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+- Added scoped search inside media galleries and a grid destination for current Browse & Search filter results; search filtering happens before shared-media deduplication.
+- Added local, editable rule groups combining related hashtags and Post-text keywords, with overlapping membership and persistent rules independent of the bookmark index/media library.
+
 - Added Folder deletion to Index media grids, with local-state refresh and shared-file reference protection.
 - Added per-Post gallery shuffle, Post-size sorting, Folder save-state filters, and failure-list time/size sorting.
 - Added a Folder storage treemap/file tree, duplicate-media groups with optional streaming SHA-256 scans, and per-Post export audit reports.

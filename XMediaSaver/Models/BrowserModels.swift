@@ -118,6 +118,7 @@ enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
     case posts
     case accounts
     case hashtags
+    case rules
 
     var id: String { rawValue }
 
@@ -126,6 +127,7 @@ enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
         case .posts: return "帖子"
         case .accounts: return "账号"
         case .hashtags: return "标签"
+        case .rules: return "规则分组"
         }
     }
 

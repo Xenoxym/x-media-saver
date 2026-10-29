@@ -2,6 +2,89 @@ import XCTest
 @testable import XMediaSaver
 
 final class BookmarkModelsTests: XCTestCase {
+    func testGallerySearchScopesMatchAccountTextAndUnicodeTags() throws {
+        let post = makePost(id: "search", date: nil, types: [.photo], text: "Café skyline #旅行 #Travel",
+            authorID: "12345", authorName: "Alice", authorUsername: "alice_handle")
+        let document = BookmarkSearchDocument(post: post)
+        XCTAssertTrue(document.matches(query: " @ALICE_HANDLE ", field: .account))
+        XCTAssertTrue(document.matches(query: "12345", field: .account))
+        XCTAssertTrue(document.matches(query: "cafe", field: .content))
+        XCTAssertTrue(document.matches(query: "#旅行", field: .hashtag))
+        XCTAssertTrue(document.matches(query: "#TRAVEL", field: .hashtag))
+        XCTAssertFalse(document.matches(query: "skyline", field: .account))
+        XCTAssertFalse(document.matches(query: "Alice", field: .hashtag))
+    }
+
+    func testRuleGroupsJoinRelatedHashtagsAndUntaggedKeywords() throws {
+        let posts = [
+            makePost(id: "tag", date: nil, types: [.photo], text: "A trip #旅行"),
+            makePost(id: "keyword", date: nil, types: [.photo], text: "Beautiful LANDSCAPE today"),
+            makePost(id: "not-exact", date: nil, types: [.photo], text: "#travelogue")
+        ]
+        let rule = BookmarkRuleCategory(name: "Travel", hashtags: ["travel", "旅行"], keywords: ["landscape"])
+        let matched = try BookmarkSearchEngine.matchingPostIDs(documents: posts.map(BookmarkSearchDocument.init), query: "", field: .all, rule: rule)
+        XCTAssertEqual(matched, ["tag", "keyword"])
+        let narrowed = try BookmarkSearchEngine.matchingPostIDs(documents: posts.map(BookmarkSearchDocument.init), query: "Beautiful", field: .content, rule: rule)
+        XCTAssertEqual(narrowed, ["keyword"])
+        var disabled = rule
+        disabled.isEnabled = false
+        let off = try BookmarkSearchEngine.matchingPostIDs(documents: posts.map(BookmarkSearchDocument.init), query: "", field: .all, rule: disabled)
+        XCTAssertTrue(off.isEmpty)
+    }
+
+    func testPostCanBelongToMultipleRuleGroups() {
+        let doc = BookmarkSearchDocument(post: makePost(id: "both", date: nil, types: [], text: "#travel #photo"))
+        XCTAssertTrue(BookmarkRuleCategory(name: "Travel", hashtags: ["TRAVEL"], keywords: []).matcher.matches(doc))
+        XCTAssertTrue(BookmarkRuleCategory(name: "Photos", hashtags: ["photo"], keywords: []).matcher.matches(doc))
+    }
+
+    func testRuleTermsKeepPhrasesAndDeduplicateCaseInsensitiveSynonyms() {
+        XCTAssertEqual(BookmarkRuleCategory.terms(from: "#Travel\ntravel，＃旅行", hashtags: true), ["Travel", "旅行"])
+        XCTAssertEqual(BookmarkRuleCategory.terms(from: "blue archive\nBlue Archive、风景", hashtags: false), ["blue archive", "风景"])
+    }
+
+    func testSearchSharedMediaKeepsMatchingLaterPostAssociation() throws {
+        let media = sizedPost("shared", bytes: 3).media
+        let alice = BookmarkedPost(id: "alice", text: "", createdAt: nil, authorID: nil, authorName: "Alice", authorUsername: "alice", media: media)
+        let bob = BookmarkedPost(id: "bob", text: "", createdAt: nil, authorID: nil, authorName: "Bob", authorUsername: "bob", media: media)
+        let posts = [alice, bob]
+        let ids = try BookmarkSearchEngine.matchingPostIDs(documents: posts.map(BookmarkSearchDocument.init), query: "bob", field: .account)
+        let matched = posts.filter { ids.contains($0.id) }
+        XCTAssertEqual(matched.map(\.id), ["bob"])
+        XCTAssertEqual(matched.flatMap(\.media).map(\.mediaKey), ["shared"])
+    }
+
+    @MainActor
+    func testRuleStorePersistsEditingDisablingAndDeletion() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let url = root.appendingPathComponent("rule-categories.json")
+        let store = BookmarkRuleStore(fileURL: url)
+        var rule = BookmarkRuleCategory(name: "Trips", hashtags: ["travel"], keywords: ["landscape"])
+        try store.upsert(rule)
+        let reloaded = BookmarkRuleStore(fileURL: url)
+        XCTAssertEqual(reloaded.rules, [rule])
+        rule.isEnabled = false
+        try reloaded.upsert(rule)
+        XCTAssertFalse(BookmarkRuleStore(fileURL: url).rules[0].isEnabled)
+        try reloaded.remove([rule.id])
+        XCTAssertTrue(BookmarkRuleStore(fileURL: url).rules.isEmpty)
+    }
+
+    @MainActor
+    func testCorruptRuleFileIsNotOverwrittenByAnEdit() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let url = root.appendingPathComponent("rule-categories.json")
+        let original = Data("invalid rules".utf8)
+        try original.write(to: url)
+        let store = BookmarkRuleStore(fileURL: url)
+        XCTAssertNotNil(store.loadError)
+        XCTAssertThrowsError(try store.upsert(BookmarkRuleCategory(name: "test", hashtags: ["test"], keywords: [])))
+        XCTAssertEqual(try Data(contentsOf: url), original)
+    }
+
     func testSafeMediaPathsAcceptDirectoryURLsWithTrailingSlash() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -162,7 +245,7 @@ final class BookmarkModelsTests: XCTestCase {
     func testBrowseModesIncludeFilteredPostsAndAggregations() {
         XCTAssertEqual(
             BookmarkBrowseMode.allCases.map(\.rawValue),
-            ["posts", "accounts", "hashtags"]
+            ["posts", "accounts", "hashtags", "rules"]
         )
     }
 

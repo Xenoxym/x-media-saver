@@ -10,6 +10,12 @@ private enum GallerySelectionDragIntent: Equatable {
 }
 
 struct MediaGalleryView: View {
+    private struct SearchInput: Hashable {
+        let text: String
+        let field: String
+        let rule: BookmarkRuleCategory?
+        let sourceRevision: Int
+    }
     let mediaType: BookmarkMediaType?
     let onClose: () -> Void
     let deleteFolderMedia: ((Set<String>) async throws -> Void)?
@@ -21,6 +27,16 @@ struct MediaGalleryView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var localMediaKeys: Set<String> = []
     @State private var isShuffled = false
+    @State private var shuffledPostIDs: [String] = []
+    @State private var searchText = ""
+    @State private var searchField = BookmarkSearchField.all
+    @State private var selectedRuleID: UUID?
+    @State private var matchingPostIDs: Set<String>?
+    @State private var searchDocuments: [BookmarkSearchDocument]?
+    @State private var isSearching = false
+    @State private var sourceRevision = 0
+    @State private var pendingSourceUpdate = false
+    @ObservedObject private var ruleStore = BookmarkRuleStore.shared
     @State private var visibleLimit = 90
     @State private var isSelecting = false
     @State private var selectedMediaKeys: Set<String> = []
@@ -39,6 +55,7 @@ struct MediaGalleryView: View {
     @State private var indexByMediaKey: [String: Int]
     @StateObject private var mediaSaver = GalleryMediaSaveModel()
     private let baseGalleryItems: [GalleryMediaItem]
+    private let searchSourcePosts: [BookmarkedPost]
     private static let gridCoordinateSpace = "MediaGalleryGrid"
 
     init(
@@ -49,6 +66,7 @@ struct MediaGalleryView: View {
         switchToPosts: (() -> Void)? = nil,
         detailSourcePosts: [BookmarkedPost]? = nil,
         isFolderLibrary: Bool? = nil,
+        mediaFilter: BookmarkFilter? = nil,
         onClose: @escaping () -> Void
     ) {
         self.mediaType = mediaType
@@ -58,13 +76,12 @@ struct MediaGalleryView: View {
         self.detailSourcePosts = detailSourcePosts ?? posts
         self.isFolderLibrary = isFolderLibrary ?? (deleteFolderMedia != nil)
         self.onClose = onClose
-        var seen: Set<String> = []
+        self.searchSourcePosts = posts
         let items: [GalleryMediaItem] = posts.enumerated()
             .flatMap { postOffset, post -> [GalleryMediaItem] in
-                post.media.enumerated().compactMap {
+                (mediaFilter?.media(in: post) ?? post.media).enumerated().compactMap {
                     mediaOffset, media -> GalleryMediaItem? in
-                    guard mediaType == nil || media.type == mediaType,
-                          seen.insert(media.mediaKey).inserted
+                    guard mediaType == nil || media.type == mediaType
                     else {
                         return nil
                     }
@@ -77,9 +94,11 @@ struct MediaGalleryView: View {
                 }
             }
         self.baseGalleryItems = items
-        _galleryItems = State(initialValue: items)
+        var seen: Set<String> = []
+        let uniqueItems = items.filter { seen.insert($0.id).inserted }
+        _galleryItems = State(initialValue: uniqueItems)
         _indexByMediaKey = State(initialValue: Dictionary(
-            uniqueKeysWithValues: items.enumerated().map {
+            uniqueKeysWithValues: uniqueItems.enumerated().map {
                 ($0.element.id, $0.offset)
             }
         ))
@@ -87,6 +106,19 @@ struct MediaGalleryView: View {
 
     var body: some View {
         ScrollView {
+            VStack(spacing: 0) {
+            if let rule = searchInput.rule {
+                HStack {
+                    Label(rule.name, systemImage: "tag")
+                    Spacer()
+                    Button { selectedRuleID = nil } label: { Image(systemName: "xmark.circle.fill") }
+                }.font(.caption).padding(8)
+            }
+            if isSearching { ProgressView().padding(8) }
+            if galleryItems.isEmpty, !isSearching {
+                Text("没有符合条件的媒体")
+                    .font(.subheadline).foregroundStyle(.secondary).padding()
+            }
             LazyVGrid(
                 columns: Array(
                     repeating: GridItem(.flexible(), spacing: 2),
@@ -129,6 +161,7 @@ struct MediaGalleryView: View {
                     }
                 }
             }
+            }
         }
         .scrollDisabled(
             isSelecting && selectionDragIntent == .selecting
@@ -146,8 +179,27 @@ struct MediaGalleryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .compactBackButton(action: onClose)
         .edgeSwipeBack(action: onClose)
+        .searchable(text: $searchText, prompt: "搜索账号、正文或 #标签")
+        .searchScopes($searchField) {
+            ForEach(BookmarkSearchField.allCases) { Text($0.title).tag($0) }
+        }
+        .task(id: searchInput) { await applySearch() }
+        .onChange(of: searchSourcePosts) { _ in
+            searchDocuments = nil
+            pendingSourceUpdate = true
+            if isShuffled {
+                let known = Set(shuffledPostIDs)
+                let incoming = BookmarkPostOrdering.shuffledPostIDs(baseGalleryItems.map(\.post.id))
+                shuffledPostIDs.append(contentsOf: incoming.filter { !known.contains($0) })
+            }
+            sourceRevision += 1
+        }
+        .onChange(of: viewerSelection?.id) { value in
+            if value == nil, pendingSourceUpdate { sourceRevision += 1 }
+        }
         .onChange(of: sort) { value in
             isShuffled = false
+            shuffledPostIDs = []
             applySort(value)
         }
         .task { await refreshLocalAvailability() }
@@ -176,6 +228,17 @@ struct MediaGalleryView: View {
                     }
                     if isShuffled {
                         Button("恢复当前排序") { isShuffled = false; applySort(sort) }
+                    }
+                    Divider()
+                    Menu("规则分组") {
+                        Button("不限分组") { selectedRuleID = nil }
+                        ForEach(ruleStore.rules.filter(\.isEnabled)) { rule in
+                            Button { selectedRuleID = rule.id } label: {
+                                if selectedRuleID == rule.id { Label(rule.name, systemImage: "checkmark") }
+                                else { Text(rule.name) }
+                            }
+                        }
+                        NavigationLink { BookmarkRulesView(store: ruleStore) } label: { Text("管理规则分组") }
                     }
                 } label: {
                     Image(systemName: isShuffled ? "shuffle" : "arrow.up.arrow.down")
@@ -312,11 +375,20 @@ struct MediaGalleryView: View {
     }
 
     private func applySort(_ value: BookmarkPostSort) {
-        galleryItems = baseGalleryItems
-            .filter { !removedMediaKeys.contains($0.id) }
-            .sorted {
-            Self.isOrderedBefore($0, $1, sort: value)
-            }
+        let matched = baseGalleryItems.filter {
+            !removedMediaKeys.contains($0.id) && (matchingPostIDs?.contains($0.post.id) ?? true)
+        }
+        let ordered: [GalleryMediaItem]
+        if isShuffled {
+            let grouped = Dictionary(grouping: matched, by: \.post.id)
+            ordered = shuffledPostIDs.flatMap { grouped[$0] ?? [] }
+        } else {
+            ordered = matched.sorted { Self.isOrderedBefore($0, $1, sort: value) }
+        }
+        // Filter Post associations before deduplicating shared media. Otherwise
+        // searching a later author could hide media also used by an earlier Post.
+        var seen: Set<String> = []
+        galleryItems = ordered.filter { seen.insert($0.id).inserted }
         indexByMediaKey = Dictionary(
             uniqueKeysWithValues: galleryItems.enumerated().map {
                 ($0.element.id, $0.offset)
@@ -543,16 +615,60 @@ struct MediaGalleryView: View {
     }
 
     private func shuffleGallery() {
-        let items = baseGalleryItems.filter { !removedMediaKeys.contains($0.id) }
-        let grouped = Dictionary(grouping: items, by: \.post.id)
-        let postIDs = BookmarkPostOrdering.shuffledPostIDs(items.map(\.post.id))
-        galleryItems = postIDs.flatMap { grouped[$0] ?? [] }
+        shuffledPostIDs = BookmarkPostOrdering.shuffledPostIDs(baseGalleryItems.map(\.post.id))
         isShuffled = true
-        indexByMediaKey = Dictionary(uniqueKeysWithValues: galleryItems.enumerated().map { ($0.element.id, $0.offset) })
-        visibleLimit = 90
-        cellFrames = [:]
-        selectedMediaKeys.removeAll()
-        resetSelectionDrag()
+        applySort(sort)
+    }
+
+    private var searchInput: SearchInput {
+        SearchInput(text: searchText, field: searchField.rawValue,
+                    rule: ruleStore.rules.first { $0.id == selectedRuleID && $0.isEnabled },
+                    sourceRevision: sourceRevision)
+    }
+
+    private func applySearch() async {
+        guard viewerSelection == nil else { isSearching = false; return }
+        let input = searchInput
+        let query = input.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty || input.rule != nil else {
+            isSearching = false
+            if matchingPostIDs != nil || pendingSourceUpdate {
+                matchingPostIDs = nil
+                applySort(sort)
+                pendingSourceUpdate = false
+            }
+            return
+        }
+        do { try await Task.sleep(nanoseconds: 220_000_000) } catch { return }
+        guard !Task.isCancelled else { return }
+        isSearching = true
+        defer { if searchInput == input { isSearching = false } }
+        let cached = searchDocuments
+        let posts = searchSourcePosts
+        let field = searchField
+        let work = Task.detached(priority: .userInitiated) { () throws -> ([BookmarkSearchDocument], Set<String>) in
+            let documents: [BookmarkSearchDocument]
+            if let cached { documents = cached }
+            else {
+                var seen: Set<String> = []
+                documents = try posts.compactMap { post in
+                    try Task.checkCancellation()
+                    return seen.insert(post.id).inserted ? BookmarkSearchDocument(post: post) : nil
+                }
+            }
+            let ids = try BookmarkSearchEngine.matchingPostIDs(documents: documents, query: query, field: field, rule: input.rule)
+            return (documents, ids)
+        }
+        do {
+            let (documents, ids) = try await withTaskCancellationHandler {
+                try await work.value
+            } onCancel: { work.cancel() }
+            guard !Task.isCancelled, searchInput == input else { return }
+            searchDocuments = documents
+            matchingPostIDs = ids
+            applySort(sort)
+            pendingSourceUpdate = false
+        } catch { /* A newer query or leaving the gallery cancels this search. */ }
     }
 
     private var title: String {

@@ -30,9 +30,13 @@ final class BookmarksViewModel: ObservableObject {
     @Published var localSaveFilter = BookmarkLocalSaveFilter.all {
         didSet { scheduleRecompute() }
     }
+    @Published var categoryRules: [BookmarkRuleCategory] = [] {
+        didSet { if oldValue != categoryRules { scheduleRecompute() } }
+    }
     @Published private(set) var visiblePosts: [BookmarkedPost] = []
     @Published private(set) var visibleAccountGroups: [BookmarkAccountGroup] = []
     @Published private(set) var visibleHashtagGroups: [BookmarkHashtagGroup] = []
+    @Published private(set) var visibleRuleGroups: [BookmarkRuleGroup] = []
     @Published private(set) var selectedMediaCount = 0
     @Published private(set) var selectedStorageEstimate =
         MediaStorageEstimate.zero
@@ -65,6 +69,7 @@ final class BookmarksViewModel: ObservableObject {
     private var sourcePosts: [BookmarkedPost] = []
     private var localFileMediaKeys: Set<String> = []
     private var hashtagsByPostID: [String: [String]] = [:]
+    private var ruleDocuments: [String: (text: String, authorID: String?, authorName: String?, username: String?, document: BookmarkSearchDocument)] = [:]
     private var saveTask: Task<Void, Never>?
     private var exportTask: Task<Void, Never>?
     private var recomputeTask: Task<Void, Never>?
@@ -132,6 +137,7 @@ final class BookmarksViewModel: ObservableObject {
         hashtagsByPostID = hashtagsByPostID.filter {
             validIDs.contains($0.key)
         }
+        ruleDocuments = ruleDocuments.filter { validIDs.contains($0.key) }
         scheduleRecompute()
     }
 
@@ -294,6 +300,7 @@ final class BookmarksViewModel: ObservableObject {
     private func recomputeNow() {
         let filtered = calculateFilteredPosts(sourcePosts)
         visiblePosts = filtered
+        visibleRuleGroups = []
         switch browseMode {
         case .posts:
             visibleAccountGroups = []
@@ -304,6 +311,25 @@ final class BookmarksViewModel: ObservableObject {
         case .hashtags:
             visibleAccountGroups = []
             visibleHashtagGroups = calculateHashtagGroups(from: filtered)
+        case .rules:
+            visibleAccountGroups = []
+            visibleHashtagGroups = []
+            let documents = Dictionary(uniqueKeysWithValues: filtered.map { post -> (String, BookmarkSearchDocument) in
+                if let cached = ruleDocuments[post.id], cached.text == post.text,
+                   cached.authorID == post.authorID, cached.authorName == post.authorName,
+                   cached.username == post.authorUsername {
+                    return (post.id, cached.document)
+                }
+                let document = BookmarkSearchDocument(post: post)
+                ruleDocuments[post.id] = (post.text, post.authorID, post.authorName, post.authorUsername, document)
+                return (post.id, document)
+            })
+            visibleRuleGroups = categoryRules.filter(\.isEnabled).map { rule in
+                let matcher = rule.matcher
+                return BookmarkRuleGroup(rule: rule, posts: filtered.filter { post in
+                    documents[post.id].map(matcher.matches) ?? false
+                })
+            }
         }
 
         let allMedia = deduplicatedMedia(from: filtered)
