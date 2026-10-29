@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import NaturalLanguage
 
 struct BookmarkSearchSourceFingerprint: Equatable {
     let postID: String
@@ -187,6 +188,92 @@ enum BookmarkRuleGrouping {
         }
         return Result(groups: groups, cache: cache)
     }
+}
+
+struct BookmarkTermSuggestion: Identifiable, Sendable {
+    let term: String
+    let count: Int
+    let cooccurrence: Int
+    var id: String { term }
+}
+
+struct BookmarkSuggestionIndex: Sendable {
+    struct Entry: Sendable {
+        let text: String
+        let hashtags: Set<String>
+    }
+    let entries: [Entry]
+    let tagCounts: [String: Int]
+
+    init(posts: [BookmarkedPost]) throws {
+        var entries: [Entry] = []
+        var counts: [String: Int] = [:]
+        var seen: Set<String> = []
+        for post in posts where seen.insert(post.id).inserted {
+            try Task.checkCancellation()
+            let document = BookmarkSearchDocument(post: post)
+            entries.append(Entry(text: post.text, hashtags: document.hashtags))
+            for tag in document.hashtags { counts[tag, default: 0] += 1 }
+        }
+        self.entries = entries
+        self.tagCounts = counts
+    }
+
+    func tags(query: String, selected: [String], limit: Int = 12) throws -> [BookmarkTermSuggestion] {
+        let selected = Set(selected.map(BookmarkSearchDocument.normalizeTag))
+        let query = BookmarkSearchDocument.normalizeTag(query)
+        var related: [String: Int] = [:]
+        if !selected.isEmpty {
+            for entry in entries {
+                try Task.checkCancellation()
+                if !entry.hashtags.isDisjoint(with: selected) {
+                    for tag in entry.hashtags where !selected.contains(tag) { related[tag, default: 0] += 1 }
+                }
+            }
+        }
+        return tagCounts.compactMap { tag, count -> BookmarkTermSuggestion? in
+            guard !selected.contains(tag), query.isEmpty || tag.contains(query) else { return nil }
+            return BookmarkTermSuggestion(term: tag, count: count, cooccurrence: related[tag] ?? 0)
+        }.sorted {
+            if $0.cooccurrence != $1.cooccurrence { return $0.cooccurrence > $1.cooccurrence }
+            if $0.count != $1.count { return $0.count > $1.count }
+            return $0.term < $1.term
+        }.prefix(limit).map { $0 }
+    }
+
+    func keywords(hashtags: [String], excluding: [String], limit: Int = 16) throws -> [BookmarkTermSuggestion] {
+        let selected = Set(hashtags.map(BookmarkSearchDocument.normalizeTag))
+        guard !selected.isEmpty else { return [] }
+        let excluded = Set(excluding.map(BookmarkSearchDocument.normalize)).union(selected).union(Self.stopWords)
+        let strip = try NSRegularExpression(pattern: #"https?://\S+|[@#＃][\p{L}\p{M}\p{N}_]+"#)
+        var counts: [String: Int] = [:]
+        let tokenizer = NLTokenizer(unit: .word)
+        for entry in entries where !entry.hashtags.isDisjoint(with: selected) {
+            try Task.checkCancellation()
+            let text = strip.stringByReplacingMatches(in: entry.text,
+                range: NSRange(entry.text.startIndex..<entry.text.endIndex, in: entry.text), withTemplate: " ")
+            tokenizer.string = text
+            var words: Set<String> = []
+            tokenizer.enumerateTokens(in: text.startIndex..<text.endIndex) { range, _ in
+                let word = BookmarkSearchDocument.normalize(String(text[range]))
+                if word.count >= 2, word.count <= 40, !excluded.contains(word),
+                   word.unicodeScalars.contains(where: CharacterSet.letters.contains) { words.insert(word) }
+                return true
+            }
+            for word in words { counts[word, default: 0] += 1 }
+        }
+        return counts.map { BookmarkTermSuggestion(term: $0.key, count: $0.value, cooccurrence: 0) }
+            .sorted { $0.count == $1.count ? $0.term < $1.term : $0.count > $1.count }
+            .prefix(limit).map { $0 }
+    }
+
+    private static let stopWords: Set<String> = Set((
+        "the a an and or but for to of in on at by with from is are was were be been being this that these those " +
+        "it its as not no yes you your i my me we our us they their he his she her them have has had do does did " +
+        "can will would could should just very so more all any now today new also than then if when what how " +
+        "です ます ある いる する した して ください これ それ こと もの ため よう さん ちゃん " +
+        "这个 那个 这些 那些 一个 我们 你们 他们 自己 可以 不是 还是 就是 已经 没有 什么 今天 真的"
+    ).split(separator: " ").map(String.init))
 }
 
 @MainActor

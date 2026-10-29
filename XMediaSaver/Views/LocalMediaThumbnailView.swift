@@ -106,6 +106,7 @@ final class LocalMediaThumbnailLoader: ObservableObject {
     @Published private(set) var image: UIImage?
     @Published private(set) var isLocal = false
     @Published private(set) var failed = false
+    private static let decodeLimiter = ThumbnailDecodeLimiter()
 
     private static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
@@ -165,7 +166,7 @@ final class LocalMediaThumbnailLoader: ObservableObject {
         let result: UIImage?
         if let localURL {
             isLocal = true
-            result = await Task.detached(priority: .utility) {
+            result = await Self.decodeLimiter.run {
                 if media.type == .photo {
                     return Self.downsample(
                         fileURL: localURL,
@@ -176,7 +177,7 @@ final class LocalMediaThumbnailLoader: ObservableObject {
                     url: localURL,
                     maximumPixelSize: maximumPixelSize
                 )
-            }.value
+            }
         } else if let previewURL = Self.previewURL(
             media.previewImageURL ?? media.url,
             name: remoteImageName
@@ -193,12 +194,12 @@ final class LocalMediaThumbnailLoader: ObservableObject {
                     failed = true
                     return
                 }
-                result = await Task.detached(priority: .utility) {
+                result = await Self.decodeLimiter.run {
                     Self.downsample(
                         data: data,
                         maximumPixelSize: maximumPixelSize
                     )
-                }.value
+                }
             } catch {
                 result = nil
             }
@@ -240,7 +241,7 @@ final class LocalMediaThumbnailLoader: ObservableObject {
         "\(media.mediaKey)-\(maximumPixelSize)-\(remoteImageName)" as NSString
     }
 
-    nonisolated private static func previewURL(
+    nonisolated static func previewURL(
         _ url: URL?,
         name: String
     ) -> URL? {
@@ -249,7 +250,11 @@ final class LocalMediaThumbnailLoader: ObservableObject {
         else {
             return url
         }
-        components.queryItems = [URLQueryItem(name: "name", value: name)]
+        // Keep format=jpg/png for extensionless X image URLs.
+        var query = components.queryItems ?? []
+        query.removeAll { $0.name == "name" }
+        query.append(URLQueryItem(name: "name", value: name))
+        components.queryItems = query
         return components.url
     }
 
@@ -323,6 +328,23 @@ final class LocalMediaThumbnailLoader: ObservableObject {
             return nil
         }
         return UIImage(cgImage: image)
+    }
+}
+
+private actor ThumbnailDecodeLimiter {
+    private var active = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func run(_ work: @escaping @Sendable () -> UIImage?) async -> UIImage? {
+        if active >= 2 { await withCheckedContinuation { waiters.append($0) } }
+        else { active += 1 }
+        defer {
+            if waiters.isEmpty { active -= 1 }
+            else { waiters.removeFirst().resume() }
+        }
+        guard !Task.isCancelled else { return nil }
+        let task = Task.detached(priority: .userInitiated) { work() }
+        return await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
     }
 }
 

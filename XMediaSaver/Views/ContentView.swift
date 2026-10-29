@@ -57,6 +57,10 @@ struct ContentView: View {
         }
         .environment(\.locale, selectedLanguage.locale)
         .id(selectedLanguage.resolvedLanguageCode)
+        .task {
+            UserDefaults.standard.removeObject(forKey: "audioComparisonTestNotes")
+            _ = await LocalMediaLibrary.shared.recordedMediaKeys()
+        }
     }
 }
 

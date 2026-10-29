@@ -2,7 +2,122 @@ import XCTest
 @testable import XMediaSaver
 
 final class BookmarkModelsTests: XCTestCase {
-    func testGallerySearchScopesMatchAccountTextAndUnicodeTags() throws {
+    func testThumbnailURLRetainsXImageFormat() {
+        let input = URL(string: "https://pbs.twimg.com/media/example?format=png&name=orig")!
+        let preview = LocalMediaThumbnailLoader.previewURL(input, name: "small")!
+        let query = URLComponents(url: preview, resolvingAgainstBaseURL: false)!.queryItems!
+        XCTAssertEqual(query.first { $0.name == "format" }?.value, "png")
+        XCTAssertEqual(query.first { $0.name == "name" }?.value, "small")
+    }
+
+    func testHashtagSuggestionsPreferCooccurrenceThenFrequency() throws {
+        let posts = [
+            makePost(id: "1", date: nil, types: [], text: "#Art #portrait"),
+            makePost(id: "2", date: nil, types: [], text: "#art #portrait"),
+            makePost(id: "3", date: nil, types: [], text: "#art #lineart"),
+            makePost(id: "4", date: nil, types: [], text: "#popular"),
+            makePost(id: "5", date: nil, types: [], text: "#popular")
+        ]
+        let index = try BookmarkSuggestionIndex(posts: posts + [posts[0]])
+        XCTAssertEqual(index.tagCounts["art"], 3)
+        let related = try index.tags(query: "", selected: ["ART"])
+        XCTAssertEqual(related.map(\.term), ["portrait", "lineart", "popular"])
+        XCTAssertEqual(related[0].cooccurrence, 2)
+        XCTAssertEqual(try index.tags(query: "port", selected: []).map(\.term), ["portrait"])
+        XCTAssertEqual(try index.tags(query: "", selected: [], limit: 2).count, 2)
+    }
+
+    func testKeywordSuggestionsCountPostsNotRepeatedWordsAndStripLinks() throws {
+        let posts = [
+            makePost(id: "1", date: nil, types: [], text: "#art soft lighting lighting @Artist https://example.com/unrelated"),
+            makePost(id: "2", date: nil, types: [], text: "#art soft lighting and the"),
+            makePost(id: "3", date: nil, types: [], text: "#other unrelated")
+        ]
+        let index = try BookmarkSuggestionIndex(posts: posts)
+        let suggestions = try index.keywords(hashtags: ["ART"], excluding: [])
+        let counts = Dictionary(uniqueKeysWithValues: suggestions.map { ($0.term, $0.count) })
+        XCTAssertEqual(counts["lighting"], 2)
+        XCTAssertEqual(counts["soft"], 2)
+        XCTAssertNil(counts["art"])
+        XCTAssertNil(counts["artist"])
+        XCTAssertNil(counts["unrelated"])
+        XCTAssertNil(counts["the"])
+        XCTAssertFalse(try index.keywords(hashtags: ["art"], excluding: ["soft"]).contains { $0.term == "soft" })
+    }
+
+    func testRecordedAvailabilityDoesNotRescanFilesOnNavigationAndMissingFilesAreLogged() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        let state = try lineData([ExportStateRecord(mediaKey: "missing", relativePath: "Images/missing.jpg")])
+        try state.write(to: root.appendingPathComponent("export-state.jsonl"))
+        let library = LocalMediaLibrary(roots: [root])
+        let recorded = await library.recordedMediaKeys()
+        XCTAssertEqual(recorded, ["missing"])
+        let url = await library.localURL(for: "missing")
+        XCTAssertNil(url)
+        let updated = await library.recordedMediaKeys()
+        XCTAssertTrue(updated.isEmpty)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("export-state.jsonl")), state)
+        let issues = await LocalFileIssueLog.shared.records(root: root)
+        XCTAssertEqual(issues.first?.path, "Images/missing.jpg")
+        try Data([1]).write(to: root.appendingPathComponent("Images/missing.jpg"))
+        await library.reload()
+        let restored = await library.localURL(for: "missing")
+        XCTAssertNotNil(restored)
+    }
+
+    func testFileInventorySeparatesUnlinkedMediaFromMissingReferences() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        for name in ["linked.jpg", "unlinked.jpg", "state-only.jpg"] {
+            try Data([1, 2, 3]).write(to: root.appendingPathComponent("Images/" + name))
+        }
+        try Data().write(to: root.appendingPathComponent("Images/empty.jpg"))
+        let records = ["linked", "missing", "empty", "state-only"].map {
+            ExportStateRecord(mediaKey: $0, relativePath: "Images/" + $0 + ".jpg")
+        }
+        try lineData(records).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let post = ExportedPostRecord(id: "post", postURL: nil, text: "retained", createdAt: nil,
+            authorID: nil, authorName: nil, authorUsername: nil,
+            media: ["linked", "missing", "empty"].map {
+                ExportedMediaRecord(mediaKey: $0, type: .photo, remoteURL: nil,
+                    localRelativePath: "Images/" + $0 + ".jpg", width: nil, height: nil,
+                    durationMilliseconds: nil, byteSize: nil)
+            })
+        try lineData([post]).write(to: root.appendingPathComponent("posts.jsonl"))
+        let tree = try await LibraryStorageScanner().scan(root: root)
+        let report = try LibraryIntegrityInspector.inspect(root: root, tree: tree)
+        XCTAssertEqual(Set(report.untrackedFiles.map(\.name)), ["unlinked.jpg", "state-only.jpg"])
+        XCTAssertEqual(Set(report.issues.map(\.path)), ["Images/missing.jpg", "Images/empty.jpg"])
+        XCTAssertTrue(report.metadataWarnings.isEmpty)
+        let restored = try await LocalFolderLibrary(root: root).loadPosts()
+        XCTAssertEqual(restored.first?.text, "retained")
+    }
+
+    func testCorruptInventoryMetadataIsReportedWithoutRewritingIt() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let damaged = Data("invalid manifest".utf8)
+        try damaged.write(to: root.appendingPathComponent("posts.jsonl"))
+        let tree = try await LibraryStorageScanner().scan(root: root)
+        let report = try LibraryIntegrityInspector.inspect(root: root, tree: tree)
+        XCTAssertEqual(report.metadataWarnings, ["posts.jsonl:1"])
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("posts.jsonl")), damaged)
+    }
+
+    func testFileIssueHistoryIsBounded() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let issues = (0..<250).map { LocalFileIssue(path: "Images/\($0).jpg", reason: "missing", mediaKeys: [], observedAt: Date()) }
+        await LocalFileIssueLog.shared.record(issues, root: root)
+        let records = await LocalFileIssueLog.shared.records(root: root)
+        XCTAssertEqual(records.count, 200)
+    }
+
+    func testScopedPostSearchMatchesAccountTextAndUnicodeTags() throws {
         let post = makePost(id: "search", date: nil, types: [.photo], text: "Café skyline #旅行 #Travel",
             authorID: "12345", authorName: "Alice", authorUsername: "alice_handle")
         let document = BookmarkSearchDocument(post: post)

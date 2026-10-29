@@ -79,6 +79,13 @@ final class FolderMediaExporter: @unchecked Sendable {
                 continue
             }
 
+            if let path = state[item.media.mediaKey],
+               let fileURL = FolderPathSafety.mediaURL(path, root: destination) {
+                _ = await LocalMediaLibrary.shared.validateFile(at: fileURL)
+                await LocalFileIssueLog.shared.record(root: destination, path: path,
+                    reason: "missing_or_invalid_during_export", mediaKeys: [item.media.mediaKey])
+            }
+
             guard let remoteURL = item.media.downloadURL else {
                 failed += 1
                 let message = L10n.string("没有可下载的直接地址")

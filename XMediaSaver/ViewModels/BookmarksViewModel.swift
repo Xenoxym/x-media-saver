@@ -93,7 +93,7 @@ final class BookmarksViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             localFileMediaKeys =
-                await LocalMediaLibrary.shared.availableMediaKeys()
+                await LocalMediaLibrary.shared.recordedMediaKeys()
             let storedFailures = (try? await failureStore.load()) ?? []
             saveFailures = storedFailures
             var storedUnavailable =
@@ -128,8 +128,9 @@ final class BookmarksViewModel: ObservableObject {
     }
 
     func refreshLocalMedia() async {
-        await LocalMediaLibrary.shared.reload()
-        localFileMediaKeys = await LocalMediaLibrary.shared.availableMediaKeys()
+        let updated = await LocalMediaLibrary.shared.recordedMediaKeys()
+        guard updated != localFileMediaKeys else { return }
+        localFileMediaKeys = updated
         recomputeNow()
     }
 
@@ -259,7 +260,7 @@ final class BookmarksViewModel: ObservableObject {
                     root: completedExport.destination
                 )
                 localFileMediaKeys =
-                    await LocalMediaLibrary.shared.availableMediaKeys()
+                    await LocalMediaLibrary.shared.recordedMediaKeys()
                 recomputeNow()
             } catch is CancellationError {
                 // User cancellation is intentionally silent.

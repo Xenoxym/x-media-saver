@@ -45,7 +45,10 @@ private struct CompactBackButtonModifier: ViewModifier {
                         }
                     } label: {
                         Image(systemName: "chevron.backward")
+                            .frame(width: 48, height: 44)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Back")
                 }
             }

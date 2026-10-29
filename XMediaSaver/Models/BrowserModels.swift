@@ -172,8 +172,8 @@ enum BookmarkPostSort: String, CaseIterable, Identifiable {
         case .bookmarkOldest: return L10n.string("最早加入书签")
         case .newest: return L10n.string("最新发布")
         case .oldest: return L10n.string("最早发布")
-        case .sizeDescending: return L10n.string("Post 大小：从大到小")
-        case .sizeAscending: return L10n.string("Post 大小：从小到大")
+        case .sizeDescending: return L10n.string("大小：从大到小")
+        case .sizeAscending: return L10n.string("大小：从小到大")
         }
     }
 }

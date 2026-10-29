@@ -10,11 +10,9 @@ private enum GallerySelectionDragIntent: Equatable {
 }
 
 struct MediaGalleryView: View {
-    private struct SearchInput: Hashable {
-        let text: String
-        let field: String
+    private struct RuleInput: Hashable {
         let rule: BookmarkRuleCategory?
-        let sourceRevision: Int
+        let revision: Int
     }
     let mediaType: BookmarkMediaType?
     let onClose: () -> Void
@@ -24,20 +22,16 @@ struct MediaGalleryView: View {
     let detailSourcePosts: [BookmarkedPost]
     let isFolderLibrary: Bool
     @Environment(\.openURL) private var openURL
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var localMediaKeys: Set<String> = []
+    @ObservedObject private var availability = LocalMediaAvailability.shared
+    private var localMediaKeys: Set<String> { availability.keys }
     @State private var isShuffled = false
     @State private var shuffledPostIDs: [String] = []
-    @State private var searchText = ""
-    @State private var searchField = BookmarkSearchField.all
+    @ObservedObject private var ruleStore = BookmarkRuleStore.shared
     @State private var selectedRuleID: UUID?
     @State private var matchingPostIDs: Set<String>?
-    @State private var searchDocuments: [BookmarkSearchDocument]?
-    @State private var isSearching = false
     @State private var sourceRevision = 0
+    @State private var lastRuleInput: RuleInput?
     @State private var pendingSourceUpdate = false
-    @State private var lastAppliedSearch: SearchInput?
-    @ObservedObject private var ruleStore = BookmarkRuleStore.shared
     @State private var visibleLimit = 90
     @State private var isSelecting = false
     @State private var selectedMediaKeys: Set<String> = []
@@ -56,8 +50,8 @@ struct MediaGalleryView: View {
     @State private var indexByMediaKey: [String: Int]
     @StateObject private var mediaSaver = GalleryMediaSaveModel()
     private let baseGalleryItems: [GalleryMediaItem]
-    private let searchSourcePosts: [BookmarkedPost]
-    private let searchSourceFingerprint: [BookmarkSearchSourceFingerprint]
+    private let sourcePosts: [BookmarkedPost]
+    private let sourceFingerprint: [BookmarkSearchSourceFingerprint]
     private static let gridCoordinateSpace = "MediaGalleryGrid"
 
     init(
@@ -79,8 +73,8 @@ struct MediaGalleryView: View {
         self.detailSourcePosts = detailSourcePosts ?? posts
         self.isFolderLibrary = isFolderLibrary ?? (deleteFolderMedia != nil)
         self.onClose = onClose
-        self.searchSourcePosts = posts
-        self.searchSourceFingerprint = posts.map(BookmarkSearchSourceFingerprint.init)
+        self.sourceFingerprint = posts.map(BookmarkSearchSourceFingerprint.init)
+        self.sourcePosts = posts
         _sort = State(initialValue: initialSort)
         var bookmarkRanks: [String: Int] = [:]
         for (offset, post) in (detailSourcePosts ?? posts).enumerated() where bookmarkRanks[post.id] == nil {
@@ -116,15 +110,14 @@ struct MediaGalleryView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-            if let rule = searchInput.rule {
+            if let rule = ruleInput.rule {
                 HStack {
                     Label(rule.name, systemImage: "tag")
                     Spacer()
                     Button { selectedRuleID = nil } label: { Image(systemName: "xmark.circle.fill") }
                 }.font(.caption).padding(8)
             }
-            if isSearching { ProgressView().padding(8) }
-            if galleryItems.isEmpty, !isSearching {
+            if galleryItems.isEmpty {
                 Text("没有符合条件的媒体")
                     .font(.subheadline).foregroundStyle(.secondary).padding()
             }
@@ -150,7 +143,6 @@ struct MediaGalleryView: View {
                         galleryCell(item)
                     }
                     .buttonStyle(.plain)
-                    .allowsHitTesting(!isSearching)
                     .background {
                         GeometryReader { geometry in
                             Color.clear.preference(
@@ -189,13 +181,7 @@ struct MediaGalleryView: View {
         .navigationBarTitleDisplayMode(.inline)
         .compactBackButton(action: onClose)
         .edgeSwipeBack(action: onClose)
-        .searchable(text: $searchText, prompt: "搜索账号、正文或 #标签")
-        .searchScopes($searchField) {
-            ForEach(BookmarkSearchField.allCases) { Text($0.title).tag($0) }
-        }
-        .task(id: searchInput) { await applySearch() }
-        .onChange(of: searchSourceFingerprint) { _ in
-            searchDocuments = nil
+        .onChange(of: sourceFingerprint) { _ in
             pendingSourceUpdate = true
             if isShuffled {
                 let known = Set(shuffledPostIDs)
@@ -213,13 +199,23 @@ struct MediaGalleryView: View {
             applySort(value)
         }
         .task { await refreshLocalAvailability() }
-        .onReceive(NotificationCenter.default.publisher(for: .localMediaLibraryChanged).receive(on: RunLoop.main)) { _ in
-            Task { await refreshLocalAvailability() }
-        }
-        .onChange(of: scenePhase) { value in
-            if value == .active { Task { await refreshLocalAvailability() } }
-        }
+        .task(id: ruleInput) { await applyRuleFilter() }
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 2) {
+                    Button { shuffleGallery() } label: {
+                        Image(systemName: "shuffle")
+                            .foregroundStyle(isShuffled ? Color.accentColor : .secondary)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(isShuffled ? "重新随机排序" : "随机排序（按 Post）")
+                    .contextMenu {
+                        Button("恢复当前排序") { isShuffled = false; applySort(sort) }
+                    }
+                    Text(title).font(.headline).lineLimit(1).minimumScaleFactor(0.75)
+                }
+            }
             ToolbarItemGroup(placement: .navigationBarTrailing) {
                 if let switchToPosts {
                     Button(action: switchToPosts) {
@@ -233,12 +229,6 @@ struct MediaGalleryView: View {
                             Text($0.title).tag($0)
                         }
                     }
-                    Button { shuffleGallery() } label: {
-                        Label(isShuffled ? "重新随机排序" : "随机排序（按 Post）", systemImage: "shuffle")
-                    }
-                    if isShuffled {
-                        Button("恢复当前排序") { isShuffled = false; applySort(sort) }
-                    }
                     Divider()
                     Menu("规则分组") {
                         Button("不限分组") { selectedRuleID = nil }
@@ -248,10 +238,10 @@ struct MediaGalleryView: View {
                                 else { Text(rule.name) }
                             }
                         }
-                        NavigationLink { BookmarkRulesView(store: ruleStore) } label: { Text("管理规则分组") }
+                        NavigationLink { BookmarkRulesView(store: ruleStore, posts: detailSourcePosts) } label: { Text("管理规则分组") }
                     }
                 } label: {
-                    Image(systemName: isShuffled ? "shuffle" : "arrow.up.arrow.down")
+                    Image(systemName: "arrow.up.arrow.down")
                 }
                 if switchToPosts == nil {
                     Text("\(galleryItems.count)")
@@ -463,10 +453,7 @@ struct MediaGalleryView: View {
                     height: geometry.size.height
                 )
 
-                GalleryMediaInfoBadge(
-                    media: item.media,
-                    refreshID: mediaSaver.localLibraryRevision
-                )
+                GalleryMediaInfoBadge(media: item.media)
 
                 if isSelecting {
                     selectionIndicator(
@@ -619,9 +606,7 @@ struct MediaGalleryView: View {
     }
 
     private func refreshLocalAvailability() async {
-        await LocalMediaLibrary.shared.reload()
-        localMediaKeys = await LocalMediaLibrary.shared.availableMediaKeys()
-        mediaSaver.refreshLocalIndicators()
+        _ = await LocalMediaLibrary.shared.recordedMediaKeys()
     }
 
     private func shuffleGallery() {
@@ -630,64 +615,37 @@ struct MediaGalleryView: View {
         applySort(sort)
     }
 
-    private var searchInput: SearchInput {
-        SearchInput(text: searchText, field: searchField.rawValue,
-                    rule: ruleStore.rules.first { $0.id == selectedRuleID && $0.isEnabled },
-                    sourceRevision: sourceRevision)
+    private var ruleInput: RuleInput {
+        RuleInput(rule: ruleStore.rules.first { $0.id == selectedRuleID && $0.isEnabled }, revision: sourceRevision)
     }
 
-    private func applySearch() async {
-        guard viewerSelection == nil else {
-            isSearching = false
-            pendingSourceUpdate = true
-            return
-        }
-        let input = searchInput
-        if lastAppliedSearch == input, !pendingSourceUpdate { isSearching = false; return }
-        let query = input.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty || input.rule != nil else {
-            isSearching = false
+    private func applyRuleFilter() async {
+        guard viewerSelection == nil else { pendingSourceUpdate = true; return }
+        let input = ruleInput
+        guard lastRuleInput != input || pendingSourceUpdate else { return }
+        guard let rule = input.rule else {
             if matchingPostIDs != nil || pendingSourceUpdate {
-                matchingPostIDs = nil
-                applySort(sort)
-                pendingSourceUpdate = false
+                matchingPostIDs = nil; applySort(sort); pendingSourceUpdate = false
             }
-            lastAppliedSearch = input
+            lastRuleInput = input
             return
         }
         pendingSourceUpdate = true
-        do { try await Task.sleep(nanoseconds: 220_000_000) } catch { return }
-        guard !Task.isCancelled else { return }
-        isSearching = true
-        defer { if searchInput == input { isSearching = false } }
-        let cached = searchDocuments
-        let posts = searchSourcePosts
-        let field = searchField
-        let work = Task.detached(priority: .userInitiated) { () throws -> ([BookmarkSearchDocument], Set<String>) in
-            let documents: [BookmarkSearchDocument]
-            if let cached { documents = cached }
-            else {
-                var seen: Set<String> = []
-                documents = try posts.compactMap { post in
-                    try Task.checkCancellation()
-                    return seen.insert(post.id).inserted ? BookmarkSearchDocument(post: post) : nil
-                }
+        let posts = sourcePosts
+        let work = Task.detached(priority: .userInitiated) {
+            let matcher = rule.matcher
+            var matched: Set<String> = []
+            for post in posts {
+                try Task.checkCancellation()
+                if matcher.matches(BookmarkSearchDocument(post: post)) { matched.insert(post.id) }
             }
-            let ids = try BookmarkSearchEngine.matchingPostIDs(documents: documents, query: query, field: field, rule: input.rule)
-            return (documents, ids)
+            return matched
         }
         do {
-            let (documents, ids) = try await withTaskCancellationHandler {
-                try await work.value
-            } onCancel: { work.cancel() }
-            guard !Task.isCancelled, searchInput == input else { return }
-            searchDocuments = documents
-            guard viewerSelection == nil else { pendingSourceUpdate = true; return }
-            matchingPostIDs = ids
-            applySort(sort)
-            pendingSourceUpdate = false
-            lastAppliedSearch = input
-        } catch { /* A newer query or leaving the gallery cancels this search. */ }
+            let matched = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+            guard !Task.isCancelled, ruleInput == input, viewerSelection == nil else { return }
+            matchingPostIDs = matched; applySort(sort); pendingSourceUpdate = false; lastRuleInput = input
+        } catch { }
     }
 
     private var title: String {
@@ -1127,13 +1085,12 @@ private struct GalleryFullScreenViewer: View {
 
 private struct GalleryMediaInfoBadge: View {
     let media: BookmarkedMedia
-    let refreshID: Int
-    @State private var isAvailable = false
+    @ObservedObject private var availability = LocalMediaAvailability.shared
 
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: media.type.systemImage)
-                .foregroundStyle(isAvailable ? Color.accentColor : .white)
+                .foregroundStyle(availability.keys.contains(media.mediaKey) ? Color.accentColor : .white)
             if let duration = media.durationMilliseconds {
                 Text(MediaGalleryView.durationText(duration))
                     .foregroundStyle(.white)
@@ -1142,11 +1099,6 @@ private struct GalleryMediaInfoBadge: View {
         .font(.caption2.weight(.semibold))
         .padding(5)
         .background(.black.opacity(0.55))
-        .task(id: "\(media.mediaKey)-\(refreshID)") {
-            isAvailable = await LocalMediaLibrary.shared.localURL(
-                for: media.mediaKey
-            ) != nil
-        }
         .allowsHitTesting(false)
     }
 }
@@ -2974,7 +2926,6 @@ private final class GalleryMediaSaveModel: ObservableObject {
         currentType: nil
     )
     @Published private(set) var resultMessage: String?
-    @Published private(set) var localLibraryRevision = 0
     @Published var presentedError: PresentedError?
 
     private let saver = BatchMediaSaver()
@@ -3084,7 +3035,6 @@ private final class GalleryMediaSaveModel: ObservableObject {
                 await LocalMediaLibrary.shared.register(
                     root: result.destination
                 )
-                localLibraryRevision += 1
                 resultMessage = L10n.format(
                     "Files：写入 %lld，已存在 %lld，失败 %lld",
                     result.saved,
@@ -3122,7 +3072,4 @@ private final class GalleryMediaSaveModel: ObservableObject {
         }
     }
 
-    func refreshLocalIndicators() {
-        localLibraryRevision += 1
-    }
 }

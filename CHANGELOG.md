@@ -4,8 +4,13 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
-- Added scoped search inside media galleries and a grid destination for current Browse & Search filter results; search filtering happens before shared-media deduplication.
+- Added a grid destination for current Browse & Search filter results; removed the separate in-gallery search bar to keep gallery navigation simple.
 - Added local, editable rule groups combining related hashtags and Post-text keywords, with overlapping membership and persistent rules independent of the bookmark index/media library.
+- Added frequency-ranked existing hashtag selection, tag autocomplete/co-occurrence recommendations, one-tap hashtag-to-keyword copying, and local text-word suggestions.
+- Removed the temporary audio-comparison test page, documentation, localization, and saved test notes; production player behavior is unchanged.
+- Moved gallery shuffle beside the title, shortened size-sort labels, and enlarged the back-button hit target.
+- Removed repeated full-library validation from gallery navigation and app activation. Local-save badges share one in-memory manifest snapshot; file access or explicit storage scans reconcile missing items. Thumbnail decoding has two workers without new disk thumbnails or a larger memory-cache limit.
+- Added file opening/sharing/system-folder browsing, unlinked-media inspection, and bounded file-issue records to storage tools. Clarified that the treemap's remaining-files tile is display aggregation, not unknown storage.
 
 - Added Folder deletion to Index media grids, with local-state refresh and shared-file reference protection.
 - Added per-Post gallery shuffle, Post-size sorting, Folder save-state filters, and failure-list time/size sorting.

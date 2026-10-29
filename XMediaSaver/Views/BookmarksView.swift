@@ -23,7 +23,6 @@ struct BookmarksView: View {
     @ObservedObject private var ruleStore = BookmarkRuleStore.shared
     let onRequestVisibleSync: () -> Void
     @Environment(\.openURL) private var openURL
-    @Environment(\.scenePhase) private var scenePhase
     @State private var expandedAccounts: Set<String> = []
     @State private var expandedHashtags: Set<String> = []
     @State private var groupLimits: [String: Int] = [:]
@@ -115,21 +114,18 @@ struct BookmarksView: View {
             viewModel.categoryRules = ruleStore.rules
             viewModel.update(posts: session.capturedPosts)
             viewModel.reloadUnavailablePosts()
-            folderLibrary.reload()
+            if localLibrarySource == .files { folderLibrary.reload() }
         }
         .onReceive(session.$capturedPosts) {
             viewModel.update(posts: $0)
         }
         .onReceive(ruleStore.$rules) { viewModel.categoryRules = $0 }
         .onReceive(NotificationCenter.default.publisher(for: .localMediaLibraryChanged).receive(on: RunLoop.main)) { _ in
-            folderLibrary.reload()
+            folderLibrary.reload(force: true)
             Task { await viewModel.refreshLocalMedia() }
         }
-        .onChange(of: scenePhase) { value in
-            if value == .active {
-                folderLibrary.reload()
-                Task { await viewModel.refreshLocalMedia() }
-            }
+        .onReceive(NotificationCenter.default.publisher(for: .localMediaAvailabilityChanged).receive(on: RunLoop.main)) { _ in
+            Task { await viewModel.refreshLocalMedia() }
         }
         .fileImporter(
             isPresented: $choosesExportFolder,
@@ -1023,7 +1019,7 @@ struct BookmarksView: View {
                     }
                 }
             case .rules:
-                NavigationLink { BookmarkRulesView(store: ruleStore) } label: {
+                NavigationLink { BookmarkRulesView(store: ruleStore, posts: session.capturedPosts) } label: {
                     Label("管理规则分组", systemImage: "slider.horizontal.3")
                 }
             }
