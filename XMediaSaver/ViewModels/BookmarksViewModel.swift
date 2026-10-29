@@ -37,6 +37,7 @@ final class BookmarksViewModel: ObservableObject {
     @Published private(set) var visibleAccountGroups: [BookmarkAccountGroup] = []
     @Published private(set) var visibleHashtagGroups: [BookmarkHashtagGroup] = []
     @Published private(set) var visibleRuleGroups: [BookmarkRuleGroup] = []
+    @Published private(set) var isGroupingRules = false
     @Published private(set) var selectedMediaCount = 0
     @Published private(set) var selectedStorageEstimate =
         MediaStorageEstimate.zero
@@ -69,7 +70,8 @@ final class BookmarksViewModel: ObservableObject {
     private var sourcePosts: [BookmarkedPost] = []
     private var localFileMediaKeys: Set<String> = []
     private var hashtagsByPostID: [String: [String]] = [:]
-    private var ruleDocuments: [String: (text: String, authorID: String?, authorName: String?, username: String?, document: BookmarkSearchDocument)] = [:]
+    private var ruleDocuments: [String: BookmarkRuleDocumentCacheEntry] = [:]
+    private var ruleGroupingTask: Task<Void, Never>?
     private var saveTask: Task<Void, Never>?
     private var exportTask: Task<Void, Never>?
     private var recomputeTask: Task<Void, Never>?
@@ -300,7 +302,8 @@ final class BookmarksViewModel: ObservableObject {
     private func recomputeNow() {
         let filtered = calculateFilteredPosts(sourcePosts)
         visiblePosts = filtered
-        visibleRuleGroups = []
+        ruleGroupingTask?.cancel()
+        if browseMode != .rules { visibleRuleGroups = []; isGroupingRules = false }
         switch browseMode {
         case .posts:
             visibleAccountGroups = []
@@ -314,21 +317,23 @@ final class BookmarksViewModel: ObservableObject {
         case .rules:
             visibleAccountGroups = []
             visibleHashtagGroups = []
-            let documents = Dictionary(uniqueKeysWithValues: filtered.map { post -> (String, BookmarkSearchDocument) in
-                if let cached = ruleDocuments[post.id], cached.text == post.text,
-                   cached.authorID == post.authorID, cached.authorName == post.authorName,
-                   cached.username == post.authorUsername {
-                    return (post.id, cached.document)
+            isGroupingRules = true
+            let rules = categoryRules
+            let cached = ruleDocuments
+            ruleGroupingTask = Task { [weak self] in
+                let work = Task.detached(priority: .userInitiated) {
+                    try BookmarkRuleGrouping.build(posts: filtered, rules: rules, cache: cached)
                 }
-                let document = BookmarkSearchDocument(post: post)
-                ruleDocuments[post.id] = (post.text, post.authorID, post.authorName, post.authorUsername, document)
-                return (post.id, document)
-            })
-            visibleRuleGroups = categoryRules.filter(\.isEnabled).map { rule in
-                let matcher = rule.matcher
-                return BookmarkRuleGroup(rule: rule, posts: filtered.filter { post in
-                    documents[post.id].map(matcher.matches) ?? false
-                })
+                do {
+                    let result = try await withTaskCancellationHandler { try await work.value }
+                        onCancel: { work.cancel() }
+                    guard !Task.isCancelled, let self, self.browseMode == .rules else { return }
+                    self.ruleDocuments = result.cache
+                    self.visibleRuleGroups = result.groups
+                    self.isGroupingRules = false
+                } catch {
+                    if !Task.isCancelled { self?.isGroupingRules = false }
+                }
             }
         }
 

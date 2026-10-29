@@ -1,6 +1,24 @@
 import Combine
 import Foundation
 
+struct BookmarkSearchSourceFingerprint: Equatable {
+    let postID: String
+    let text: String
+    let authorID: String?
+    let authorName: String?
+    let username: String?
+    let mediaKeys: [String]
+
+    init(post: BookmarkedPost) {
+        postID = post.id
+        text = post.text
+        authorID = post.authorID
+        authorName = post.authorName
+        username = post.authorUsername
+        mediaKeys = post.media.map(\.mediaKey)
+    }
+}
+
 struct BookmarkSearchDocument: Sendable {
     let postID: String
     let account: String
@@ -119,6 +137,56 @@ struct BookmarkRuleGroup: Identifiable {
     let rule: BookmarkRuleCategory
     let posts: [BookmarkedPost]
     var id: UUID { rule.id }
+}
+
+struct BookmarkRuleDocumentCacheEntry: Sendable {
+    let text: String
+    let authorID: String?
+    let authorName: String?
+    let username: String?
+    let document: BookmarkSearchDocument
+
+    init(post: BookmarkedPost) {
+        text = post.text
+        authorID = post.authorID
+        authorName = post.authorName
+        username = post.authorUsername
+        document = BookmarkSearchDocument(post: post)
+    }
+
+    func describes(_ post: BookmarkedPost) -> Bool {
+        text == post.text && authorID == post.authorID && authorName == post.authorName && username == post.authorUsername
+    }
+}
+
+enum BookmarkRuleGrouping {
+    struct Result {
+        let groups: [BookmarkRuleGroup]
+        let cache: [String: BookmarkRuleDocumentCacheEntry]
+    }
+
+    static func build(
+        posts: [BookmarkedPost], rules: [BookmarkRuleCategory],
+        cache existing: [String: BookmarkRuleDocumentCacheEntry] = [:]
+    ) throws -> Result {
+        let enabled = rules.filter(\.isEnabled)
+        guard !enabled.isEmpty else { return Result(groups: [], cache: existing) }
+        var cache = existing
+        for post in posts {
+            try Task.checkCancellation()
+            if cache[post.id]?.describes(post) != true { cache[post.id] = BookmarkRuleDocumentCacheEntry(post: post) }
+        }
+        var groups: [BookmarkRuleGroup] = []
+        for rule in enabled {
+            let matcher = rule.matcher
+            let matches = try posts.filter { post in
+                try Task.checkCancellation()
+                return cache[post.id].map { matcher.matches($0.document) } ?? false
+            }
+            groups.append(BookmarkRuleGroup(rule: rule, posts: matches))
+        }
+        return Result(groups: groups, cache: cache)
+    }
 }
 
 @MainActor

@@ -415,6 +415,7 @@ struct BookmarksView: View {
                 posts: viewModel.visibleRuleGroups.first { $0.id == id }?.posts ?? [], mediaType: nil,
                 titleOverride: ruleStore.rules.first { $0.id == id }?.name ?? L10n.string("规则分组"),
                 detailSourcePosts: session.capturedPosts, mediaFilter: viewModel.filter,
+                initialSort: viewModel.postSort,
                 onClose: closeLocalIndex
             )
         case .filteredGallery:
@@ -423,6 +424,7 @@ struct BookmarksView: View {
                 titleOverride: L10n.string("筛选结果九宫格"),
                 detailSourcePosts: session.capturedPosts,
                 mediaFilter: viewModel.filter,
+                initialSort: viewModel.postSort,
                 onClose: closeLocalIndex
             )
         case .indexedPosts(let source):
@@ -1136,7 +1138,8 @@ struct BookmarksView: View {
 
     @ViewBuilder
     private var ruleResults: some View {
-        if viewModel.visibleRuleGroups.isEmpty {
+        if viewModel.isGroupingRules { ProgressView().padding(.vertical, 4) }
+        if viewModel.visibleRuleGroups.isEmpty, !viewModel.isGroupingRules {
             noResults("还没有启用的规则分组")
         } else {
             ForEach(viewModel.visibleRuleGroups) { group in

@@ -15,6 +15,15 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertFalse(document.matches(query: "Alice", field: .hashtag))
     }
 
+    func testBackgroundSizeUpdatesDoNotInvalidateGallerySearchSource() {
+        let first = sizedPost("same", bytes: nil)
+        let analyzed = sizedPost("same", bytes: 500)
+        XCTAssertEqual(BookmarkSearchSourceFingerprint(post: first), BookmarkSearchSourceFingerprint(post: analyzed))
+        let edited = BookmarkedPost(id: first.id, text: "new text", createdAt: nil,
+            authorID: nil, authorName: nil, authorUsername: nil, media: first.media)
+        XCTAssertNotEqual(BookmarkSearchSourceFingerprint(post: first), BookmarkSearchSourceFingerprint(post: edited))
+    }
+
     func testRuleGroupsJoinRelatedHashtagsAndUntaggedKeywords() throws {
         let posts = [
             makePost(id: "tag", date: nil, types: [.photo], text: "A trip #旅行"),
@@ -36,6 +45,17 @@ final class BookmarkModelsTests: XCTestCase {
         let doc = BookmarkSearchDocument(post: makePost(id: "both", date: nil, types: [], text: "#travel #photo"))
         XCTAssertTrue(BookmarkRuleCategory(name: "Travel", hashtags: ["TRAVEL"], keywords: []).matcher.matches(doc))
         XCTAssertTrue(BookmarkRuleCategory(name: "Photos", hashtags: ["photo"], keywords: []).matcher.matches(doc))
+    }
+
+    func testRuleGroupingRefreshesCachedTextAndPreservesInputOrder() throws {
+        let rule = BookmarkRuleCategory(name: "Trips", hashtags: ["travel"], keywords: ["landscape"])
+        let one = makePost(id: "one", date: nil, types: [.photo], text: "#travel")
+        let two = makePost(id: "two", date: nil, types: [.photo], text: "landscape")
+        let first = try BookmarkRuleGrouping.build(posts: [two, one], rules: [rule])
+        XCTAssertEqual(first.groups[0].posts.map(\.id), ["two", "one"])
+        let changed = makePost(id: "two", date: nil, types: [.photo], text: "unrelated")
+        let second = try BookmarkRuleGrouping.build(posts: [changed, one], rules: [rule], cache: first.cache)
+        XCTAssertEqual(second.groups[0].posts.map(\.id), ["one"])
     }
 
     func testRuleTermsKeepPhrasesAndDeduplicateCaseInsensitiveSynonyms() {

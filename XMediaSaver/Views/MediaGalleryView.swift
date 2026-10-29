@@ -56,6 +56,7 @@ struct MediaGalleryView: View {
     @StateObject private var mediaSaver = GalleryMediaSaveModel()
     private let baseGalleryItems: [GalleryMediaItem]
     private let searchSourcePosts: [BookmarkedPost]
+    private let searchSourceFingerprint: [BookmarkSearchSourceFingerprint]
     private static let gridCoordinateSpace = "MediaGalleryGrid"
 
     init(
@@ -67,6 +68,7 @@ struct MediaGalleryView: View {
         detailSourcePosts: [BookmarkedPost]? = nil,
         isFolderLibrary: Bool? = nil,
         mediaFilter: BookmarkFilter? = nil,
+        initialSort: BookmarkPostSort = .bookmarkNewest,
         onClose: @escaping () -> Void
     ) {
         self.mediaType = mediaType
@@ -77,6 +79,12 @@ struct MediaGalleryView: View {
         self.isFolderLibrary = isFolderLibrary ?? (deleteFolderMedia != nil)
         self.onClose = onClose
         self.searchSourcePosts = posts
+        self.searchSourceFingerprint = posts.map(BookmarkSearchSourceFingerprint.init)
+        _sort = State(initialValue: initialSort)
+        var bookmarkRanks: [String: Int] = [:]
+        for (offset, post) in (detailSourcePosts ?? posts).enumerated() where bookmarkRanks[post.id] == nil {
+            bookmarkRanks[post.id] = offset
+        }
         let items: [GalleryMediaItem] = posts.enumerated()
             .flatMap { postOffset, post -> [GalleryMediaItem] in
                 (mediaFilter?.media(in: post) ?? post.media).enumerated().compactMap {
@@ -88,7 +96,7 @@ struct MediaGalleryView: View {
                     return GalleryMediaItem(
                         post: post,
                         media: media,
-                        postOrder: postOffset,
+                        postOrder: bookmarkRanks[post.id] ?? postOffset,
                         mediaOrder: mediaOffset
                     )
                 }
@@ -184,7 +192,7 @@ struct MediaGalleryView: View {
             ForEach(BookmarkSearchField.allCases) { Text($0.title).tag($0) }
         }
         .task(id: searchInput) { await applySearch() }
-        .onChange(of: searchSourcePosts) { _ in
+        .onChange(of: searchSourceFingerprint) { _ in
             searchDocuments = nil
             pendingSourceUpdate = true
             if isShuffled {
