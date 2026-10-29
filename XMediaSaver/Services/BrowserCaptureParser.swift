@@ -19,7 +19,7 @@ enum BrowserCaptureParser {
             if postsByID[post.id] == nil {
                 orderedIDs.append(post.id)
             }
-            if let existing = postsByID[post.id], post.media.isEmpty, !existing.media.isEmpty {
+            if let existing = postsByID[post.id], post.media.count < existing.media.count {
                 continue
             }
             postsByID[post.id] = post

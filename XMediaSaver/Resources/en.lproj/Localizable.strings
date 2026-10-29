@@ -230,9 +230,9 @@
 "Post 大小：从大到小" = "Post Size: Largest First";
 "Post 大小：从小到大" = "Post Size: Smallest First";
 "全部保存状态" = "All Save States";
-"已保存到 Folder（含部分）" = "Saved to Folder (Including Partial)";
-"尚未完整保存到 Folder" = "Not Fully Saved to Folder";
-"已完整保存到 Folder" = "Fully Saved to Folder";
+"已保存到 Folder（含部分）" = "Saved (Any Media)";
+"尚未完整保存到 Folder" = "Not Fully Saved";
+"已完整保存到 Folder" = "Fully Saved";
 "Folder 保存状态" = "Folder Save State";
 "随机排序（按 Post）" = "Shuffle by Post";
 "重新随机排序" = "Reshuffle";

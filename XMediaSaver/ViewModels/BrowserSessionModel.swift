@@ -552,24 +552,21 @@ final class BrowserSessionModel: NSObject, ObservableObject {
         let oldMedia = Dictionary(
             uniqueKeysWithValues: existing.media.map { ($0.mediaKey, $0) }
         )
-        let receivedMedia = incoming.media.isEmpty ? existing.media : incoming.media
+        let receivedKeys = Set(incoming.media.map(\.mediaKey))
+        let receivedMedia = incoming.media + existing.media.filter { !receivedKeys.contains($0.mediaKey) }
         let media = receivedMedia.map { item in
-            guard let old = oldMedia[item.mediaKey],
-                  item.byteSize == nil
-            else {
-                return item
-            }
+            guard let old = oldMedia[item.mediaKey] else { return item }
             return BookmarkedMedia(
                 mediaKey: item.mediaKey,
                 type: item.type,
-                url: item.url,
-                previewImageURL: item.previewImageURL,
-                variants: item.variants,
-                width: item.width,
-                height: item.height,
-                durationMilliseconds: item.durationMilliseconds,
-                byteSize: old.byteSize,
-                sizeProbeCompleted: old.sizeProbeCompleted
+                url: item.url ?? old.url,
+                previewImageURL: item.previewImageURL ?? old.previewImageURL,
+                variants: item.variants.isEmpty ? old.variants : item.variants,
+                width: item.width ?? old.width,
+                height: item.height ?? old.height,
+                durationMilliseconds: item.durationMilliseconds ?? old.durationMilliseconds,
+                byteSize: item.byteSize ?? old.byteSize,
+                sizeProbeCompleted: item.sizeProbeCompleted ?? old.sizeProbeCompleted
             )
         }
         return BookmarkedPost(

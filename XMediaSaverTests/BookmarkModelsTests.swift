@@ -2,6 +2,17 @@ import XCTest
 @testable import XMediaSaver
 
 final class BookmarkModelsTests: XCTestCase {
+    func testSafeMediaPathsAcceptDirectoryURLsWithTrailingSlash() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("Images/a.jpg")
+        try Data([1]).write(to: file)
+        XCTAssertNotNil(FolderPathSafety.mediaURL("Images/a.jpg", root: root))
+        XCTAssertNotNil(FolderPathSafety.mediaURL("Images/a.jpg", root: URL(fileURLWithPath: root.path)))
+        XCTAssertNil(FolderPathSafety.mediaURL("Images/../../outside.jpg", root: root))
+    }
+
     func testPostSizeOrderingKeepsUnknownSizesLast() {
         let small = sizedPost("small", bytes: 10)
         let large = sizedPost("large", bytes: 50)
@@ -91,6 +102,26 @@ final class BookmarkModelsTests: XCTestCase {
         decoder.dateDecodingStrategy = .iso8601
         let report = try decoder.decode(FolderExportAudit.self, from: Data(contentsOf: root.appendingPathComponent("last-export-report.json")))
         XCTAssertEqual(report.posts[0].exclusionReason, "no_parsed_media")
+    }
+
+    func testOldPostWithExistingMediaIsRecordedAsAvailableNotSilentlyLost() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: root.appendingPathComponent("Images/old.jpg"))
+        let media = sizedPost("old", bytes: 3).media
+        let post = BookmarkedPost(id: "old", text: "2010 archive", createdAt: Date(timeIntervalSince1970: 1_262_304_000),
+            authorID: nil, authorName: nil, authorUsername: nil, media: media)
+        try lineData([ExportStateRecord(mediaKey: "old", relativePath: "Images/old.jpg")]).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let result = try await FolderMediaExporter().export(posts: [post], mediaByPostID: [post.id: post.media], destination: root) { _ in }
+        XCTAssertEqual(result.skipped, 1)
+        XCTAssertEqual(result.failed, 0)
+        let restored = try await LocalFolderLibrary(root: root).loadPosts()
+        XCTAssertEqual(restored.first?.media.count, 1)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let report = try decoder.decode(FolderExportAudit.self, from: Data(contentsOf: root.appendingPathComponent("last-export-report.json")))
+        XCTAssertEqual(report.posts[0].media[0].relativePath, "Images/old.jpg")
     }
 
     func testManualFileDeletionUpdatesLocalAvailability() async throws {

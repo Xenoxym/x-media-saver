@@ -10,7 +10,8 @@ enum FolderPathSafety {
         guard ["Images/", "Animated GIFs/", "Videos/"].contains(where: relativePath.hasPrefix) else { return nil }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let candidate = base.appendingPathComponent(relativePath).standardizedFileURL.resolvingSymlinksInPath()
-        guard candidate.path.hasPrefix(base.path + "/"),
+        let prefix = base.path.hasSuffix("/") ? base.path : base.path + "/"
+        guard candidate.path.hasPrefix(prefix),
               (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
         else { return nil }
         return candidate

@@ -2,6 +2,16 @@ import XCTest
 @testable import XMediaSaver
 
 final class BrowserCaptureParserTests: XCTestCase {
+    func testSparseDuplicateDoesNotEraseMediaFromRicherResponse() throws {
+        let json = #"{"items":[{"tweet_results":{"result":{"rest_id":"same","legacy":{"full_text":"photo","extended_entities":{"media":[{"media_key":"3_photo","type":"photo","media_url_https":"https://pbs.twimg.com/media/photo?format=jpg&name=small"}]}}}}},{"tweet_results":{"result":{"rest_id":"same","legacy":{"full_text":"photo"}}}}]}"#
+        let result = try BrowserCaptureParser.parse(data: Data(json.utf8), sourceURL: "bookmarks")
+        XCTAssertEqual(result.posts.count, 1)
+        let media = try XCTUnwrap(result.posts.first?.media.first)
+        let query = URLComponents(url: media.url!, resolvingAgainstBaseURL: false)?.queryItems
+        XCTAssertEqual(query?.first(where: { $0.name == "format" })?.value, "jpg")
+        XCTAssertEqual(query?.first(where: { $0.name == "name" })?.value, "orig")
+    }
+
     func testLegacyEntitiesMediaAndImageSuffixAreParsed() throws {
         let json = #"{"data":{"tweet_results":{"result":{"rest_id":"2018","legacy":{"full_text":"old post","created_at":"Wed Oct 10 20:19:24 +0000 2018","entities":{"media":[{"id_str":"123","type":"photo","media_url_https":"https://pbs.twimg.com/media/old.jpg:large","sizes":{"large":{"w":1200,"h":800}}}]}}}}}}"#
         let capture = try BrowserCaptureParser.parse(data: Data(json.utf8), sourceURL: "bookmarks")
