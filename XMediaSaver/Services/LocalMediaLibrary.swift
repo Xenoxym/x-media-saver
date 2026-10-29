@@ -18,28 +18,58 @@ final class LocalMediaAvailability: ObservableObject {
     }
 }
 
+enum LibraryFilePaths {
+    static func relativePath(of url: URL, under root: URL, resolvingSymlinks: Bool = false) -> String? {
+        guard url.isFileURL, root.isFileURL else { return nil }
+        func components(_ value: URL) -> [String] {
+            let normalized = value.standardizedFileURL
+            let resolved = resolvingSymlinks ? normalized.resolvingSymlinksInPath() : normalized
+            return resolved.pathComponents.filter { !$0.isEmpty && $0 != "/" }
+        }
+        let base = components(root)
+        let candidate = components(url)
+        guard !base.isEmpty, candidate.starts(with: base) else { return nil }
+        return candidate.dropFirst(base.count).joined(separator: "/")
+    }
+
+    static func fileURL(for relativePath: String, root: URL, resolvingSymlinks: Bool = true) -> URL? {
+        let parts = relativePath.split(separator: "/", omittingEmptySubsequences: false)
+        guard !relativePath.isEmpty, !relativePath.hasPrefix("/"),
+              !relativePath.contains("\\"), !relativePath.contains("\0"),
+              !parts.contains(where: { $0 == "." || $0 == ".." || $0.isEmpty }) else { return nil }
+        let base = resolvingSymlinks ? root.standardizedFileURL.resolvingSymlinksInPath() : root.standardizedFileURL
+        let candidate = base.appendingPathComponent(relativePath).standardizedFileURL
+        guard let path = self.relativePath(of: candidate, under: base, resolvingSymlinks: resolvingSymlinks),
+              !path.isEmpty else { return nil }
+        return candidate
+    }
+
+    static func isReadableRegularFile(_ url: URL) -> Bool {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              attributes[.type] as? FileAttributeType == .typeRegular,
+              ((attributes[.size] as? NSNumber)?.int64Value ?? 0) > 0 else { return false }
+        return FileManager.default.isReadableFile(atPath: url.path)
+    }
+}
+
 enum FolderPathSafety {
     // Manifest lookup is lexical only. Resolve symlinks/check the actual file
     // when opening it, not thousands of times on every navigation transition.
     static func recordedMediaURL(_ relativePath: String, root: URL) -> URL? {
         guard let folder = ["Images/", "Animated GIFs/", "Videos/"].first(where: relativePath.hasPrefix),
-              !relativePath.contains("\\"), !relativePath.contains("\0") else { return nil }
-        let base = root.standardizedFileURL
-        let candidate = base.appendingPathComponent(relativePath).standardizedFileURL
-        let folderPath = base.appendingPathComponent(folder).path
-        let prefix = folderPath.hasSuffix("/") ? folderPath : folderPath + "/"
-        guard candidate.path.hasPrefix(prefix) else { return nil }
+              let candidate = LibraryFilePaths.fileURL(for: relativePath, root: root, resolvingSymlinks: false),
+              let path = LibraryFilePaths.relativePath(of: candidate, under: root.appendingPathComponent(folder)),
+              !path.isEmpty else { return nil }
         return candidate
     }
 
     static func mediaURL(_ relativePath: String, root: URL) -> URL? {
         guard let mediaFolder = ["Images/", "Animated GIFs/", "Videos/"].first(where: relativePath.hasPrefix) else { return nil }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
-        let candidate = base.appendingPathComponent(relativePath).standardizedFileURL.resolvingSymlinksInPath()
-        let prefix = base.path.hasSuffix("/") ? base.path : base.path + "/"
+        guard let candidate = LibraryFilePaths.fileURL(for: relativePath, root: base) else { return nil }
         let mediaBase = base.appendingPathComponent(mediaFolder).standardizedFileURL.resolvingSymlinksInPath()
-        let mediaPrefix = mediaBase.path.hasSuffix("/") ? mediaBase.path : mediaBase.path + "/"
-        guard mediaBase.path.hasPrefix(prefix), candidate.path.hasPrefix(mediaPrefix),
+        guard let folderPath = LibraryFilePaths.relativePath(of: mediaBase, under: base, resolvingSymlinks: true), !folderPath.isEmpty,
+              let filePath = LibraryFilePaths.relativePath(of: candidate, under: mediaBase, resolvingSymlinks: true), !filePath.isEmpty,
               (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
         else { return nil }
         return candidate
@@ -86,7 +116,7 @@ actor LocalMediaLibrary {
     func localURL(for mediaKey: String) async -> URL? {
         if !hasLoaded { await reload() }
         guard let url = localURLsByMediaKey[mediaKey] else { return nil }
-        guard Self.isUsableFile(url) else {
+        guard isUsableFile(url) else {
             await discardUnavailable(url)
             return nil
         }
@@ -98,13 +128,14 @@ actor LocalMediaLibrary {
     func availableMediaKeys() async -> Set<String> {
         if !hasLoaded { await reload() }
         let keysByURL = Dictionary(grouping: localURLsByMediaKey.keys, by: { localURLsByMediaKey[$0]! })
-        let invalid = Set(keysByURL.keys.filter { !Self.isUsableFile($0) })
+        let invalid = Set(keysByURL.keys.filter { !isUsableFile($0) })
         localURLsByMediaKey = localURLsByMediaKey.filter { !invalid.contains($0.value) }
         knownMissingPaths.formUnion(invalid.map(\.path))
         for root in roots {
-            let base = root.standardizedFileURL.resolvingSymlinksInPath().path
-            let issues = invalid.filter { $0.path.hasPrefix(base + "/") }.map { url in
-                LocalFileIssue(path: String(url.path.dropFirst(base.count + 1)),
+            let issues = invalid.compactMap { url -> LocalFileIssue? in
+                guard let path = LibraryFilePaths.relativePath(of: url, under: root, resolvingSymlinks: true)
+                    ?? LibraryFilePaths.relativePath(of: url, under: root) else { return nil }
+                return LocalFileIssue(path: path,
                     reason: FileManager.default.fileExists(atPath: url.path) ? "unreadable_or_empty" : "missing",
                     mediaKeys: (keysByURL[url] ?? []).sorted(), observedAt: Date())
             }
@@ -119,25 +150,26 @@ actor LocalMediaLibrary {
         return localURLsByMediaKey
     }
 
-    func reconcileAfterScan(existingRelativePaths: Set<String>) async {
+    func reconcileAfterScan(existingRelativePaths: Set<String>, root: URL = StorageManager.appDocumentsLibraryURL) async {
         await reload(publish: false)
-        let base = StorageManager.appDocumentsLibraryURL.standardizedFileURL.resolvingSymlinksInPath().path
         localURLsByMediaKey = localURLsByMediaKey.filter { _, url in
-            guard url.path.hasPrefix(base + "/") else { return true }
-            let relative = String(url.path.dropFirst(base.count + 1))
-            let exists = existingRelativePaths.contains(relative)
+            guard let relative = LibraryFilePaths.relativePath(of: url, under: root, resolvingSymlinks: true)
+                ?? LibraryFilePaths.relativePath(of: url, under: root) else { return true }
+            // A scan/path-format mismatch is not proof that a file disappeared.
+            // Verify only negative candidates before changing availability.
+            let exists = existingRelativePaths.contains(relative) || isUsableFile(url)
             if !exists { knownMissingPaths.insert(url.path) }
             return exists
         }
         await publishAvailability()
     }
 
-    private static func isUsableFile(_ url: URL) -> Bool {
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
-              attributes[.type] as? FileAttributeType == .typeRegular,
-              ((attributes[.size] as? NSNumber)?.int64Value ?? 0) > 0,
-              url.standardizedFileURL.path == url.resolvingSymlinksInPath().path else { return false }
-        return true
+    private func isUsableFile(_ url: URL) -> Bool {
+        guard roots.contains(where: {
+            guard let relative = LibraryFilePaths.relativePath(of: url, under: $0, resolvingSymlinks: true) else { return false }
+            return !relative.isEmpty
+        }) else { return false }
+        return LibraryFilePaths.isReadableRegularFile(url)
     }
 
     private func discardUnavailable(_ url: URL, publish: Bool = true) async {
@@ -145,8 +177,8 @@ actor LocalMediaLibrary {
         guard !keys.isEmpty else { return }
         for key in keys { localURLsByMediaKey.removeValue(forKey: key) }
         knownMissingPaths.insert(url.path)
-        if let root = roots.first(where: { url.path.hasPrefix($0.standardizedFileURL.resolvingSymlinksInPath().path + "/") }) {
-            let path = String(url.path.dropFirst(root.standardizedFileURL.resolvingSymlinksInPath().path.count + 1))
+        if let root = roots.first(where: { LibraryFilePaths.relativePath(of: url, under: $0, resolvingSymlinks: true) != nil }),
+           let path = LibraryFilePaths.relativePath(of: url, under: root, resolvingSymlinks: true) {
             await LocalFileIssueLog.shared.record(root: root, path: path,
                 reason: FileManager.default.fileExists(atPath: url.path) ? "unreadable_or_empty" : "missing", mediaKeys: keys)
         }
@@ -161,7 +193,7 @@ actor LocalMediaLibrary {
 
     func validateFile(at url: URL) async -> Bool {
         if !hasLoaded { await reload() }
-        guard !Self.isUsableFile(url) else { return true }
+        guard !isUsableFile(url) else { return true }
         await discardUnavailable(url)
         return false
     }
@@ -182,7 +214,7 @@ actor LocalMediaLibrary {
         let canonicalRoot = root.standardizedFileURL.resolvingSymlinksInPath()
         for record in records {
             guard let url = FolderPathSafety.recordedMediaURL(record.relativePath, root: canonicalRoot) else { continue }
-            if knownMissingPaths.contains(url.path), !Self.isUsableFile(url) { continue }
+            if knownMissingPaths.contains(url.path), !isUsableFile(url) { continue }
             knownMissingPaths.remove(url.path)
             localURLsByMediaKey[record.mediaKey] = url
         }

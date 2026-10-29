@@ -327,3 +327,7 @@
 "浏览所在文件夹" = "Browse Containing Folder";
 "共享文件" = "Share File";
 "无法解析清单记录：%@" = "Unreadable Manifest Record: %@";
+"再显示 12 个标签" = "Show 12 More Hashtags";
+"收起标签" = "Show Fewer Hashtags";
+"实际文件路径" = "Actual File Path";
+"直接浏览 App 保存目录中的实际文件，不是系统“最近项目”。" = "Browses the actual app folder, not the system Recents list.";

@@ -2,6 +2,141 @@ import XCTest
 @testable import XMediaSaver
 
 final class BookmarkModelsTests: XCTestCase {
+    func testDirectoryURLScanPreservesFullRelativePathsAndFileActionsResolveTheSameFile() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("folder test " + UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        let path = "Images/Photo #1 测试%.jpg"
+        let file = root.appendingPathComponent(path)
+        try Data([1, 2, 3]).write(to: file)
+        try lineData([ExportStateRecord(mediaKey: "photo", relativePath: path)]).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let post = ExportedPostRecord(id: "post", postURL: nil, text: "retained", createdAt: nil,
+            authorID: nil, authorName: nil, authorUsername: nil,
+            media: [ExportedMediaRecord(mediaKey: "photo", type: .photo, remoteURL: nil,
+                localRelativePath: path, width: nil, height: nil, durationMilliseconds: nil, byteSize: 3)])
+        try lineData([post]).write(to: root.appendingPathComponent("posts.jsonl"))
+        let variants = [root, URL(fileURLWithPath: root.path), URL(fileURLWithPath: root.path + "/", isDirectory: true)]
+        for base in variants {
+            let tree = try await LibraryStorageScanner().scan(root: base)
+            let imageFolder = try XCTUnwrap(tree.children.first { $0.name == "Images" })
+            let image = try XCTUnwrap(imageFolder.children.first { $0.name == file.lastPathComponent })
+            XCTAssertEqual(image.relativePath, path)
+            let resolved = try XCTUnwrap(LibraryFilePaths.fileURL(for: image.relativePath, root: base))
+            XCTAssertEqual(try Data(contentsOf: resolved), Data([1, 2, 3]))
+            let report = try LibraryIntegrityInspector.inspect(root: base, tree: tree)
+            XCTAssertTrue(report.issues.isEmpty)
+            XCTAssertTrue(report.untrackedFiles.isEmpty)
+            let library = LocalMediaLibrary(roots: [base])
+            let available = await library.localURL(for: "photo")
+            XCTAssertNotNil(available)
+            print("Directory URL root: \(base.absoluteString); file path: \(image.relativePath)")
+        }
+    }
+
+    func testExistingFileThroughDirectoryAliasIsNotMarkedUnreadable() async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let root = workspace.appendingPathComponent("actual", isDirectory: true)
+        let alias = workspace.appendingPathComponent("alias", isDirectory: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Videos"), withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: root.appendingPathComponent("Videos/video.mp4"))
+        try lineData([ExportStateRecord(mediaKey: "video", relativePath: "Videos/video.mp4")]).write(to: root.appendingPathComponent("export-state.jsonl"))
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: root)
+        let library = LocalMediaLibrary(roots: [root])
+        let throughAlias = alias.appendingPathComponent("Videos/video.mp4")
+        let readable = await library.validateFile(at: throughAlias)
+        XCTAssertTrue(readable)
+        XCTAssertTrue(LibraryFilePaths.isReadableRegularFile(throughAlias))
+        XCTAssertEqual(LibraryFilePaths.relativePath(of: throughAlias, under: root, resolvingSymlinks: true), "Videos/video.mp4")
+        let legacyStringCheck = throughAlias.standardizedFileURL.path == throughAlias.resolvingSymlinksInPath().path
+        XCTAssertFalse(legacyStringCheck, "Regression fixture must exercise unequal strings for the same existing file")
+    }
+
+    func testScanMismatchCannotClearValidLocalAvailability() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Videos"), withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("Videos/keep.mp4")
+        try Data([1, 2, 3]).write(to: file)
+        try lineData([ExportStateRecord(mediaKey: "keep", relativePath: "Videos/keep.mp4")]).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let library = LocalMediaLibrary(roots: [root])
+        await library.reconcileAfterScan(existingRelativePaths: ["ideos/keep.mp4"], root: root)
+        let preserved = await library.recordedMediaKeys()
+        XCTAssertEqual(preserved, ["keep"])
+        try FileManager.default.removeItem(at: file)
+        await library.reconcileAfterScan(existingRelativePaths: [], root: root)
+        let removed = await library.recordedMediaKeys()
+        XCTAssertTrue(removed.isEmpty)
+    }
+
+    func testLocalMediaLookupRejectsAMediaFolderSymlinkOutsideTheLibrary() async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let root = workspace.appendingPathComponent("library", isDirectory: true)
+        let outside = workspace.appendingPathComponent("outside", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        let external = outside.appendingPathComponent("keep.jpg")
+        try Data([1, 2, 3]).write(to: external)
+        try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("Images"), withDestinationURL: outside)
+        try lineData([ExportStateRecord(mediaKey: "external", relativePath: "Images/keep.jpg")])
+            .write(to: root.appendingPathComponent("export-state.jsonl"))
+        let library = LocalMediaLibrary(roots: [root])
+        let url = await library.localURL(for: "external")
+        XCTAssertNil(url)
+        XCTAssertNil(FolderPathSafety.mediaURL("Images/keep.jpg", root: root))
+        XCTAssertEqual(try Data(contentsOf: external), Data([1, 2, 3]))
+    }
+
+    func testFileInspectorVerifiesNegativeScanMatchesBeforeReportingMissing() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        try Data([1]).write(to: root.appendingPathComponent("Images/real.jpg"))
+        try lineData([ExportStateRecord(mediaKey: "real", relativePath: "Images/real.jpg")]).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let wrongScan = LibraryStorageNode(relativePath: "", name: "Library", bytes: 1, children: [
+            LibraryStorageNode(relativePath: "mages/real.jpg", name: "real.jpg", bytes: 1, children: [])
+        ])
+        let report = try LibraryIntegrityInspector.inspect(root: root, tree: wrongScan)
+        XCTAssertTrue(report.issues.isEmpty)
+        XCTAssertTrue(report.verifiedExistingPaths.contains("Images/real.jpg"))
+    }
+
+    func testFolderBrowserListsActualFilesInRequestedDirectory() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent("Videos", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data([1, 2, 3]).write(to: directory.appendingPathComponent("actual.mp4"))
+        let files = try await LibraryFolderReader().contents(of: directory, root: root)
+        XCTAssertEqual(files.map { $0.url.lastPathComponent }, ["actual.mp4"])
+        XCTAssertEqual(files.first?.bytes, 3)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(files.first?.url)), Data([1, 2, 3]))
+    }
+
+    func testResolvedFalseMissingRecordsAreRemovedAfterAValidScan() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let log = LocalFileIssueLog.shared
+        await log.record(root: root, path: "Videos/exists.mp4", reason: "missing", mediaKeys: ["exists"])
+        await log.record(root: root, path: "Videos/missing.mp4", reason: "missing", mediaKeys: ["missing"])
+        await log.reconcile(existingPaths: ["Videos/exists.mp4"], issues: [], root: root)
+        let remaining = await log.records(root: root)
+        XCTAssertEqual(remaining.map(\.path), ["Videos/missing.mp4"])
+    }
+
+    func testHashtagRecommendationsCanExpandInTwelveItemSteps() throws {
+        let posts = (0..<40).map { index in makePost(id: "\(index)", date: nil, types: [], text: "#tag\(index)") }
+        let index = try BookmarkSuggestionIndex(posts: posts)
+        let first = try index.tags(query: "", selected: [], limit: 12)
+        let more = try index.tags(query: "", selected: [], limit: 24)
+        XCTAssertEqual(first.count, 12)
+        XCTAssertEqual(more.count, 24)
+        XCTAssertEqual(first.map(\.term), Array(more.prefix(12)).map(\.term))
+        XCTAssertEqual(try index.tags(query: "", selected: [], limit: 48).count, 40)
+    }
+
     func testThumbnailURLRetainsXImageFormat() {
         let input = URL(string: "https://pbs.twimg.com/media/example?format=png&name=orig")!
         let preview = LocalMediaThumbnailLoader.previewURL(input, name: "small")!

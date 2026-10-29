@@ -4,6 +4,10 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+- Fixed existing local files being misclassified as missing: centralized path-component handling for directory/alias URLs and verification of negative scan matches before clearing local indicators. Confirmed-existing files clear obsolete issue records without deleting media/manifests.
+- Fixed File Information preview/sharing to use the actual local file; replaced the unreliable Recents-opening picker with direct in-app folder browsing and added explicit Save to Photos with result/error feedback.
+- Popular/recommended rule-group hashtags can expand in additional batches of 12 and collapse again.
+
 - Added a grid destination for current Browse & Search filter results; removed the separate in-gallery search bar to keep gallery navigation simple.
 - Added local, editable rule groups combining related hashtags and Post-text keywords, with overlapping membership and persistent rules independent of the bookmark index/media library.
 - Added frequency-ranked existing hashtag selection, tag autocomplete/co-occurrence recommendations, one-tap hashtag-to-keyword copying, and local text-word suggestions.

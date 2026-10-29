@@ -224,16 +224,15 @@ private struct LibraryFileIssuesView: View {
 private struct LibraryFileInformationView: View {
     let node: LibraryStorageNode
     @Environment(\.dismiss) private var dismiss
-    @State private var showsPreview = false
     @State private var showsFileBrowser = false
-    @State private var previewURL: URL?
+    @State private var previewFile: LibraryPresentedFile?
+    @State private var sharedFile: LibraryPresentedFile?
     @State private var errorMessage: String?
+    @State private var resultMessage: String?
+    @State private var isSaving = false
 
     private var fileURL: URL? {
-        let root = StorageManager.appDocumentsLibraryURL.standardizedFileURL.resolvingSymlinksInPath()
-        let candidate = root.appendingPathComponent(node.relativePath).standardizedFileURL.resolvingSymlinksInPath()
-        guard candidate.path.hasPrefix(root.path + "/") else { return nil }
-        return candidate
+        LibraryFilePaths.fileURL(for: node.relativePath, root: StorageManager.appDocumentsLibraryURL)
     }
 
     var body: some View {
@@ -246,29 +245,95 @@ private struct LibraryFileInformationView: View {
                     Button {
                         Task {
                             if await LocalMediaLibrary.shared.validateFile(at: fileURL) {
-                                previewURL = fileURL; showsPreview = true
+                                errorMessage = nil
+                                previewFile = LibraryPresentedFile(url: fileURL)
                             } else { errorMessage = L10n.string("文件不存在或无法读取；本地保存状态已更新。") }
                         }
                     } label: { Label("打开文件", systemImage: "doc.viewfinder") }
                     Button { showsFileBrowser = true } label: {
                         Label("浏览所在文件夹", systemImage: "folder")
                     }
-                    ShareLink(item: fileURL) { Label("共享文件", systemImage: "square.and.arrow.up") }
+                    Button {
+                        Task {
+                            if await LocalMediaLibrary.shared.validateFile(at: fileURL) {
+                                errorMessage = nil
+                                sharedFile = LibraryPresentedFile(url: fileURL)
+                            } else { errorMessage = L10n.string("文件不存在或无法读取；本地保存状态已更新。") }
+                        }
+                    } label: { Label("共享文件", systemImage: "square.and.arrow.up") }
+                    if let type = UTType(filenameExtension: fileURL.pathExtension), type.conforms(to: .image) || type.conforms(to: .movie) {
+                        Button {
+                            Task { await saveToPhotos(fileURL, image: type.conforms(to: .image)) }
+                        } label: {
+                            if isSaving { ProgressView() }
+                            else { Label("保存到照片", systemImage: "photo.badge.arrow.down") }
+                        }.disabled(isSaving)
+                    }
+                    DisclosureGroup("实际文件路径") {
+                        Text(fileURL.path).font(.caption2).textSelection(.enabled)
+                    }
                 }
                 if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.orange) }
+                if let resultMessage { Text(resultMessage).font(.caption).foregroundStyle(.secondary) }
             }
             .navigationTitle("文件信息").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
-        .sheet(isPresented: $showsPreview) {
-            if let previewURL { LibraryQuickLookView(url: previewURL).ignoresSafeArea() }
+        .sheet(item: $previewFile) { file in
+            LibraryQuickLookSheet(url: file.url)
+        }
+        .sheet(item: $sharedFile) { file in
+            LibraryFileShareSheet(url: file.url) { savedToPhotos, error in
+                if let error { errorMessage = error.localizedDescription }
+                else if savedToPhotos { resultMessage = L10n.string("已保存到照片。") }
+            }
         }
         .sheet(isPresented: $showsFileBrowser, onDismiss: {
             if let fileURL { Task { _ = await LocalMediaLibrary.shared.validateFile(at: fileURL) } }
         }) {
             if let fileURL {
-                LibraryFolderBrowser(directory: fileURL.deletingLastPathComponent())
+                NavigationStack {
+                    LibraryFolderContentsView(root: StorageManager.appDocumentsLibraryURL,
+                        directory: fileURL.deletingLastPathComponent())
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showsFileBrowser = false } } }
+                }
             }
+        }
+    }
+
+    private func saveToPhotos(_ url: URL, image: Bool) async {
+        guard !isSaving else { return }
+        isSaving = true
+        errorMessage = nil
+        resultMessage = nil
+        defer { isSaving = false }
+        do {
+            guard await LocalMediaLibrary.shared.validateFile(at: url) else {
+                throw AppError.saveFailed(L10n.string("文件不存在或无法读取；本地保存状态已更新。"))
+            }
+            let saver = PhotoLibrarySaver()
+            try await saver.requestAddPermission()
+            if image { try await saver.saveImage(at: url) }
+            else { try await saver.saveVideo(at: url) }
+            resultMessage = L10n.string("已保存到照片。")
+        } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+private struct LibraryPresentedFile: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+private struct LibraryQuickLookSheet: View {
+    let url: URL
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            LibraryQuickLookView(url: url)
+                .navigationTitle(url.lastPathComponent)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
     }
 }
@@ -290,12 +355,104 @@ private struct LibraryQuickLookView: UIViewControllerRepresentable {
     }
 }
 
-private struct LibraryFolderBrowser: UIViewControllerRepresentable {
-    let directory: URL
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: false)
-        picker.directoryURL = directory
-        return picker
+private struct LibraryFileShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    let completion: (Bool, Error?) -> Void
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        // Supply the local file itself, not a generic URL Transferable/link.
+        let controller = UIActivityViewController(activityItems: [url as NSURL], applicationActivities: nil)
+        controller.completionWithItemsHandler = { activity, completed, _, error in
+            Task { @MainActor in completion(completed && activity == .saveToCameraRoll, error) }
+        }
+        return controller
     }
-    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+struct LibraryFolderFile: Identifiable {
+    let url: URL
+    let isDirectory: Bool
+    let bytes: Int64
+    var id: URL { url }
+}
+
+actor LibraryFolderReader {
+    func contents(of directory: URL, root: URL) throws -> [LibraryFolderFile] {
+        guard LibraryFilePaths.relativePath(of: directory, under: root, resolvingSymlinks: true) != nil else {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        let urls = try FileManager.default.contentsOfDirectory(at: directory,
+            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey], options: [.skipsHiddenFiles])
+        var files: [LibraryFolderFile] = []
+        for url in urls {
+            try Task.checkCancellation()
+            let values = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey])
+            guard values.isSymbolicLink != true else { continue }
+            files.append(LibraryFolderFile(url: url, isDirectory: values.isDirectory == true, bytes: Int64(values.fileSize ?? 0)))
+        }
+        files.sort {
+            if $0.isDirectory != $1.isDirectory { return $0.isDirectory }
+            return $0.url.lastPathComponent.localizedStandardCompare($1.url.lastPathComponent) == .orderedAscending
+        }
+        return files
+    }
+}
+
+private struct LibraryFolderContentsView: View {
+    let root: URL
+    let directory: URL
+    @State private var files: [LibraryFolderFile] = []
+    @State private var visibleLimit = 100
+    @State private var previewFile: LibraryPresentedFile?
+    @State private var errorMessage: String?
+    @State private var isLoading = false
+    private let reader = LibraryFolderReader()
+
+    var body: some View {
+        List {
+            Section {
+                Text(directory.path).font(.caption2).textSelection(.enabled)
+            } footer: { Text("直接浏览 App 保存目录中的实际文件，不是系统“最近项目”。") }
+            ForEach(Array(files.prefix(visibleLimit))) { file in
+                if file.isDirectory {
+                    NavigationLink {
+                        LibraryFolderContentsView(root: root, directory: file.url)
+                    } label: { fileRow(file) }
+                } else {
+                    Button {
+                        Task {
+                            if await LocalMediaLibrary.shared.validateFile(at: file.url) {
+                                previewFile = LibraryPresentedFile(url: file.url)
+                            } else { errorMessage = L10n.string("文件不存在或无法读取；本地保存状态已更新。") }
+                        }
+                    } label: { fileRow(file) }
+                    .buttonStyle(.plain)
+                }
+            }
+            if files.count > visibleLimit { Button("再显示 100 条") { visibleLimit += 100 } }
+            if isLoading { ProgressView() }
+            if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.orange) }
+        }
+        .navigationTitle(directory.lastPathComponent)
+        .navigationBarTitleDisplayMode(.inline)
+        .task(id: directory) { await reload() }
+        .refreshable { await reload() }
+        .sheet(item: $previewFile) { LibraryQuickLookSheet(url: $0.url) }
+    }
+
+    private func fileRow(_ file: LibraryFolderFile) -> some View {
+        HStack {
+            Image(systemName: file.isDirectory ? "folder" : "doc")
+            Text(file.url.lastPathComponent).lineLimit(1).truncationMode(.middle)
+            Spacer()
+            if !file.isDirectory { Text(ByteCountFormatter.string(fromByteCount: file.bytes, countStyle: .file)).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+
+    private func reload() async {
+        isLoading = true
+        defer { isLoading = false }
+        do { files = try await reader.contents(of: directory, root: root); errorMessage = nil }
+        catch { errorMessage = error.localizedDescription }
+    }
 }

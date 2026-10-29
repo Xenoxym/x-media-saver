@@ -185,12 +185,24 @@ actor LocalFileIssueLog {
                 .write(to: root.appendingPathComponent("file-issues.json"), options: .atomic)
         } catch { /* A read-only/offline location must not prevent remote fallback. */ }
     }
+
+    func reconcile(existingPaths: Set<String>, issues: [LocalFileIssue], root: URL) {
+        let remaining = records(root: root).filter { !existingPaths.contains($0.path) }
+        var seen: Set<String> = []
+        let entries = (issues + remaining).filter { seen.insert($0.id).inserted }
+        do {
+            guard FileManager.default.fileExists(atPath: root.path) else { return }
+            try JSONEncoder().encode(Array(entries.prefix(200)))
+                .write(to: root.appendingPathComponent("file-issues.json"), options: .atomic)
+        } catch { }
+    }
 }
 
 struct LibraryIntegrityReport {
     let untrackedFiles: [LibraryStorageNode]
     let issues: [LocalFileIssue]
     let metadataWarnings: [String]
+    let verifiedExistingPaths: Set<String>
 }
 
 enum LibraryIntegrityInspector {
@@ -245,17 +257,25 @@ enum LibraryIntegrityInspector {
                 }
             }
         }
-        let issues = references.compactMap { path, keys -> LocalFileIssue? in
-            guard let node = files[path] else {
-                return LocalFileIssue(path: path, reason: "missing", mediaKeys: keys.sorted(), observedAt: Date())
+        var verified = Set(files.values.filter { $0.bytes > 0 }.map(\.relativePath))
+        var issues: [LocalFileIssue] = []
+        for (path, keys) in references {
+            if let node = files[path], node.bytes > 0 { continue }
+            // Never infer physical deletion from a string-key mismatch alone.
+            if let url = FolderPathSafety.mediaURL(path, root: root), LibraryFilePaths.isReadableRegularFile(url) {
+                verified.insert(path)
+                continue
             }
-            return node.bytes > 0 ? nil : LocalFileIssue(path: path, reason: "unreadable_or_empty", mediaKeys: keys.sorted(), observedAt: Date())
-        }.sorted { $0.path < $1.path }
+            issues.append(LocalFileIssue(path: path, reason: files[path] == nil ? "missing" : "unreadable_or_empty",
+                mediaKeys: keys.sorted(), observedAt: Date()))
+        }
+        issues.sort { $0.path < $1.path }
         let untracked = files.values.filter { node in
             FolderPathSafety.recordedMediaURL(node.relativePath, root: root) != nil
                 && !postLinkedPaths.contains(node.relativePath)
         }.sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes }
-        return LibraryIntegrityReport(untrackedFiles: untracked, issues: issues, metadataWarnings: warnings)
+        return LibraryIntegrityReport(untrackedFiles: untracked, issues: issues,
+            metadataWarnings: warnings, verifiedExistingPaths: verified)
     }
 }
 
@@ -264,20 +284,15 @@ actor LibraryStorageScanner {
         if !FileManager.default.fileExists(atPath: root.path) {
             return LibraryStorageNode(relativePath: "", name: "Library", bytes: 0, children: [])
         }
-        return try node(at: root, root: root)
+        let base = root.standardizedFileURL.resolvingSymlinksInPath()
+        return try node(at: base, root: base)
     }
 
     func inspect(tree: LibraryStorageNode, root: URL = StorageManager.appDocumentsLibraryURL) async throws -> LibraryIntegrityReport {
         let report = try LibraryIntegrityInspector.inspect(root: root, tree: tree)
-        await LocalFileIssueLog.shared.record(report.issues, root: root)
+        await LocalFileIssueLog.shared.reconcile(existingPaths: report.verifiedExistingPaths, issues: report.issues, root: root)
         if root == StorageManager.appDocumentsLibraryURL {
-            var paths: Set<String> = []
-            func collect(_ node: LibraryStorageNode) {
-                if node.children.isEmpty, node.bytes > 0 { paths.insert(node.relativePath) }
-                else { node.children.forEach(collect) }
-            }
-            collect(tree)
-            await LocalMediaLibrary.shared.reconcileAfterScan(existingRelativePaths: paths)
+            await LocalMediaLibrary.shared.reconcileAfterScan(existingRelativePaths: report.verifiedExistingPaths)
         }
         return report
     }
@@ -285,7 +300,9 @@ actor LibraryStorageScanner {
     private func node(at url: URL, root: URL) throws -> LibraryStorageNode {
         try Task.checkCancellation()
         let values = try url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .isSymbolicLinkKey])
-        let relative = url == root ? "" : String(url.path.dropFirst(root.path.count + 1))
+        guard let relative = LibraryFilePaths.relativePath(of: url, under: root) else {
+            throw CocoaError(.fileReadInvalidFileName)
+        }
         if values.isSymbolicLink == true {
             return LibraryStorageNode(relativePath: relative, name: url.lastPathComponent, bytes: 0, children: [])
         }

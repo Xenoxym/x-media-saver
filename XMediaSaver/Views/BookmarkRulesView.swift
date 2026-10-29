@@ -79,6 +79,8 @@ private struct BookmarkRuleEditor: View {
     @State private var errorMessage: String?
     @State private var suggestionIndex: BookmarkSuggestionIndex?
     @State private var tagSuggestions: [BookmarkTermSuggestion] = []
+    @State private var tagSuggestionLimit = 12
+    @State private var hasMoreTagSuggestions = false
     @State private var keywordSuggestions: [BookmarkTermSuggestion] = []
     @State private var showsTagPicker = false
     @State private var showsKeywordSuggestions = false
@@ -99,11 +101,12 @@ private struct BookmarkRuleEditor: View {
         let keywords: String
         let ready: Bool
         let suggestKeywords: Bool
+        let tagLimit: Int
     }
 
     private var recommendationInput: RecommendationInput {
         RecommendationInput(hashtags: hashtagText, keywords: keywordText,
-            ready: suggestionIndex != nil, suggestKeywords: showsKeywordSuggestions)
+            ready: suggestionIndex != nil, suggestKeywords: showsKeywordSuggestions, tagLimit: tagSuggestionLimit)
     }
 
     private var selectedTags: [String] { BookmarkRuleCategory.terms(from: hashtagText, hashtags: true) }
@@ -131,6 +134,15 @@ private struct BookmarkRuleEditor: View {
                         Text(selectedTags.isEmpty ? "常用标签" : "补全与相关标签")
                             .font(.caption).foregroundStyle(.secondary)
                         suggestionButtons(tagSuggestions, hashtag: true)
+                        HStack {
+                            if hasMoreTagSuggestions {
+                                Button("再显示 12 个标签") { tagSuggestionLimit += 12 }
+                            }
+                            Spacer()
+                            if tagSuggestionLimit > 12 {
+                                Button("收起标签") { tagSuggestionLimit = 12 }
+                            }
+                        }.font(.caption).buttonStyle(.borderless)
                     }
                 } header: { Text("相关 Hashtag") }
                   footer: { Text("每行一个，也可用逗号分隔；有无 # 均可，按完整标签匹配。") }
@@ -234,14 +246,15 @@ private struct BookmarkRuleEditor: View {
         let last = tags.last ?? ""
         let query = index.tagCounts[BookmarkSearchDocument.normalizeTag(last)] == nil ? last : ""
         let work = Task.detached(priority: .utility) {
-            let tags = try index.tags(query: query, selected: tags)
+            let tags = try index.tags(query: query, selected: tags, limit: input.tagLimit + 1)
             let words = input.suggestKeywords ? try index.keywords(hashtags: BookmarkRuleCategory.terms(from: input.hashtags, hashtags: true), excluding: keywords) : []
             return (tags, words)
         }
         do {
             let (tags, words) = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
             guard !Task.isCancelled, recommendationInput == input else { return }
-            tagSuggestions = tags
+            tagSuggestions = Array(tags.prefix(input.tagLimit))
+            hasMoreTagSuggestions = tags.count > input.tagLimit
             keywordSuggestions = words
         } catch { /* Editing cancels stale suggestions. */ }
     }
