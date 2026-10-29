@@ -36,6 +36,7 @@ struct MediaGalleryView: View {
     @State private var isSearching = false
     @State private var sourceRevision = 0
     @State private var pendingSourceUpdate = false
+    @State private var lastAppliedSearch: SearchInput?
     @ObservedObject private var ruleStore = BookmarkRuleStore.shared
     @State private var visibleLimit = 90
     @State private var isSelecting = false
@@ -149,6 +150,7 @@ struct MediaGalleryView: View {
                         galleryCell(item)
                     }
                     .buttonStyle(.plain)
+                    .allowsHitTesting(!isSearching)
                     .background {
                         GeometryReader { geometry in
                             Color.clear.preference(
@@ -635,8 +637,13 @@ struct MediaGalleryView: View {
     }
 
     private func applySearch() async {
-        guard viewerSelection == nil else { isSearching = false; return }
+        guard viewerSelection == nil else {
+            isSearching = false
+            pendingSourceUpdate = true
+            return
+        }
         let input = searchInput
+        if lastAppliedSearch == input, !pendingSourceUpdate { isSearching = false; return }
         let query = input.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty || input.rule != nil else {
             isSearching = false
@@ -645,8 +652,10 @@ struct MediaGalleryView: View {
                 applySort(sort)
                 pendingSourceUpdate = false
             }
+            lastAppliedSearch = input
             return
         }
+        pendingSourceUpdate = true
         do { try await Task.sleep(nanoseconds: 220_000_000) } catch { return }
         guard !Task.isCancelled else { return }
         isSearching = true
@@ -673,9 +682,11 @@ struct MediaGalleryView: View {
             } onCancel: { work.cancel() }
             guard !Task.isCancelled, searchInput == input else { return }
             searchDocuments = documents
+            guard viewerSelection == nil else { pendingSourceUpdate = true; return }
             matchingPostIDs = ids
             applySort(sort)
             pendingSourceUpdate = false
+            lastAppliedSearch = input
         } catch { /* A newer query or leaving the gallery cancels this search. */ }
     }
 
