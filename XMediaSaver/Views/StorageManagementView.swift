@@ -14,7 +14,7 @@ struct StorageManagementView: View {
             List {
                 Section("存储占用") {
                     NavigationLink {
-                        StorageUsageView()
+                        StorageUsageView(indexedPosts: session.capturedPosts)
                     } label: {
                         Label("Folder 空间分布", systemImage: "square.grid.3x3.fill")
                     }

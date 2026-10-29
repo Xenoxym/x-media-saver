@@ -112,6 +112,11 @@ struct BookmarkedPost: Identifiable, Codable, Equatable, Hashable {
     let authorName: String?
     let authorUsername: String?
     let media: [BookmarkedMedia]
+
+    func displaying(_ selectedMedia: [BookmarkedMedia]) -> BookmarkedPost {
+        BookmarkedPost(id: id, text: text, createdAt: createdAt, authorID: authorID,
+            authorName: authorName, authorUsername: authorUsername, media: selectedMedia)
+    }
 }
 
 enum BookmarkBrowseMode: String, CaseIterable, Identifiable {
@@ -216,24 +221,20 @@ enum BookmarkPostOrdering {
 }
 
 enum BookmarkLocalSaveFilter: String, CaseIterable, Identifiable {
-    case all, anySaved, notFullySaved, fullySaved
+    case all, saved, unsaved
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .all: return L10n.string("全部保存状态")
-        case .anySaved: return L10n.string("已保存到 Folder（含部分）")
-        case .notFullySaved: return L10n.string("尚未完整保存到 Folder")
-        case .fullySaved: return L10n.string("已完整保存到 Folder")
+        case .all: return L10n.string("全部媒体")
+        case .saved: return L10n.string("已保存媒体")
+        case .unsaved: return L10n.string("未保存媒体")
         }
     }
-    func matches(_ post: BookmarkedPost, localKeys: Set<String>) -> Bool {
-        if self == .all { return true }
-        let count = post.media.filter { localKeys.contains($0.mediaKey) }.count
+    func matches(_ media: BookmarkedMedia, localKeys: Set<String>) -> Bool {
         switch self {
         case .all: return true
-        case .anySaved: return count > 0
-        case .notFullySaved: return !post.media.isEmpty && count < post.media.count
-        case .fullySaved: return !post.media.isEmpty && count == post.media.count
+        case .saved: return localKeys.contains(media.mediaKey)
+        case .unsaved: return !localKeys.contains(media.mediaKey)
         }
     }
 }

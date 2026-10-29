@@ -385,12 +385,125 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertEqual(Set(shuffled), Set(ids))
     }
 
-    func testLocalSavedFiltersIncludePartialPosts() {
+    func testLocalSavedFiltersMatchIndividualMedia() {
         let post = makePost(id: "p", date: nil, types: [.photo, .video])
-        XCTAssertTrue(BookmarkLocalSaveFilter.anySaved.matches(post, localKeys: ["p-0"]))
-        XCTAssertTrue(BookmarkLocalSaveFilter.notFullySaved.matches(post, localKeys: ["p-0"]))
-        XCTAssertFalse(BookmarkLocalSaveFilter.fullySaved.matches(post, localKeys: ["p-0"]))
-        XCTAssertTrue(BookmarkLocalSaveFilter.fullySaved.matches(post, localKeys: ["p-0", "p-1"]))
+        XCTAssertEqual(BookmarkLocalSaveFilter.allCases, [.all, .saved, .unsaved])
+        XCTAssertTrue(BookmarkLocalSaveFilter.saved.matches(post.media[0], localKeys: ["p-0"]))
+        XCTAssertFalse(BookmarkLocalSaveFilter.saved.matches(post.media[1], localKeys: ["p-0"]))
+        XCTAssertFalse(BookmarkLocalSaveFilter.unsaved.matches(post.media[0], localKeys: ["p-0"]))
+        XCTAssertTrue(BookmarkLocalSaveFilter.unsaved.matches(post.media[1], localKeys: ["p-0"]))
+    }
+
+    @MainActor
+    func testSavedMediaFilterDrivesQueueWhileKeepingTheCompletePostForPreview() {
+        let post = makePost(id: "mixed", date: nil, types: [.photo, .photo, .video])
+        let model = BookmarksViewModel(localMediaKeys: ["mixed-0"])
+        model.filter = BookmarkFilter()
+        model.localSaveFilter = .unsaved
+        XCTAssertEqual(model.selectedMedia(from: [post]).map(\.mediaKey), ["mixed-1", "mixed-2"])
+        XCTAssertEqual(model.filteredPosts(from: [post]).first?.media.count, 3)
+        XCTAssertEqual(post.displaying(model.filteredMedia(in: post)).media.count, 2)
+        model.filter.includeVideos = false
+        XCTAssertEqual(model.selectedMedia(from: [post]).map(\.mediaKey), ["mixed-1"])
+        model.localSaveFilter = .saved
+        XCTAssertEqual(model.selectedMedia(from: [post]).map(\.mediaKey), ["mixed-0"])
+        model.localSaveFilter = .all
+        XCTAssertEqual(model.selectedMedia(from: [post]).count, 2)
+    }
+
+    @MainActor
+    func testUnsavedFilterDoesNotIncludeASavedImageBecauseAnUnselectedVideoIsMissing() {
+        let post = makePost(id: "types", date: nil, types: [.photo, .video])
+        let model = BookmarksViewModel(localMediaKeys: ["types-0"])
+        model.filter = BookmarkFilter()
+        model.filter.includeVideos = false
+        model.localSaveFilter = .unsaved
+        XCTAssertTrue(model.filteredPosts(from: [post]).isEmpty)
+        XCTAssertTrue(model.selectedMedia(from: [post]).isEmpty)
+    }
+
+    func testFileLibraryHydrationUsesKnownKeysWithoutStattingEveryMedia() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let record = ExportedPostRecord(id: "metadata", postURL: nil, text: "post text", createdAt: nil,
+            authorID: nil, authorName: nil, authorUsername: nil,
+            media: [ExportedMediaRecord(mediaKey: "known", type: .photo, remoteURL: nil,
+                localRelativePath: "Images/known.jpg", width: nil, height: nil, durationMilliseconds: nil, byteSize: 3)])
+        try lineData([record]).write(to: root.appendingPathComponent("posts.jsonl"))
+        try lineData([ExportStateRecord(mediaKey: "known", relativePath: "Images/known.jpg")]).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let library = LocalFolderLibrary(root: root)
+        let fromSnapshot = try await library.loadPosts(availableMediaKeys: ["known"])
+        XCTAssertEqual(fromSnapshot.first?.media.count, 1)
+        let verified = try await library.loadPosts()
+        XCTAssertEqual(verified.first?.media.count, 0)
+    }
+
+    func testUnlinkedFileCanResolveAnIndexedPostAndResavingRepairsItsManifest() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        let post = sizedPost("1122", bytes: 3)
+        let path = "Images/1122_1122.jpg"
+        try Data([1, 2, 3]).write(to: root.appendingPathComponent(path))
+        try lineData([ExportStateRecord(mediaKey: "1122", relativePath: path)]).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let library = LocalFolderLibrary(root: root)
+        let before = try await library.postLinks(for: path, indexedPosts: [post])
+        XCTAssertEqual(before.first?.post.id, post.id)
+        XCTAssertEqual(before.first?.source, .indexedMediaKey)
+        let tree = try await LibraryStorageScanner().scan(root: root)
+        XCTAssertEqual(try LibraryIntegrityInspector.inspect(root: root, tree: tree).untrackedFiles.count, 1)
+        let result = try await FolderMediaExporter().export(posts: [post], mediaByPostID: [post.id: post.media],
+            recoverUnrecordedFiles: true, destination: root) { _ in }
+        XCTAssertEqual(result.skipped, 1)
+        XCTAssertEqual(result.saved, 0)
+        let after = try await library.postLinks(for: path, indexedPosts: [])
+        XCTAssertEqual(after.first?.source, .manifest)
+        XCTAssertEqual(after.first?.post.id, post.id)
+        let afterTree = try await LibraryStorageScanner().scan(root: root)
+        XCTAssertTrue(try LibraryIntegrityInspector.inspect(root: root, tree: afterTree).untrackedFiles.isEmpty)
+    }
+
+    func testExactFilenameRecoveryRepairsAnInterruptedSaveWithoutDownloadingAgain() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        let post = sizedPost("3344", bytes: 3)
+        let path = "Images/3344_3344.jpg"
+        let bytes = Data([1, 2, 3])
+        try bytes.write(to: root.appendingPathComponent(path))
+        let library = LocalFolderLibrary(root: root)
+        let links = try await library.postLinks(for: path, indexedPosts: [post])
+        XCTAssertEqual(links.first?.source, .filenameCandidate)
+        let result = try await FolderMediaExporter().export(posts: [post], mediaByPostID: [post.id: post.media],
+            recoverUnrecordedFiles: true, destination: root) { _ in }
+        XCTAssertEqual(result.skipped, 1)
+        XCTAssertEqual(result.failed, 0)
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent(path)), bytes)
+        let restored = try await library.loadPosts()
+        XCTAssertEqual(restored.first?.media.count, 1)
+    }
+
+    func testPostAssociationDoesNotGuessFromAnUnrelatedFilename() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let post = sizedPost("5566", bytes: 3)
+        let links = try await LocalFolderLibrary(root: root).postLinks(for: "Images/another_file.jpg", indexedPosts: [post])
+        XCTAssertTrue(links.isEmpty)
+    }
+
+    func testSystemFilesURLPreservesEncodedFolderPathAndRejectsOutsideRoots() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let folder = root.appendingPathComponent("Images #50%", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = try XCTUnwrap(SystemFilesLink.url(for: folder, root: root))
+        XCTAssertEqual(url.scheme, "shareddocuments")
+        let parts = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        XCTAssertNil(parts.fragment)
+        XCTAssertNil(parts.query)
+        XCTAssertTrue(parts.percentEncodedPath.contains("%23"))
+        XCTAssertTrue(parts.percentEncodedPath.contains("%25"))
+        XCTAssertNil(SystemFilesLink.url(for: root.deletingLastPathComponent(), root: root))
     }
 
     func testDuplicatesMatchSourceAssetAndIdenticalFileHashes() {

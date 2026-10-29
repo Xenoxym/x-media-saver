@@ -29,6 +29,7 @@ final class FolderMediaExporter: @unchecked Sendable {
         mediaByPostID: [String: [BookmarkedMedia]],
         auditPosts: [BookmarkedPost]? = nil,
         exclusionReasons: [String: String] = [:],
+        recoverUnrecordedFiles: Bool = false,
         destination: URL,
         progress: @escaping @Sendable (FolderExportProgress) -> Void
     ) async throws -> FolderExportResult {
@@ -61,6 +62,11 @@ final class FolderMediaExporter: @unchecked Sendable {
 
         for (index, item) in ordered.enumerated() {
             try Task.checkCancellation()
+            if recoverUnrecordedFiles, state[item.media.mediaKey] == nil,
+               let recovered = Self.recoverablePath(postID: item.post.id, media: item.media, root: destination) {
+                state[item.media.mediaKey] = recovered
+                try appendState(mediaKey: item.media.mediaKey, relativePath: recovered, at: destination)
+            }
             if let relativePath = state[item.media.mediaKey],
                let fileURL = FolderPathSafety.mediaURL(relativePath, root: destination),
                let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
@@ -490,8 +496,25 @@ final class FolderMediaExporter: @unchecked Sendable {
         case .animatedGIF: folder = "Animated GIFs"
         case .video: folder = "Videos"
         }
-        let key = safeComponent(media.mediaKey)
-        return "\(folder)/\(safeComponent(postID))_\(key).\(fileExtension)"
+        return "\(folder)/\(fileStem(postID: postID, mediaKey: media.mediaKey)).\(fileExtension)"
+    }
+
+    static func fileStem(postID: String, mediaKey: String) -> String {
+        safeComponent(postID) + "_" + safeComponent(mediaKey)
+    }
+
+    private static func recoverablePath(postID: String, media: BookmarkedMedia, root: URL) -> String? {
+        let folder = media.type == .photo ? "Images" : (media.type == .animatedGIF ? "Animated GIFs" : "Videos")
+        let extensions = media.type == .photo ? ["jpg", "jpeg", "png", "heic", "heif", "webp", "avif"] : ["mp4"]
+        let candidates = extensions.compactMap { ext -> String? in
+            let path = folder + "/" + fileStem(postID: postID, mediaKey: media.mediaKey) + "." + ext
+            guard let url = FolderPathSafety.mediaURL(path, root: root), LibraryFilePaths.isReadableRegularFile(url) else { return nil }
+            if let expected = media.byteSize, expected > 0,
+               let actual = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
+               Int64(actual) != expected { return nil }
+            return path
+        }
+        return candidates.count == 1 ? candidates[0] : nil
     }
 
     private static func safeComponent(_ value: String) -> String {

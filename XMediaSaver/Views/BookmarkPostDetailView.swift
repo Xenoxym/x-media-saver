@@ -55,8 +55,14 @@ struct BookmarkPostDetailView: View {
         .navigationTitle("Post 预览")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if !post.media.isEmpty {
-                ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                Button {
+                    mediaSaver.saveToFolder(post)
+                } label: {
+                    Label("保存到文件夹", systemImage: "folder.badge.plus")
+                }
+                .disabled(mediaSaver.isSaving)
+                if !post.media.isEmpty {
                     Button {
                         mediaSaver.save(post.media)
                     } label: {
@@ -625,6 +631,7 @@ private final class PostMediaSaveModel: ObservableObject {
     @Published var presentedError: PresentedError?
 
     private let saver = BatchMediaSaver()
+    private let exporter = FolderMediaExporter()
     private var task: Task<Void, Never>?
 
     var progressValue: Double {
@@ -691,7 +698,36 @@ private final class PostMediaSaveModel: ObservableObject {
 
     func cancel() {
         saver.cancel()
+        exporter.cancel()
         task?.cancel()
+    }
+
+    func saveToFolder(_ post: BookmarkedPost) {
+        guard !isSaving else { return }
+        resultMessage = nil
+        isSaving = true
+        task = Task { [weak self] in
+            guard let self else { return }
+            defer { isSaving = false; task = nil }
+            do {
+                progress = BatchSaveProgress(completed: 0, total: post.media.count, currentFraction: 0, currentType: nil)
+                let result = try await exporter.export(posts: [post], mediaByPostID: [post.id: post.media],
+                    recoverUnrecordedFiles: true, destination: StorageManager.appDocumentsLibraryURL) { update in
+                    Task { @MainActor [weak self] in
+                        self?.progress = BatchSaveProgress(completed: update.completed, total: update.total,
+                            currentFraction: update.currentFraction, currentType: update.currentType)
+                    }
+                }
+                _ = try? await MediaSaveFailureStore().recordAttempt(posts: [post],
+                    successfulMediaKeys: result.successfulMediaKeys, failureReasons: result.failureReasons)
+                await LocalMediaLibrary.shared.register(root: result.destination)
+                resultMessage = L10n.format("Files：写入 %lld，已存在 %lld，失败 %lld", result.saved, result.skipped, result.failed)
+                if result.failed > 0, let issue = result.issues.first {
+                    presentedError = PresentedError(message: issue, offersSettings: false)
+                }
+            } catch is CancellationError { resultMessage = L10n.string("保存已取消。") }
+            catch { presentedError = PresentedError(message: error.localizedDescription, offersSettings: false) }
+        }
     }
 }
 

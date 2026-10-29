@@ -4,6 +4,7 @@ import Foundation
 extension Notification.Name {
     static let localMediaLibraryChanged = Notification.Name("XMediaSaver.LocalMediaLibraryChanged")
     static let localMediaAvailabilityChanged = Notification.Name("XMediaSaver.LocalMediaAvailabilityChanged")
+    static let localMediaLibraryAudited = Notification.Name("XMediaSaver.LocalMediaLibraryAudited")
 }
 
 @MainActor
@@ -162,6 +163,9 @@ actor LocalMediaLibrary {
             return exists
         }
         await publishAvailability()
+        if root == StorageManager.appDocumentsLibraryURL {
+            NotificationCenter.default.post(name: .localMediaLibraryAudited, object: nil)
+        }
     }
 
     private func isUsableFile(_ url: URL) -> Bool {
@@ -226,6 +230,24 @@ private struct LocalExportStateRecord: Codable {
     let relativePath: String
 }
 
+enum FolderPostLinkSource: String {
+    case manifest, indexedMediaKey, unavailableRecord, filenameCandidate
+    var title: String {
+        switch self {
+        case .manifest: return L10n.string("Folder Post 记录")
+        case .indexedMediaKey: return L10n.string("索引媒体 ID；缺少 Folder Post 记录")
+        case .unavailableRecord: return L10n.string("本地失败记录")
+        case .filenameCandidate: return L10n.string("文件名匹配，待确认")
+        }
+    }
+}
+
+struct FolderPostLink: Identifiable {
+    let post: BookmarkedPost
+    let source: FolderPostLinkSource
+    var id: String { post.id }
+}
+
 actor LocalFolderLibrary {
     private let root: URL
 
@@ -233,10 +255,15 @@ actor LocalFolderLibrary {
         self.root = root
     }
 
-    func loadPosts() throws -> [BookmarkedPost] {
+    func loadPosts(availableMediaKeys: Set<String>? = nil) throws -> [BookmarkedPost] {
         let state = try loadExportState()
         return try loadPostRecords().map { record in
             let availableMedia = record.media.filter { item in
+                if let availableMediaKeys {
+                    // The shared manifest has already validated these keys.
+                    // UI hydration must not stat every file again.
+                    return state[item.mediaKey] != nil && availableMediaKeys.contains(item.mediaKey)
+                }
                 guard let relativePath = state[item.mediaKey],
                       let fileURL = safeFileURL(for: relativePath)
                 else {
@@ -261,6 +288,39 @@ actor LocalFolderLibrary {
 
     func loadUnavailablePosts() async throws -> [SaveFailureRecord] {
         try await unavailableStore.reload()
+    }
+
+    func postLinks(for path: String, indexedPosts: [BookmarkedPost]) async throws -> [FolderPostLink] {
+        guard FolderPathSafety.recordedMediaURL(path, root: root) != nil else { return [] }
+        let state = try loadExportState()
+        let keys = Set(state.filter { $0.value == path }.map(\.key))
+        var links: [String: FolderPostLink] = [:]
+        for record in try loadPostRecords() where record.media.contains(where: { $0.localRelativePath == path || keys.contains($0.mediaKey) }) {
+            links[record.id] = FolderPostLink(post: Self.bookmarkedPost(from: record), source: .manifest)
+        }
+        let failures = (try? await unavailableStore.load()) ?? []
+        for record in failures where record.post.media.contains(where: { keys.contains($0.mediaKey) }) && links[record.id] == nil {
+            links[record.id] = FolderPostLink(post: record.post, source: .unavailableRecord)
+        }
+        let file = URL(fileURLWithPath: path)
+        let stem = file.deletingPathExtension().lastPathComponent
+        for post in indexedPosts {
+            let matchedByKey = post.media.contains { keys.contains($0.mediaKey) }
+            let matchedByName = stem.hasPrefix(post.id + "_") && post.media.contains {
+                FolderMediaExporter.fileStem(postID: post.id, mediaKey: $0.mediaKey) == stem
+            }
+            guard matchedByKey || matchedByName || links[post.id] != nil else { continue }
+            let source = links[post.id]?.source ?? (matchedByKey ? .indexedMediaKey : .filenameCandidate)
+            if let saved = links[post.id]?.post {
+                var seen: Set<String> = []
+                let media = (post.media + saved.media).filter { seen.insert($0.mediaKey).inserted }
+                let merged = BookmarkedPost(id: post.id, text: post.text.isEmpty ? saved.text : post.text,
+                    createdAt: post.createdAt ?? saved.createdAt, authorID: post.authorID ?? saved.authorID,
+                    authorName: post.authorName ?? saved.authorName, authorUsername: post.authorUsername ?? saved.authorUsername, media: media)
+                links[post.id] = FolderPostLink(post: merged, source: source)
+            } else { links[post.id] = FolderPostLink(post: post, source: source) }
+        }
+        return links.values.sorted { BookmarkPostOrdering.precedes($0.post, $1.post, by: .newest) }
     }
 
     func deleteMedia(withKeys keys: Set<String>) async throws {
@@ -458,23 +518,30 @@ actor LocalFolderLibrary {
 
 @MainActor
 final class LocalFolderLibraryModel: ObservableObject {
+    static let shared = LocalFolderLibraryModel()
     @Published private(set) var posts: [BookmarkedPost] = []
     @Published private(set) var unavailablePosts: [SaveFailureRecord] = []
     @Published private(set) var isWorking = false
     @Published var presentedError: PresentedError?
 
     private let library = LocalFolderLibrary()
-    private var hasLoaded = false
-    private var isReloading = false
+    @Published private(set) var hasLoaded = false
+    @Published private(set) var isReloading = false
+    private var pendingReload = false
 
     func reload(force: Bool = false) {
-        guard !isReloading, force || !hasLoaded else { return }
+        if isReloading { pendingReload = pendingReload || force; return }
+        guard force || !hasLoaded else { return }
         isReloading = true
         Task { [weak self] in
             guard let self else { return }
-            defer { isReloading = false }
+            defer {
+                isReloading = false
+                if pendingReload { pendingReload = false; reload(force: true) }
+            }
             do {
-                posts = try await library.loadPosts()
+                let keys = await LocalMediaLibrary.shared.recordedMediaKeys()
+                posts = try await library.loadPosts(availableMediaKeys: keys)
                 unavailablePosts = try await library.loadUnavailablePosts()
                 hasLoaded = true
             } catch {
@@ -487,9 +554,9 @@ final class LocalFolderLibraryModel: ObservableObject {
         isWorking = true
         defer { isWorking = false }
         try await library.deleteMedia(withKeys: keys)
-        posts = try await library.loadPosts()
-        unavailablePosts = try await library.loadUnavailablePosts()
         await LocalMediaLibrary.shared.reload()
+        posts = try await library.loadPosts(availableMediaKeys: await LocalMediaLibrary.shared.recordedMediaKeys())
+        unavailablePosts = try await library.loadUnavailablePosts()
         NotificationCenter.default.post(name: .localMediaLibraryChanged, object: nil)
     }
 
@@ -497,9 +564,9 @@ final class LocalFolderLibraryModel: ObservableObject {
         isWorking = true
         defer { isWorking = false }
         try await library.deletePosts(withIDs: ids)
-        posts = try await library.loadPosts()
-        unavailablePosts = try await library.loadUnavailablePosts()
         await LocalMediaLibrary.shared.reload()
+        posts = try await library.loadPosts(availableMediaKeys: await LocalMediaLibrary.shared.recordedMediaKeys())
+        unavailablePosts = try await library.loadUnavailablePosts()
         NotificationCenter.default.post(name: .localMediaLibraryChanged, object: nil)
     }
 

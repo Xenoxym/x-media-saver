@@ -3,6 +3,7 @@ import QuickLook
 import UniformTypeIdentifiers
 
 struct StorageUsageView: View {
+    let indexedPosts: [BookmarkedPost]
     @State private var tree: LibraryStorageNode?
     @State private var folderPath = ""
     @State private var selectedFile: LibraryStorageNode?
@@ -12,6 +13,8 @@ struct StorageUsageView: View {
     @State private var integrityReport: LibraryIntegrityReport?
     @State private var issueHistory: [LocalFileIssue] = []
     private let scanner = LibraryStorageScanner()
+
+    init(indexedPosts: [BookmarkedPost] = []) { self.indexedPosts = indexedPosts }
 
     private var current: LibraryStorageNode? {
         guard let tree else { return nil }
@@ -82,7 +85,7 @@ struct StorageUsageView: View {
                     }
                     if let integrityReport {
                         NavigationLink {
-                            LibraryUntrackedFilesView(files: integrityReport.untrackedFiles)
+                            LibraryUntrackedFilesView(files: integrityReport.untrackedFiles, indexedPosts: indexedPosts)
                         } label: {
                             Label(L10n.format("未关联媒体（%lld）", integrityReport.untrackedFiles.count), systemImage: "questionmark.folder")
                         }
@@ -130,7 +133,7 @@ struct StorageUsageView: View {
             Task { await refresh() }
         }
         .sheet(item: $selectedFile) { node in
-            LibraryFileInformationView(node: node)
+            LibraryFileInformationView(node: node, indexedPosts: indexedPosts)
         }
     }
 
@@ -163,6 +166,7 @@ struct StorageUsageView: View {
 
 private struct LibraryUntrackedFilesView: View {
     let files: [LibraryStorageNode]
+    let indexedPosts: [BookmarkedPost]
     @State private var selectedFile: LibraryStorageNode?
     @State private var visibleLimit = 100
     var body: some View {
@@ -183,7 +187,7 @@ private struct LibraryUntrackedFilesView: View {
             if files.count > visibleLimit { Button("再显示 100 条") { visibleLimit += 100 } }
         }
         .navigationTitle("未关联媒体").navigationBarTitleDisplayMode(.inline)
-        .sheet(item: $selectedFile) { LibraryFileInformationView(node: $0) }
+        .sheet(item: $selectedFile) { LibraryFileInformationView(node: $0, indexedPosts: indexedPosts) }
     }
 }
 
@@ -223,6 +227,7 @@ private struct LibraryFileIssuesView: View {
 
 private struct LibraryFileInformationView: View {
     let node: LibraryStorageNode
+    let indexedPosts: [BookmarkedPost]
     @Environment(\.dismiss) private var dismiss
     @State private var showsFileBrowser = false
     @State private var previewFile: LibraryPresentedFile?
@@ -230,6 +235,10 @@ private struct LibraryFileInformationView: View {
     @State private var errorMessage: String?
     @State private var resultMessage: String?
     @State private var isSaving = false
+    @State private var postLinks: [FolderPostLink] = []
+    @State private var linksRevision = 0
+    @State private var isResolvingPosts = true
+    private let library = LocalFolderLibrary()
 
     private var fileURL: URL? {
         LibraryFilePaths.fileURL(for: node.relativePath, root: StorageManager.appDocumentsLibraryURL)
@@ -250,9 +259,12 @@ private struct LibraryFileInformationView: View {
                             } else { errorMessage = L10n.string("文件不存在或无法读取；本地保存状态已更新。") }
                         }
                     } label: { Label("打开文件", systemImage: "doc.viewfinder") }
-                    Button { showsFileBrowser = true } label: {
+                    Menu {
+                        Button("在系统 Files 中打开") { openContainingFolder() }
+                        Button("App 内浏览") { showsFileBrowser = true }
+                    } label: {
                         Label("浏览所在文件夹", systemImage: "folder")
-                    }
+                    } primaryAction: { openContainingFolder() }
                     Button {
                         Task {
                             if await LocalMediaLibrary.shared.validateFile(at: fileURL) {
@@ -273,12 +285,46 @@ private struct LibraryFileInformationView: View {
                         Text(fileURL.path).font(.caption2).textSelection(.enabled)
                     }
                 }
+                if FolderPathSafety.recordedMediaURL(node.relativePath, root: StorageManager.appDocumentsLibraryURL) != nil {
+                    Section {
+                        if isResolvingPosts { ProgressView() }
+                        ForEach(postLinks) { link in
+                            NavigationLink {
+                                BookmarkPostDetailView(post: link.post, relatedPosts: indexedPosts)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(link.post.authorUsername.map { "@" + $0 } ?? link.post.authorName ?? link.post.id)
+                                        .font(.subheadline.weight(.semibold))
+                                    if !link.post.text.isEmpty { Text(link.post.text).font(.caption).lineLimit(2).foregroundStyle(.secondary) }
+                                    Text(link.source.title).font(.caption2).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        if !isResolvingPosts, postLinks.isEmpty {
+                            Text("未找到关联 Post，文件仍保留在原目录。").font(.caption).foregroundStyle(.secondary)
+                        }
+                    } header: { Text("所属 Post") } footer: {
+                        Text("缺少 Folder Post 记录时，可打开预览并保存到 Folder 补全；文件名匹配仅作线索，不会自动改写归属。")
+                    }
+                }
                 if let errorMessage { Text(errorMessage).font(.caption).foregroundStyle(.orange) }
                 if let resultMessage { Text(resultMessage).font(.caption).foregroundStyle(.secondary) }
             }
             .navigationTitle("文件信息").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
+        .task(id: "\(node.relativePath)-\(linksRevision)") {
+            isResolvingPosts = true
+            do {
+                let links = try await library.postLinks(for: node.relativePath, indexedPosts: indexedPosts)
+                guard !Task.isCancelled else { return }
+                postLinks = links
+                isResolvingPosts = false
+            } catch {
+                if !Task.isCancelled { isResolvingPosts = false; errorMessage = error.localizedDescription }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .localMediaLibraryChanged).receive(on: RunLoop.main)) { _ in linksRevision += 1 }
         .sheet(item: $previewFile) { file in
             LibraryQuickLookSheet(url: file.url)
         }
@@ -317,6 +363,33 @@ private struct LibraryFileInformationView: View {
             else { try await saver.saveVideo(at: url) }
             resultMessage = L10n.string("已保存到照片。")
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func openContainingFolder() {
+        guard let directory = fileURL?.deletingLastPathComponent(),
+              let target = SystemFilesLink.url(for: directory, root: StorageManager.appDocumentsLibraryURL) else {
+            showsFileBrowser = true; return
+        }
+        UIApplication.shared.open(target, options: [:]) { opened in
+            if !opened {
+                resultMessage = L10n.string("无法跳转系统 Files，已使用 App 内目录浏览。")
+                showsFileBrowser = true
+            }
+        }
+    }
+}
+
+enum SystemFilesLink {
+    static func url(for directory: URL, root: URL) -> URL? {
+        guard LibraryFilePaths.relativePath(of: directory, under: root, resolvingSymlinks: true) != nil,
+              var parts = URLComponents(url: directory, resolvingAgainstBaseURL: false) else { return nil }
+        // Best-effort Files.app handoff. This scheme is not a documented Apple
+        // reveal API; retain the working in-app browser as a fallback.
+        parts.scheme = "shareddocuments"
+        parts.host = ""
+        parts.query = nil
+        parts.fragment = nil
+        return parts.url
     }
 }
 

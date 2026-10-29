@@ -52,6 +52,7 @@ struct MediaGalleryView: View {
     private let baseGalleryItems: [GalleryMediaItem]
     private let sourcePosts: [BookmarkedPost]
     private let sourceFingerprint: [BookmarkSearchSourceFingerprint]
+    private let allowedMediaKeys: Set<String>?
     private static let gridCoordinateSpace = "MediaGalleryGrid"
 
     init(
@@ -63,6 +64,7 @@ struct MediaGalleryView: View {
         detailSourcePosts: [BookmarkedPost]? = nil,
         isFolderLibrary: Bool? = nil,
         mediaFilter: BookmarkFilter? = nil,
+        allowedMediaKeys: Set<String>? = nil,
         initialSort: BookmarkPostSort = .bookmarkNewest,
         onClose: @escaping () -> Void
     ) {
@@ -75,6 +77,7 @@ struct MediaGalleryView: View {
         self.onClose = onClose
         self.sourceFingerprint = posts.map(BookmarkSearchSourceFingerprint.init)
         self.sourcePosts = posts
+        self.allowedMediaKeys = allowedMediaKeys
         _sort = State(initialValue: initialSort)
         var bookmarkRanks: [String: Int] = [:]
         for (offset, post) in (detailSourcePosts ?? posts).enumerated() where bookmarkRanks[post.id] == nil {
@@ -84,7 +87,7 @@ struct MediaGalleryView: View {
             .flatMap { postOffset, post -> [GalleryMediaItem] in
                 (mediaFilter?.media(in: post) ?? post.media).enumerated().compactMap {
                     mediaOffset, media -> GalleryMediaItem? in
-                    guard mediaType == nil || media.type == mediaType
+                    guard (mediaType == nil || media.type == mediaType), allowedMediaKeys?.contains(media.mediaKey) ?? true
                     else {
                         return nil
                     }
@@ -193,6 +196,7 @@ struct MediaGalleryView: View {
         .onChange(of: viewerSelection?.id) { value in
             if value == nil, pendingSourceUpdate { sourceRevision += 1 }
         }
+        .onChange(of: allowedMediaKeys) { _ in pendingSourceUpdate = true; sourceRevision += 1 }
         .onChange(of: sort) { value in
             isShuffled = false
             shuffledPostIDs = []

@@ -4,6 +4,11 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+- Added related-Post links to File Information and Save to Folder to Post Preview, including explicit recovery of matching files left without export metadata.
+- Files mode preloads/reuses manifest metadata without per-file stat checks on navigation; initial counts show loading placeholders rather than zeros.
+- Saved-state filtering now selects individual media with All/Saved/Unsaved options in Download & Browse Filters. Filtered Total opens the exact selected-media gallery; full Post details remain intact.
+- Browse Containing Folder attempts an external Files-app handoff with the working in-app browser retained as a fallback. Active date filtering is shown even when filters are collapsed.
+
 - Fixed existing local files being misclassified as missing: centralized path-component handling for directory/alias URLs and verification of negative scan matches before clearing local indicators. Confirmed-existing files clear obsolete issue records without deleting media/manifests.
 - Fixed File Information preview/sharing to use the actual local file; replaced the unreliable Recents-opening picker with direct in-app folder browsing and added explicit Save to Photos with result/error feedback.
 - Popular/recommended rule-group hashtags can expand in additional batches of 12 and collapse again.

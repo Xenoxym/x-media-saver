@@ -39,6 +39,7 @@ final class BookmarksViewModel: ObservableObject {
     @Published private(set) var visibleRuleGroups: [BookmarkRuleGroup] = []
     @Published private(set) var isGroupingRules = false
     @Published private(set) var selectedMediaCount = 0
+    @Published private(set) var selectedMediaKeys: Set<String> = []
     @Published private(set) var selectedStorageEstimate =
         MediaStorageEstimate.zero
     @Published private(set) var filesNewStorageEstimate =
@@ -83,17 +84,18 @@ final class BookmarksViewModel: ObservableObject {
         unavailablePostStore: MediaSaveFailureStore = MediaSaveFailureStore(
             fileURL: StorageManager.appDocumentsLibraryURL
                 .appendingPathComponent("unavailable-posts.json")
-        )
+        ),
+        localMediaKeys: Set<String>? = nil
     ) {
         filter = Self.loadSavedFilter()
         self.saver = saver
         self.exporter = exporter
         self.failureStore = failureStore
         self.unavailablePostStore = unavailablePostStore
+        self.localFileMediaKeys = localMediaKeys ?? []
         Task { [weak self] in
             guard let self else { return }
-            localFileMediaKeys =
-                await LocalMediaLibrary.shared.recordedMediaKeys()
+            if localMediaKeys == nil { localFileMediaKeys = await LocalMediaLibrary.shared.recordedMediaKeys() }
             let storedFailures = (try? await failureStore.load()) ?? []
             saveFailures = storedFailures
             var storedUnavailable =
@@ -124,6 +126,7 @@ final class BookmarksViewModel: ObservableObject {
             guard let self else { return }
             unavailablePosts =
                 (try? await unavailablePostStore.reload()) ?? []
+            saveFailures = (try? await failureStore.reload()) ?? saveFailures
         }
     }
 
@@ -158,6 +161,10 @@ final class BookmarksViewModel: ObservableObject {
 
     func selectedMedia(from posts: [BookmarkedPost]) -> [BookmarkedMedia] {
         deduplicatedMedia(from: calculateFilteredPosts(posts))
+    }
+
+    func filteredMedia(in post: BookmarkedPost) -> [BookmarkedMedia] {
+        filter.media(in: post).filter { localSaveFilter.matches($0, localKeys: localFileMediaKeys) }
     }
 
     func startSaving(posts: [BookmarkedPost]) {
@@ -217,7 +224,7 @@ final class BookmarksViewModel: ObservableObject {
         let filtered = calculateFilteredPosts(posts)
         let mediaByPostID = Dictionary(
             uniqueKeysWithValues: filtered.map {
-                ($0.id, filter.media(in: $0))
+                ($0.id, filteredMedia(in: $0))
             }
         )
         let total = mediaByPostID.values.flatMap { $0 }.count
@@ -345,14 +352,14 @@ final class BookmarksViewModel: ObservableObject {
         selectedStorageEstimate = MediaStorageEstimate(media: allMedia)
         filesNewStorageEstimate = MediaStorageEstimate(media: filesNewMedia)
         selectedMediaCount = allMedia.count
+        selectedMediaKeys = Set(allMedia.map(\.mediaKey))
     }
 
     private func calculateFilteredPosts(
         _ posts: [BookmarkedPost]
     ) -> [BookmarkedPost] {
         let filtered = posts.filter {
-            filter.contains($0) && matchesSearch($0)
-                && localSaveFilter.matches($0, localKeys: localFileMediaKeys)
+            filter.contains($0) && matchesSearch($0) && !filteredMedia(in: $0).isEmpty
         }
         return BookmarkPostOrdering.sorted(filtered, by: postSort)
     }
@@ -438,7 +445,7 @@ final class BookmarksViewModel: ObservableObject {
     ) -> [BookmarkedMedia] {
         var seen: Set<String> = []
         return posts
-            .flatMap { filter.media(in: $0) }
+            .flatMap { filteredMedia(in: $0) }
             .filter { seen.insert($0.mediaKey).inserted }
     }
 

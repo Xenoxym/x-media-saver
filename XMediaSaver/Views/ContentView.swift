@@ -60,6 +60,7 @@ struct ContentView: View {
         .task {
             UserDefaults.standard.removeObject(forKey: "audioComparisonTestNotes")
             _ = await LocalMediaLibrary.shared.recordedMediaKeys()
+            LocalFolderLibraryModel.shared.reload()
         }
     }
 }

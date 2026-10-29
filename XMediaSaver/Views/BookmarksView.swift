@@ -19,7 +19,7 @@ struct BookmarksView: View {
 
     @ObservedObject var session: BrowserSessionModel
     @ObservedObject var viewModel: BookmarksViewModel
-    @StateObject private var folderLibrary = LocalFolderLibraryModel()
+    @StateObject private var folderLibrary = LocalFolderLibraryModel.shared
     @ObservedObject private var ruleStore = BookmarkRuleStore.shared
     let onRequestVisibleSync: () -> Void
     @Environment(\.openURL) private var openURL
@@ -122,10 +122,14 @@ struct BookmarksView: View {
         .onReceive(ruleStore.$rules) { viewModel.categoryRules = $0 }
         .onReceive(NotificationCenter.default.publisher(for: .localMediaLibraryChanged).receive(on: RunLoop.main)) { _ in
             folderLibrary.reload(force: true)
+            viewModel.reloadUnavailablePosts()
             Task { await viewModel.refreshLocalMedia() }
         }
         .onReceive(NotificationCenter.default.publisher(for: .localMediaAvailabilityChanged).receive(on: RunLoop.main)) { _ in
             Task { await viewModel.refreshLocalMedia() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .localMediaLibraryAudited).receive(on: RunLoop.main)) { _ in
+            folderLibrary.reload(force: true)
         }
         .fileImporter(
             isPresented: $choosesExportFolder,
@@ -268,6 +272,13 @@ struct BookmarksView: View {
                 )
                 unavailablePostsStat
             }
+            .allowsHitTesting(localLibrarySource != .files || folderLibrary.hasLoaded)
+            if localLibrarySource == .files, !folderLibrary.hasLoaded {
+                ProgressView("正在读取本地保存清单…").font(.caption)
+                if let issue = folderLibrary.presentedError {
+                    Text(issue.message).font(.caption).foregroundStyle(.orange)
+                }
+            }
 
             if localLibrarySource == .index, session.isAutoCapturing {
                 ProgressView(
@@ -319,8 +330,7 @@ struct BookmarksView: View {
                 Image(systemName: "bookmark")
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(statistics.bookmarkCount, format: .number)
-                        .font(.title3.bold().monospacedDigit())
+                    statisticNumber(statistics.bookmarkCount)
                     Text(
                         localLibrarySource == .index
                             ? "已索引 Post"
@@ -349,11 +359,7 @@ struct BookmarksView: View {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(
-                        localLibraryUnavailablePosts.count,
-                        format: .number
-                    )
-                        .font(.title3.bold().monospacedDigit())
+                    statisticNumber(localLibraryUnavailablePosts.count)
                     Text("失效 Post")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -383,8 +389,7 @@ struct BookmarksView: View {
                 Image(systemName: systemImage)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(value, format: .number)
-                        .font(.title3.bold().monospacedDigit())
+                    statisticNumber(value)
                     Text(LocalizedStringKey(title))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -402,6 +407,15 @@ struct BookmarksView: View {
     }
 
     @ViewBuilder
+    private func statisticNumber(_ value: Int) -> some View {
+        if localLibrarySource == .files, !folderLibrary.hasLoaded {
+            Text("—").font(.title3.bold().monospacedDigit())
+        } else {
+            Text(value, format: .number).font(.title3.bold().monospacedDigit())
+        }
+    }
+
+    @ViewBuilder
     private func localIndexDestination(
         _ route: LocalIndexRoute
     ) -> some View {
@@ -411,6 +425,7 @@ struct BookmarksView: View {
                 posts: viewModel.visibleRuleGroups.first { $0.id == id }?.posts ?? [], mediaType: nil,
                 titleOverride: ruleStore.rules.first { $0.id == id }?.name ?? L10n.string("规则分组"),
                 detailSourcePosts: session.capturedPosts, mediaFilter: viewModel.filter,
+                allowedMediaKeys: viewModel.selectedMediaKeys,
                 initialSort: viewModel.postSort,
                 onClose: closeLocalIndex
             )
@@ -420,6 +435,7 @@ struct BookmarksView: View {
                 titleOverride: L10n.string("筛选结果九宫格"),
                 detailSourcePosts: session.capturedPosts,
                 mediaFilter: viewModel.filter,
+                allowedMediaKeys: viewModel.selectedMediaKeys,
                 initialSort: viewModel.postSort,
                 onClose: closeLocalIndex
             )
@@ -521,6 +537,12 @@ struct BookmarksView: View {
             if showsFilterCard {
                 filterCardContents
                     .transition(.opacity.combined(with: .move(edge: .top)))
+            } else if viewModel.filter.useStartDate || viewModel.filter.useEndDate {
+                Label("已启用时间筛选", systemImage: "calendar.badge.clock")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            if !showsFilterCard, viewModel.localSaveFilter != .all {
+                Text(viewModel.localSaveFilter.title).font(.caption).foregroundStyle(.secondary)
             }
         }
         .saverCard()
@@ -531,6 +553,15 @@ struct BookmarksView: View {
             Toggle("图片", isOn: $viewModel.filter.includePhotos)
             Toggle("动图（MP4）", isOn: $viewModel.filter.includeGIFs)
             Toggle("视频", isOn: $viewModel.filter.includeVideos)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Folder 保存状态").font(.caption).foregroundStyle(.secondary)
+                Picker("Folder 保存状态", selection: $viewModel.localSaveFilter) {
+                    ForEach(BookmarkLocalSaveFilter.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Folder 保存状态")
+            }
 
             Divider()
 
@@ -754,12 +785,17 @@ struct BookmarksView: View {
                     .foregroundStyle(.secondary)
             }
 
+            Button { openLocalIndex(.filteredGallery) } label: {
             VStack(alignment: .leading, spacing: 5) {
+                HStack {
                 Label(
                     "筛选合计：\(storageEstimateText(viewModel.selectedStorageEstimate))",
                     systemImage: "externaldrive"
                 )
                 .font(.subheadline.weight(.semibold))
+                Spacer()
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
 
                 Text(
                     "保存到照片：\(storageEstimateText(viewModel.selectedStorageEstimate))；文件夹预计新增：\(storageEstimateText(viewModel.filesNewStorageEstimate))"
@@ -775,6 +811,10 @@ struct BookmarksView: View {
             .padding(10)
             .background(Color(uiColor: .tertiarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("用九宫格查看筛选结果")
 
             if viewModel.isSaving || viewModel.isExporting {
                 operationProgress
@@ -977,12 +1017,6 @@ struct BookmarksView: View {
             .pickerStyle(.segmented)
 
             sortMenu
-            Picker("Folder 保存状态", selection: $viewModel.localSaveFilter) {
-                ForEach(BookmarkLocalSaveFilter.allCases) { value in
-                    Text(value.title).tag(value)
-                }
-            }
-            .font(.subheadline)
             Divider()
 
             switch viewModel.browseMode {
@@ -1165,7 +1199,7 @@ struct BookmarksView: View {
             )
         } label: {
             BookmarkPostRowView(
-                post: post,
+                post: post.displaying(viewModel.filteredMedia(in: post)),
                 showsAuthor: showsAuthor,
                 previewMode: previewMode
             )
