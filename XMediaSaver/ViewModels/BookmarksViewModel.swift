@@ -40,6 +40,7 @@ final class BookmarksViewModel: ObservableObject {
     @Published private(set) var isGroupingRules = false
     @Published private(set) var selectedMediaCount = 0
     @Published private(set) var selectedMediaKeys: Set<String> = []
+    @Published private(set) var filesNewMediaKeys: Set<String> = []
     @Published private(set) var selectedStorageEstimate =
         MediaStorageEstimate.zero
     @Published private(set) var filesNewStorageEstimate =
@@ -165,6 +166,10 @@ final class BookmarksViewModel: ObservableObject {
 
     func filteredMedia(in post: BookmarkedPost) -> [BookmarkedMedia] {
         filter.media(in: post).filter { localSaveFilter.matches($0, localKeys: localFileMediaKeys) }
+    }
+
+    func pendingFolderMedia(in media: [BookmarkedMedia]) -> [BookmarkedMedia] {
+        media.filter { !localFileMediaKeys.contains($0.mediaKey) }
     }
 
     func startSaving(posts: [BookmarkedPost]) {
@@ -346,11 +351,10 @@ final class BookmarksViewModel: ObservableObject {
         }
 
         let allMedia = deduplicatedMedia(from: filtered)
-        let filesNewMedia = allMedia.filter {
-            !localFileMediaKeys.contains($0.mediaKey)
-        }
+        let filesNewMedia = pendingFolderMedia(in: allMedia)
         selectedStorageEstimate = MediaStorageEstimate(media: allMedia)
         filesNewStorageEstimate = MediaStorageEstimate(media: filesNewMedia)
+        filesNewMediaKeys = Set(filesNewMedia.map(\.mediaKey))
         selectedMediaCount = allMedia.count
         selectedMediaKeys = Set(allMedia.map(\.mediaKey))
     }

@@ -14,6 +14,7 @@ struct BookmarksView: View {
         case saveFailures
         case unavailablePosts(LocalLibrarySource)
         case filteredGallery
+        case newFilesGallery
         case ruleGallery(UUID)
     }
 
@@ -439,6 +440,16 @@ struct BookmarksView: View {
                 initialSort: viewModel.postSort,
                 onClose: closeLocalIndex
             )
+        case .newFilesGallery:
+            MediaGalleryView(
+                posts: viewModel.visiblePosts, mediaType: nil,
+                titleOverride: L10n.string("待保存媒体"),
+                detailSourcePosts: session.capturedPosts,
+                mediaFilter: viewModel.filter,
+                allowedMediaKeys: viewModel.filesNewMediaKeys,
+                initialSort: viewModel.postSort,
+                onClose: closeLocalIndex
+            )
         case .indexedPosts(let source):
             if source == .index {
                 IndexedPostsView(
@@ -785,23 +796,28 @@ struct BookmarksView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Button { openLocalIndex(.filteredGallery) } label: {
             VStack(alignment: .leading, spacing: 5) {
-                HStack {
                 Label(
                     "筛选合计：\(storageEstimateText(viewModel.selectedStorageEstimate))",
                     systemImage: "externaldrive"
                 )
                 .font(.subheadline.weight(.semibold))
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                }
 
-                Text(
-                    "保存到照片：\(storageEstimateText(viewModel.selectedStorageEstimate))；文件夹预计新增：\(storageEstimateText(viewModel.filesNewStorageEstimate))"
-                )
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Text("保存到照片：\(storageEstimateText(viewModel.selectedStorageEstimate))")
+                    .font(.caption).foregroundStyle(.secondary)
+
+                Button { openLocalIndex(.newFilesGallery) } label: {
+                    HStack(spacing: 6) {
+                        Text("文件夹预计新增：\(storageEstimateText(viewModel.filesNewStorageEstimate))")
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("查看本次待保存到 Folder 的媒体")
 
                 Text("保存到照片不做历史去重；重复操作会在相册中再次保存。")
                     .font(.caption2)
@@ -811,10 +827,6 @@ struct BookmarksView: View {
             .padding(10)
             .background(Color(uiColor: .tertiarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("用九宫格查看筛选结果")
 
             if viewModel.isSaving || viewModel.isExporting {
                 operationProgress

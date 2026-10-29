@@ -4,9 +4,11 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+- Moved the save-estimate gallery arrow from Filtered Total to the Estimated new Files data row. It now shows only currently filtered media not already saved in Folder, using the same pending-media set as the estimate.
+
 - Added related-Post links to File Information and Save to Folder to Post Preview, including explicit recovery of matching files left without export metadata.
 - Files mode preloads/reuses manifest metadata without per-file stat checks on navigation; initial counts show loading placeholders rather than zeros.
-- Saved-state filtering now selects individual media with All/Saved/Unsaved options in Download & Browse Filters. Filtered Total opens the exact selected-media gallery; full Post details remain intact.
+- Saved-state filtering now selects individual media with All/Saved/Unsaved options in Download & Browse Filters. Filtered galleries and save queues use the same media selection; full Post details remain intact.
 - Browse Containing Folder attempts an external Files-app handoff with the working in-app browser retained as a fallback. Active date filtering is shown even when filters are collapsed.
 
 - Fixed existing local files being misclassified as missing: centralized path-component handling for directory/alias URLs and verification of negative scan matches before clearing local indicators. Confirmed-existing files clear obsolete issue records without deleting media/manifests.

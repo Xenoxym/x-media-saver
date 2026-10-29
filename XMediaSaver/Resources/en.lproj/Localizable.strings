@@ -71,7 +71,10 @@
 "保存与导出" = "Save & Export";
 "%lld 项筛选结果" = "%lld filtered items";
 "筛选合计：%@" = "Filtered total: %@";
-"保存到照片：%@；文件夹预计新增：%@" = "Photos: %@; estimated new Files data: %@";
+"保存到照片：%@" = "Photos: %@";
+"文件夹预计新增：%@" = "Estimated new Files data: %@";
+"待保存媒体" = "Pending Files";
+"查看本次待保存到 Folder 的媒体" = "View Media Pending This Folder Save";
 "保存到照片不做历史去重；重复操作会在相册中再次保存。" = "Saving to Photos does not deduplicate history; repeating it creates additional Photos copies.";
 "批量下载并保存到照片" = "Batch Save to Photos";
 "保存到 X Media Saver 文件夹" = "Save to X Media Saver Folder";

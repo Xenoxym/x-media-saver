@@ -426,6 +426,41 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertTrue(model.selectedMedia(from: [post]).isEmpty)
     }
 
+    @MainActor
+    func testEstimatedNewFilesGalleryUsesFilteredMediaMinusExistingFolderCopies() {
+        let post = makePost(id: "pending", date: nil, types: [.photo, .photo, .video], text: "match this Post")
+        let unrelated = makePost(id: "other", date: nil, types: [.photo], text: "unrelated")
+        let model = BookmarksViewModel(localMediaKeys: ["pending-0"])
+        let original = model.filter
+        defer { model.filter = original }
+        model.filter = BookmarkFilter()
+        model.filter.includeVideos = false
+        model.searchText = "match"
+        let selected = model.selectedMedia(from: [post, unrelated])
+        XCTAssertEqual(selected.map(\.mediaKey), ["pending-0", "pending-1"])
+        XCTAssertEqual(model.pendingFolderMedia(in: selected).map(\.mediaKey), ["pending-1"])
+        model.localSaveFilter = .saved
+        XCTAssertTrue(model.pendingFolderMedia(in: model.selectedMedia(from: [post, unrelated])).isEmpty)
+    }
+
+    @MainActor
+    func testNewFilesEstimateAndGalleryShareTheSameDeduplicatedPendingMedia() {
+        let saved = sizedPost("saved", bytes: 20)
+        let fresh = sizedPost("fresh", bytes: 30)
+        let shared = BookmarkedPost(id: "shared", text: "", createdAt: nil, authorID: nil,
+            authorName: nil, authorUsername: nil, media: fresh.media)
+        let model = BookmarksViewModel(localMediaKeys: ["saved"])
+        let original = model.filter
+        defer { model.filter = original }
+        model.filter = BookmarkFilter()
+        let selected = model.selectedMedia(from: [saved, fresh, shared])
+        let pending = model.pendingFolderMedia(in: selected)
+        let estimate = MediaStorageEstimate(media: pending)
+        XCTAssertEqual(Set(pending.map(\.mediaKey)), ["fresh"])
+        XCTAssertEqual(estimate.itemCount, 1)
+        XCTAssertEqual(estimate.knownBytes, 30)
+    }
+
     func testFileLibraryHydrationUsesKnownKeysWithoutStattingEveryMedia() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
