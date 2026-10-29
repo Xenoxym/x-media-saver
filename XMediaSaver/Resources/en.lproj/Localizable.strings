@@ -326,3 +326,4 @@
 "打开文件" = "Open File";
 "浏览所在文件夹" = "Browse Containing Folder";
 "共享文件" = "Share File";
+"无法解析清单记录：%@" = "Unreadable Manifest Record: %@";

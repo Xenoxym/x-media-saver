@@ -251,10 +251,8 @@ enum LibraryIntegrityInspector {
             }
             return node.bytes > 0 ? nil : LocalFileIssue(path: path, reason: "unreadable_or_empty", mediaKeys: keys.sorted(), observedAt: Date())
         }.sorted { $0.path < $1.path }
-        let mediaExtensions: Set<String> = ["jpg", "jpeg", "png", "heic", "heif", "webp", "avif", "gif", "mp4", "mov", "m4v", "webm"]
         let untracked = files.values.filter { node in
             FolderPathSafety.recordedMediaURL(node.relativePath, root: root) != nil
-                && mediaExtensions.contains((node.name as NSString).pathExtension.lowercased())
                 && !postLinkedPaths.contains(node.relativePath)
         }.sorted { $0.bytes == $1.bytes ? $0.id < $1.id : $0.bytes > $1.bytes }
         return LibraryIntegrityReport(untrackedFiles: untracked, issues: issues, metadataWarnings: warnings)

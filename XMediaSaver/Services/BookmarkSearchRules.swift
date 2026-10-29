@@ -231,14 +231,16 @@ struct BookmarkSuggestionIndex: Sendable {
                 }
             }
         }
-        return tagCounts.compactMap { tag, count -> BookmarkTermSuggestion? in
-            guard !selected.contains(tag), query.isEmpty || tag.contains(query) else { return nil }
-            return BookmarkTermSuggestion(term: tag, count: count, cooccurrence: related[tag] ?? 0)
-        }.sorted {
+        var suggestions: [BookmarkTermSuggestion] = []
+        for (tag, count) in tagCounts where !selected.contains(tag) && (query.isEmpty || tag.contains(query)) {
+            suggestions.append(BookmarkTermSuggestion(term: tag, count: count, cooccurrence: related[tag] ?? 0))
+        }
+        suggestions.sort {
             if $0.cooccurrence != $1.cooccurrence { return $0.cooccurrence > $1.cooccurrence }
             if $0.count != $1.count { return $0.count > $1.count }
             return $0.term < $1.term
-        }.prefix(limit).map { $0 }
+        }
+        return Array(suggestions.prefix(limit))
     }
 
     func keywords(hashtags: [String], excluding: [String], limit: Int = 16) throws -> [BookmarkTermSuggestion] {
@@ -262,9 +264,15 @@ struct BookmarkSuggestionIndex: Sendable {
             }
             for word in words { counts[word, default: 0] += 1 }
         }
-        return counts.map { BookmarkTermSuggestion(term: $0.key, count: $0.value, cooccurrence: 0) }
-            .sorted { $0.count == $1.count ? $0.term < $1.term : $0.count > $1.count }
-            .prefix(limit).map { $0 }
+        var suggestions: [BookmarkTermSuggestion] = []
+        for (word, count) in counts {
+            suggestions.append(BookmarkTermSuggestion(term: word, count: count, cooccurrence: 0))
+        }
+        suggestions.sort { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs.term < rhs.term
+        }
+        return Array(suggestions.prefix(limit))
     }
 
     private static let stopWords: Set<String> = Set((

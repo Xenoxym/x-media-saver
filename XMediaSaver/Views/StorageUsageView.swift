@@ -200,7 +200,7 @@ private struct LibraryFileIssuesView: View {
             Section("本次检查") {
                 ForEach(currentIssues) { issue in issueRow(issue) }
                 ForEach(Array(warnings.enumerated()), id: \.offset) { warning in
-                    Text(warning.element).font(.caption).foregroundStyle(.orange)
+                    Text(L10n.format("无法解析清单记录：%@", warning.element)).font(.caption).foregroundStyle(.orange)
                 }
                 if currentIssues.isEmpty, warnings.isEmpty { Text("未发现文件问题") }
             }

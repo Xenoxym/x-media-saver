@@ -71,7 +71,7 @@ final class BookmarkModelsTests: XCTestCase {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
-        for name in ["linked.jpg", "unlinked.jpg", "state-only.jpg"] {
+        for name in ["linked.jpg", "unlinked.jpg", "state-only.jpg", "renamed-without-extension"] {
             try Data([1, 2, 3]).write(to: root.appendingPathComponent("Images/" + name))
         }
         try Data().write(to: root.appendingPathComponent("Images/empty.jpg"))
@@ -89,7 +89,7 @@ final class BookmarkModelsTests: XCTestCase {
         try lineData([post]).write(to: root.appendingPathComponent("posts.jsonl"))
         let tree = try await LibraryStorageScanner().scan(root: root)
         let report = try LibraryIntegrityInspector.inspect(root: root, tree: tree)
-        XCTAssertEqual(Set(report.untrackedFiles.map(\.name)), ["unlinked.jpg", "state-only.jpg"])
+        XCTAssertEqual(Set(report.untrackedFiles.map(\.name)), ["unlinked.jpg", "state-only.jpg", "renamed-without-extension"])
         XCTAssertEqual(Set(report.issues.map(\.path)), ["Images/missing.jpg", "Images/empty.jpg"])
         XCTAssertTrue(report.metadataWarnings.isEmpty)
         let restored = try await LocalFolderLibrary(root: root).loadPosts()
