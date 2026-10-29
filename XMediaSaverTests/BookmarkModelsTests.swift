@@ -398,6 +398,8 @@ final class BookmarkModelsTests: XCTestCase {
     func testSavedMediaFilterDrivesQueueWhileKeepingTheCompletePostForPreview() {
         let post = makePost(id: "mixed", date: nil, types: [.photo, .photo, .video])
         let model = BookmarksViewModel(localMediaKeys: ["mixed-0"])
+        let originalFilter = model.filter
+        defer { model.filter = originalFilter }
         model.filter = BookmarkFilter()
         model.localSaveFilter = .unsaved
         XCTAssertEqual(model.selectedMedia(from: [post]).map(\.mediaKey), ["mixed-1", "mixed-2"])
@@ -415,6 +417,8 @@ final class BookmarkModelsTests: XCTestCase {
     func testUnsavedFilterDoesNotIncludeASavedImageBecauseAnUnselectedVideoIsMissing() {
         let post = makePost(id: "types", date: nil, types: [.photo, .video])
         let model = BookmarksViewModel(localMediaKeys: ["types-0"])
+        let originalFilter = model.filter
+        defer { model.filter = originalFilter }
         model.filter = BookmarkFilter()
         model.filter.includeVideos = false
         model.localSaveFilter = .unsaved
