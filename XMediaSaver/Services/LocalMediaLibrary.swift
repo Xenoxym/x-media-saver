@@ -7,11 +7,13 @@ extension Notification.Name {
 
 enum FolderPathSafety {
     static func mediaURL(_ relativePath: String, root: URL) -> URL? {
-        guard ["Images/", "Animated GIFs/", "Videos/"].contains(where: relativePath.hasPrefix) else { return nil }
+        guard let mediaFolder = ["Images/", "Animated GIFs/", "Videos/"].first(where: relativePath.hasPrefix) else { return nil }
         let base = root.standardizedFileURL.resolvingSymlinksInPath()
         let candidate = base.appendingPathComponent(relativePath).standardizedFileURL.resolvingSymlinksInPath()
         let prefix = base.path.hasSuffix("/") ? base.path : base.path + "/"
-        guard candidate.path.hasPrefix(prefix),
+        let mediaBase = base.appendingPathComponent(mediaFolder).standardizedFileURL.resolvingSymlinksInPath()
+        let mediaPrefix = mediaBase.path.hasSuffix("/") ? mediaBase.path : mediaBase.path + "/"
+        guard mediaBase.path.hasPrefix(prefix), candidate.path.hasPrefix(mediaPrefix),
               (try? candidate.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) != true
         else { return nil }
         return candidate
@@ -79,7 +81,9 @@ actor LocalMediaLibrary {
         let stateURL = root.appendingPathComponent("export-state.jsonl")
         guard let data = try? Data(contentsOf: stateURL) else { return }
         let records: [LocalExportStateRecord]
-        if let legacy = try? JSONDecoder().decode([String: String].self, from: data) {
+        if let single = try? JSONDecoder().decode(LocalExportStateRecord.self, from: data) {
+            records = [single]
+        } else if let legacy = try? JSONDecoder().decode([String: String].self, from: data) {
             records = legacy.map { LocalExportStateRecord(mediaKey: $0.key, relativePath: $0.value) }
         } else {
             records = data.split(separator: 0x0A).compactMap {
@@ -235,6 +239,9 @@ actor LocalFolderLibrary {
         guard FileManager.default.fileExists(atPath: exportStateURL.path)
         else { return [:] }
         let data = try Data(contentsOf: exportStateURL)
+        if let single = try? JSONDecoder().decode(ExportStateRecord.self, from: data) {
+            return [single.mediaKey: single.relativePath]
+        }
         if let legacy = try? JSONDecoder().decode([String: String].self, from: data) { return legacy }
         var result: [String: String] = [:]
         for line in data.split(separator: 0x0A) {

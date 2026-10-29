@@ -11,6 +11,8 @@ final class BookmarkModelsTests: XCTestCase {
         XCTAssertNotNil(FolderPathSafety.mediaURL("Images/a.jpg", root: root))
         XCTAssertNotNil(FolderPathSafety.mediaURL("Images/a.jpg", root: URL(fileURLWithPath: root.path)))
         XCTAssertNil(FolderPathSafety.mediaURL("Images/../../outside.jpg", root: root))
+        XCTAssertNil(FolderPathSafety.mediaURL("Images/../posts.jsonl", root: root))
+        XCTAssertNil(FolderPathSafety.mediaURL("posts.jsonl", root: root))
     }
 
     func testPostSizeOrderingKeepsUnknownSizesLast() {
@@ -137,6 +139,17 @@ final class BookmarkModelsTests: XCTestCase {
         try FileManager.default.removeItem(at: file)
         let after = await library.availableMediaKeys()
         XCTAssertFalse(after.contains("key"))
+    }
+
+    func testLegacyDictionaryExportStateRemainsReadable() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Images"), withIntermediateDirectories: true)
+        try Data([1]).write(to: root.appendingPathComponent("Images/legacy.jpg"))
+        try JSONEncoder().encode(["legacy": "Images/legacy.jpg"]).write(to: root.appendingPathComponent("export-state.jsonl"))
+        let library = LocalMediaLibrary(roots: [root])
+        let keys = await library.availableMediaKeys()
+        XCTAssertEqual(keys, ["legacy"])
     }
 
     private func sizedPost(_ id: String, bytes: Int64?, source: String? = nil) -> BookmarkedPost {

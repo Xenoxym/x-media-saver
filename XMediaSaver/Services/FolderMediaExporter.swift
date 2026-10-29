@@ -236,6 +236,12 @@ final class FolderMediaExporter: @unchecked Sendable {
             return [:]
         }
         let data = try Data(contentsOf: url)
+        // A single JSONL row is also a syntactically valid string dictionary.
+        // Decode its record shape first; otherwise "mediaKey"/"relativePath"
+        // become phantom keys and the real file can no longer be found.
+        if let single = try? JSONDecoder().decode(ExportStateRecord.self, from: data) {
+            return [single.mediaKey: single.relativePath]
+        }
         if let legacy = try? JSONDecoder().decode(
             [String: String].self,
             from: data

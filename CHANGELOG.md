@@ -8,6 +8,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Added per-Post gallery shuffle, Post-size sorting, Folder save-state filters, and failure-list time/size sorting.
 - Added a Folder storage treemap/file tree, duplicate-media groups with optional streaming SHA-256 scans, and per-Post export audit reports.
 - Fixed legacy `entities.media` photo parsing and image-size URL suffixes; sparse refreshes no longer erase existing media metadata. Repeated partial exports retain previously saved media.
+- Fixed single-row JSONL export state being misread as a legacy dictionary, which could break local-file recognition and deletion state updates.
 - Added simulator unit tests to the IPA build workflow. This remains an unreleased development build.
 
 ## [1.4.0] - 2026-09-09
