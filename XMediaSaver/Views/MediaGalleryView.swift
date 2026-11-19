@@ -10,7 +10,9 @@ private enum GallerySelectionDragIntent: Equatable {
 }
 
 struct MediaGalleryView: View {
-    private struct RuleInput: Hashable {
+    private struct FilterInput: Hashable, Sendable {
+        let query: String
+        let field: BookmarkSearchField
         let rule: BookmarkRuleCategory?
         let revision: Int
     }
@@ -30,8 +32,14 @@ struct MediaGalleryView: View {
     @State private var selectedRuleID: UUID?
     @State private var matchingPostIDs: Set<String>?
     @State private var sourceRevision = 0
-    @State private var lastRuleInput: RuleInput?
+    @State private var lastFilterInput: FilterInput?
     @State private var pendingSourceUpdate = false
+    @State private var showsSearchBar = false
+    @State private var requestsSearchFocus = false
+    @State private var searchText = ""
+    @State private var searchField = BookmarkSearchField.all
+    @State private var searchDocuments: [BookmarkSearchDocument]?
+    @FocusState private var searchFieldFocused: Bool
     @State private var visibleLimit = 90
     @State private var isSelecting = false
     @State private var selectedMediaKeys: Set<String> = []
@@ -113,14 +121,14 @@ struct MediaGalleryView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-            if let rule = ruleInput.rule {
+            if let rule = filterInput.rule {
                 HStack {
                     Label(rule.name, systemImage: "tag")
                     Spacer()
                     Button { selectedRuleID = nil } label: { Image(systemName: "xmark.circle.fill") }
                 }.font(.caption).padding(8)
             }
-            if galleryItems.isEmpty {
+            if galleryItems.isEmpty, !isSearchUpdating {
                 Text("没有符合条件的媒体")
                     .font(.subheadline).foregroundStyle(.secondary).padding()
             }
@@ -135,9 +143,8 @@ struct MediaGalleryView: View {
                     Button {
                         if isSelecting {
                             toggleSelection(for: item.id)
-                        } else if let index = galleryItems.firstIndex(
-                                where: { $0.id == item.id }
-                              ) {
+                        } else if let index = indexByMediaKey[item.id] {
+                            searchFieldFocused = false
                             viewerSelection = GalleryViewerSelection(
                                 index: index
                             )
@@ -166,18 +173,20 @@ struct MediaGalleryView: View {
                     }
                 }
             }
+            .allowsHitTesting(!isSearchUpdating)
             }
         }
         .scrollDisabled(
             isSelecting && selectionDragIntent == .selecting
         )
+        .scrollDismissesKeyboard(.interactively)
         .coordinateSpace(name: Self.gridCoordinateSpace)
         .onPreferenceChange(GalleryCellFramePreferenceKey.self) {
             cellFrames = $0
         }
         .simultaneousGesture(
             selectionDragGesture,
-            including: isSelecting ? .all : .none
+            including: isSelecting && !isSearchUpdating ? .all : .none
         )
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(title)
@@ -185,6 +194,7 @@ struct MediaGalleryView: View {
         .compactBackButton(action: onClose)
         .edgeSwipeBack(action: onClose)
         .onChange(of: sourceFingerprint) { _ in
+            searchDocuments = nil
             pendingSourceUpdate = true
             if isShuffled {
                 let known = Set(shuffledPostIDs)
@@ -203,10 +213,17 @@ struct MediaGalleryView: View {
             applySort(value)
         }
         .task { await refreshLocalAvailability() }
-        .task(id: ruleInput) { await applyRuleFilter() }
+        .task(id: filterInput) { await applyFilter() }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 2) {
+                    Button(action: toggleSearch) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(showsSearchBar ? Color.accentColor : .secondary)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(searchButtonLabel)
                     Button { shuffleGallery() } label: {
                         Image(systemName: "shuffle")
                             .foregroundStyle(isShuffled ? Color.accentColor : .secondary)
@@ -264,6 +281,9 @@ struct MediaGalleryView: View {
                 .disabled(mediaSaver.isSaving || isDeletingFolderMedia)
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if showsSearchBar { searchBar }
+        }
         .safeAreaInset(edge: .bottom) {
             if isSelecting {
                 selectionBar
@@ -307,6 +327,71 @@ struct MediaGalleryView: View {
         } message: {
             Text("只删除所选媒体文件；所属 Post 及其余媒体会继续保留。照片图库和书签索引不受影响。")
         }
+    }
+
+    private var searchButtonLabel: Text {
+        showsSearchBar ? Text("关闭媒体搜索") : Text("搜索媒体")
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Menu {
+                Picker("搜索范围", selection: $searchField) {
+                    ForEach(BookmarkSearchField.allCases) { field in
+                        Text(field.title).tag(field)
+                    }
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal.decrease.circle")
+                    .foregroundStyle(searchField == .all ? Color.secondary : .accentColor)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("搜索范围")
+            .accessibilityValue(Text(searchField.title))
+
+            TextField("搜索账号、正文或 #标签", text: $searchText)
+                .focused($searchFieldFocused)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit { searchFieldFocused = false }
+                .task {
+                    await Task.yield()
+                    guard !Task.isCancelled, showsSearchBar, requestsSearchFocus else { return }
+                    requestsSearchFocus = false
+                    searchFieldFocused = true
+                }
+
+            if isSearchUpdating {
+                ProgressView().controlSize(.small)
+            }
+            if !searchText.isEmpty {
+                Button { searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("清除搜索文字")
+            }
+        }
+        .padding(.horizontal, 8)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private func toggleSearch() {
+        if showsSearchBar {
+            requestsSearchFocus = false
+            searchFieldFocused = false
+            searchText = ""
+            searchField = .all
+        } else {
+            requestsSearchFocus = true
+        }
+        showsSearchBar.toggle()
     }
 
     private var selectionDragGesture: some Gesture {
@@ -568,7 +653,7 @@ struct MediaGalleryView: View {
                         .disabled(selectedMediaKeys.isDisjoint(with: localMediaKeys))
                     }
                 }
-                .disabled(selectedMediaKeys.isEmpty)
+                .disabled(selectedMediaKeys.isEmpty || isSearchUpdating)
             }
         }
         .padding(.horizontal)
@@ -619,37 +704,69 @@ struct MediaGalleryView: View {
         applySort(sort)
     }
 
-    private var ruleInput: RuleInput {
-        RuleInput(rule: ruleStore.rules.first { $0.id == selectedRuleID && $0.isEnabled }, revision: sourceRevision)
+    private var filterInput: FilterInput {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return FilterInput(
+            query: query,
+            field: query.isEmpty ? .all : searchField,
+            rule: ruleStore.rules.first { $0.id == selectedRuleID && $0.isEnabled },
+            revision: sourceRevision
+        )
     }
 
-    private func applyRuleFilter() async {
+    private var isSearchUpdating: Bool {
+        let input = filterInput
+        return input.query != (lastFilterInput?.query ?? "")
+            || input.field != (lastFilterInput?.field ?? .all)
+    }
+
+    private func applyFilter() async {
         guard viewerSelection == nil else { pendingSourceUpdate = true; return }
-        let input = ruleInput
-        guard lastRuleInput != input || pendingSourceUpdate else { return }
-        guard let rule = input.rule else {
+        let input = filterInput
+        guard lastFilterInput != input || pendingSourceUpdate else { return }
+        if input.query.isEmpty, input.rule == nil {
             if matchingPostIDs != nil || pendingSourceUpdate {
-                matchingPostIDs = nil; applySort(sort); pendingSourceUpdate = false
+                matchingPostIDs = nil
+                applySort(sort)
+                pendingSourceUpdate = false
             }
-            lastRuleInput = input
+            lastFilterInput = input
             return
         }
         pendingSourceUpdate = true
+        if !input.query.isEmpty {
+            do { try await Task.sleep(nanoseconds: 180_000_000) } catch { return }
+        }
+        guard !Task.isCancelled else { return }
+        let cachedDocuments = searchDocuments
         let posts = sourcePosts
-        let work = Task.detached(priority: .userInitiated) {
-            let matcher = rule.matcher
-            var matched: Set<String> = []
-            for post in posts {
-                try Task.checkCancellation()
-                if matcher.matches(BookmarkSearchDocument(post: post)) { matched.insert(post.id) }
+        let work = Task.detached(priority: .userInitiated) { () throws -> ([BookmarkSearchDocument], Set<String>) in
+            let documents: [BookmarkSearchDocument]
+            if let cachedDocuments {
+                documents = cachedDocuments
+            } else {
+                var seen: Set<String> = []
+                documents = try posts.compactMap { post in
+                    try Task.checkCancellation()
+                    return seen.insert(post.id).inserted ? BookmarkSearchDocument(post: post) : nil
+                }
             }
-            return matched
+            let matched = try BookmarkSearchEngine.matchingPostIDs(
+                documents: documents, query: input.query, field: input.field, rule: input.rule
+            )
+            return (documents, matched)
         }
         do {
-            let matched = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
-            guard !Task.isCancelled, ruleInput == input, viewerSelection == nil else { return }
-            matchingPostIDs = matched; applySort(sort); pendingSourceUpdate = false; lastRuleInput = input
-        } catch { }
+            let (documents, matched) = try await withTaskCancellationHandler {
+                try await work.value
+            } onCancel: { work.cancel() }
+            guard !Task.isCancelled, filterInput == input, viewerSelection == nil else { return }
+            searchDocuments = documents
+            matchingPostIDs = matched
+            applySort(sort)
+            pendingSourceUpdate = false
+            lastFilterInput = input
+        } catch { /* A newer query or leaving the gallery cancels this search. */ }
     }
 
     private var title: String {
@@ -751,6 +868,17 @@ private struct GalleryFullScreenViewer: View {
                     .ignoresSafeArea()
 
                 interactivePages(width: geometry.size.width)
+
+                if let rate = playbackController.speedBoostRate {
+                    Text(rate.formatted(.number.precision(.fractionLength(0...1))) + "×")
+                        .font(.subheadline.monospacedDigit().weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(.black.opacity(0.68), in: Capsule())
+                        .padding(.top, 32)
+                        .allowsHitTesting(false)
+                }
 
                 if let scrubState = playbackController.scrubState {
                     GalleryScrubOverlay(state: scrubState)
@@ -911,7 +1039,7 @@ private struct GalleryFullScreenViewer: View {
         .allowsHitTesting(
             currentItem?.media.type == .photo
                 && !imageIsZoomed
-                && !playbackController.isScrubbing
+                && !playbackController.isHoldInteractionActive
                 && !playbackController.isPictureInPictureActive
                 && !completesPageTransition
         )
@@ -924,7 +1052,7 @@ private struct GalleryFullScreenViewer: View {
             }
             .onChanged { value in
                 guard !imageIsZoomed,
-                      !playbackController.isScrubbing,
+                      !playbackController.isHoldInteractionActive,
                       !playbackController.isPictureInPictureActive,
                       !completesPageTransition
                 else {
@@ -951,7 +1079,7 @@ private struct GalleryFullScreenViewer: View {
             }
             .onEnded { value in
                 guard !imageIsZoomed,
-                      !playbackController.isScrubbing,
+                      !playbackController.isHoldInteractionActive,
                       !playbackController.isPictureInPictureActive,
                       !completesPageTransition
                 else {
@@ -1035,7 +1163,7 @@ private struct GalleryFullScreenViewer: View {
     }
 
     private func moveImmediately(by offset: Int) {
-        guard !playbackController.isScrubbing,
+        guard !playbackController.isHoldInteractionActive,
               !playbackController.isPictureInPictureActive,
               !completesPageTransition
         else {
@@ -1200,6 +1328,34 @@ private struct GalleryScrubState {
     }
 }
 
+enum GalleryVideoHoldPolicy {
+    static let speedRates: [Float] = [2, 2.5, 3, 3.5, 4]
+    static let stepDistance: CGFloat = 36
+    static let stepHysteresis: CGFloat = 6
+
+    static func speedRegionHeight(viewportHeight: CGFloat, topInset: CGFloat) -> CGFloat {
+        max(0, viewportHeight * 0.8 - topInset)
+    }
+
+    static func rate(
+        for horizontalTranslation: CGFloat,
+        currentRate: Float,
+        allowsFastForward: Bool
+    ) -> Float {
+        guard allowsFastForward else { return speedRates[0] }
+        var step = speedRates.firstIndex(of: currentRate) ?? 0
+        while step < speedRates.count - 1,
+              horizontalTranslation >= CGFloat(step + 1) * stepDistance {
+            step += 1
+        }
+        while step > 0,
+              horizontalTranslation < CGFloat(step) * stepDistance - stepHysteresis {
+            step -= 1
+        }
+        return speedRates[step]
+    }
+}
+
 private struct GalleryScrubOverlay: View {
     let state: GalleryScrubState
 
@@ -1270,6 +1426,7 @@ private struct GalleryScrubOverlay: View {
 @MainActor
 private final class GalleryPlaybackController: ObservableObject {
     @Published private(set) var scrubState: GalleryScrubState?
+    @Published private(set) var speedBoostRate: Float?
     @Published private(set) var isPictureInPictureActive = false
     @Published private(set) var pictureInPictureAvailable = false
     @Published private(set) var pictureInPicturePossible = false
@@ -1286,6 +1443,7 @@ private final class GalleryPlaybackController: ObservableObject {
     private var scrubDurationSeconds: Double = 0
     private var resumesAfterScrub = false
     private var resumesAfterDirectSeek = false
+    private var rateBeforeSpeedBoost: Float = 0
     private var lastPreviewSeekAt: CFTimeInterval = 0
     private var rateObservation: NSKeyValueObservation?
     private var muteObservation: NSKeyValueObservation?
@@ -1298,9 +1456,14 @@ private final class GalleryPlaybackController: ObservableObject {
         scrubState != nil || directSeekActive
     }
 
+    var isHoldInteractionActive: Bool {
+        isScrubbing || speedBoostRate != nil
+    }
+
     func attach(player: AVPlayer, mediaKey: String) {
         cleanupTask?.cancel()
         cleanupTask = nil
+        endSpeedBoost(restoringPlayback: false)
         removePlayerObservers()
         self.player = player
         self.mediaKey = mediaKey
@@ -1349,6 +1512,7 @@ private final class GalleryPlaybackController: ObservableObject {
     }
 
     func detachAll() {
+        endSpeedBoost(restoringPlayback: false)
         removePlayerObservers()
         scrubState = nil
         player = nil
@@ -1372,6 +1536,7 @@ private final class GalleryPlaybackController: ObservableObject {
 
     func galleryDidDisappear() {
         galleryIsDismissed = true
+        endSpeedBoost()
         if isPictureInPictureActive {
             return
         }
@@ -1380,7 +1545,7 @@ private final class GalleryPlaybackController: ObservableObject {
     }
 
     func seek(by seconds: Double) {
-        guard !isScrubbing,
+        guard !isHoldInteractionActive,
               let player,
               let duration = finiteDuration(of: player),
               duration > 0
@@ -1427,7 +1592,7 @@ private final class GalleryPlaybackController: ObservableObject {
     }
 
     func beginDirectSeeking() {
-        guard let player else { return }
+        guard !isHoldInteractionActive, let player else { return }
         directSeekActive = true
         resumesAfterDirectSeek = player.rate != 0
         player.pause()
@@ -1472,11 +1637,54 @@ private final class GalleryPlaybackController: ObservableObject {
 
     func startPictureInPicture() {
         guard pictureInPictureAvailable else { return }
+        endSpeedBoost()
         startPictureInPictureAction?()
     }
 
+    func beginSpeedBoost() {
+        guard !isHoldInteractionActive,
+              !isPictureInPictureActive,
+              !galleryIsDismissed,
+              let player,
+              player.currentItem?.status == .readyToPlay
+        else {
+            return
+        }
+        rateBeforeSpeedBoost = player.rate > 0
+            ? player.rate
+            : (player.timeControlStatus == .waitingToPlayAtSpecifiedRate ? 1 : 0)
+        let initialRate = GalleryVideoHoldPolicy.speedRates[0]
+        speedBoostRate = initialRate
+        player.rate = initialRate
+    }
+
+    func updateSpeedBoost(horizontalTranslation: CGFloat) {
+        guard let rate = speedBoostRate, let player else { return }
+        let newRate = GalleryVideoHoldPolicy.rate(
+            for: horizontalTranslation,
+            currentRate: rate,
+            allowsFastForward: player.currentItem?.canPlayFastForward == true
+        )
+        guard rate != newRate else { return }
+        speedBoostRate = newRate
+        player.rate = newRate
+    }
+
+    func endSpeedBoost(restoringPlayback: Bool = true) {
+        guard speedBoostRate != nil else { return }
+        let previousRate = rateBeforeSpeedBoost
+        speedBoostRate = nil
+        rateBeforeSpeedBoost = 0
+        guard restoringPlayback, let player else { return }
+        if previousRate > 0 {
+            player.rate = previousRate
+        } else {
+            player.pause()
+        }
+    }
+
     func beginScrubbing(width: CGFloat) {
-        guard scrubState == nil,
+        guard !isHoldInteractionActive,
               width > 0,
               let player,
               let duration = finiteDuration(of: player),
@@ -1541,9 +1749,12 @@ private final class GalleryPlaybackController: ObservableObject {
             ),
             toleranceBefore: .zero,
             toleranceAfter: .zero
-        ) { finished in
+        ) { [weak self, weak player] finished in
             guard finished, shouldResume else { return }
-            DispatchQueue.main.async {
+            DispatchQueue.main.async { [weak self, weak player] in
+                guard let self, let player, self.player === player,
+                      !self.galleryIsDismissed, !self.isHoldInteractionActive
+                else { return }
                 player.play()
             }
         }
@@ -1912,6 +2123,10 @@ private struct GalleryVideoPlayer: View {
 
                 let asset = AVURLAsset(url: url)
                 let item = AVPlayerItem(asset: asset)
+                if media.type == .video {
+                    // Set this on the loop template up front, not during a hold.
+                    item.audioTimePitchAlgorithm = .spectral
+                }
                 let newPlayer: AVPlayer
 
                 if media.type == .animatedGIF {
@@ -1923,10 +2138,15 @@ private struct GalleryVideoPlayer: View {
                 } else {
                     let videoPlayer = AVQueuePlayer()
                     videoPlayer.allowsExternalPlayback = false
-                    looper = AVPlayerLooper(
+                    let loop = AVPlayerLooper(
                         player: videoPlayer,
                         templateItem: item
                     )
+                    for replica in loop.loopingPlayerItems
+                    where replica.audioTimePitchAlgorithm != .spectral {
+                        replica.audioTimePitchAlgorithm = .spectral
+                    }
+                    looper = loop
                     newPlayer = videoPlayer
                 }
 
@@ -1983,6 +2203,7 @@ private struct GalleryVideoPlayer: View {
             }
             .onChange(of: playbackSuspended) { suspended in
                 if suspended {
+                    playbackController.endSpeedBoost()
                     player?.pause()
                 } else {
                     player?.play()
@@ -2013,7 +2234,10 @@ private struct GalleryVideoPlayer: View {
             .onChange(
                 of: playbackController.isPictureInPictureActive
             ) { active in
-                guard !active else { return }
+                if active {
+                    playbackController.endSpeedBoost()
+                    return
+                }
                 Task {
                     if backgroundPlaybackEnabled, isSilent == false {
                         await MediaPlaybackAudioSession
@@ -2037,6 +2261,13 @@ private struct GalleryVideoPlayer: View {
                 }
                 player?.seek(to: .zero)
                 player?.play()
+            }
+            .onReceive(
+                NotificationCenter.default.publisher(
+                    for: UIApplication.willResignActiveNotification
+                )
+            ) { _ in
+                playbackController.endSpeedBoost()
             }
             .onReceive(
                 NotificationCenter.default.publisher(
@@ -2066,6 +2297,7 @@ private struct GalleryVideoPlayer: View {
             .onDisappear {
                 controlsAutoHideTask?.cancel()
                 controlsAutoHideTask = nil
+                playbackController.endSpeedBoost()
                 guard !playbackController.isPictureInPictureActive else {
                     return
                 }
@@ -2116,6 +2348,11 @@ private struct GalleryVideoInteractionLayer: View {
                 92,
                 geometry.safeAreaInsets.top + 66
             )
+            let centerY = geometry.size.height / 2 - topInset
+            let speedHeight = GalleryVideoHoldPolicy.speedRegionHeight(
+                viewportHeight: geometry.size.height,
+                topInset: topInset
+            )
             HStack(spacing: 0) {
                 GalleryEdgePagingButton(
                     direction: .previous,
@@ -2124,22 +2361,19 @@ private struct GalleryVideoInteractionLayer: View {
                 .frame(width: geometry.size.width / 10)
                 .disabled(!canMovePrevious)
 
-                HStack(spacing: 0) {
-                    interactionHalf(
-                        seekSeconds: -5,
-                        playbackEdge: .trailing,
-                        verticalCenterOffset: -topInset / 2
-                    )
-                    interactionHalf(
-                        seekSeconds: 5,
-                        playbackEdge: .leading,
-                        verticalCenterOffset: -topInset / 2
-                    )
+                if allowsSeeking {
+                    VStack(spacing: 0) {
+                        interactionRow(
+                            hold: .speed, centerY: centerY, width: geometry.size.width
+                        )
+                            .frame(height: speedHeight)
+                        interactionRow(
+                            hold: .scrub, centerY: centerY - speedHeight, width: geometry.size.width
+                        )
+                    }
+                } else {
+                    interactionRow(hold: nil, centerY: centerY, width: geometry.size.width)
                 }
-                .simultaneousGesture(
-                    scrubGesture(width: geometry.size.width),
-                    including: allowsSeeking ? .gesture : .none
-                )
 
                 GalleryEdgePagingButton(
                     direction: .next,
@@ -2152,46 +2386,73 @@ private struct GalleryVideoInteractionLayer: View {
         }
     }
 
-    private func interactionHalf(
-        seekSeconds: Double,
-        playbackEdge: HorizontalEdge,
-        verticalCenterOffset: CGFloat
+    private func interactionRow(
+        hold: GalleryVideoInteractionRegion.Hold?,
+        centerY: CGFloat,
+        width: CGFloat
     ) -> some View {
+        GalleryVideoInteractionRegion(
+            hold: hold,
+            centerY: centerY,
+            viewportWidth: width,
+            playbackController: playbackController,
+            toggleControls: toggleControls
+        )
+    }
+}
+
+private struct GalleryVideoInteractionRegion: View {
+    enum Hold {
+        case speed, scrub
+    }
+
+    let hold: Hold?
+    let centerY: CGFloat
+    let viewportWidth: CGFloat
+    let playbackController: GalleryPlaybackController
+    let toggleControls: () -> Void
+    @GestureState private var isHolding = false
+
+    var body: some View {
         GeometryReader { geometry in
-            Color.clear
-                .contentShape(Rectangle())
-                .gesture(
-                    SpatialTapGesture(count: 2)
-                        .exclusively(before: SpatialTapGesture())
-                        .onEnded { result in
-                            switch result {
-                            case .first(_):
-                                guard allowsSeeking else { return }
-                                playbackController.seek(by: seekSeconds)
-                            case .second(let tap):
-                                let edgeDistance = playbackEdge == .leading
-                                    ? tap.location.x
-                                    : geometry.size.width - tap.location.x
-                                let verticalDistance = abs(
-                                    tap.location.y
-                                        - (
-                                            geometry.size.height / 2
-                                                + verticalCenterOffset
-                                        )
-                                )
-                                if edgeDistance <= 50,
-                                   verticalDistance <= 50 {
-                                    playbackController.togglePlayback()
-                                } else {
-                                    toggleControls()
-                                }
-                            }
-                        }
-                )
+            let hitArea = Color.clear.contentShape(Rectangle())
+            let tap = tapGesture(width: geometry.size.width)
+            if let hold {
+                // A recognized hold cannot also produce a normal tap on lift.
+                hitArea.gesture(holdGesture(hold).exclusively(before: tap))
+            } else {
+                hitArea.gesture(tap)
+            }
+        }
+        .onChange(of: isHolding) { active in
+            // GestureState also resets if the OS cancels a recognized hold.
+            if !active, let hold {
+                finishHold(hold)
+            }
         }
     }
 
-    private func scrubGesture(width: CGFloat) -> some Gesture {
+    private func tapGesture(width: CGFloat) -> some Gesture {
+        SpatialTapGesture(count: 2)
+            .exclusively(before: SpatialTapGesture())
+            .onEnded { result in
+                guard !playbackController.isHoldInteractionActive else { return }
+                switch result {
+                case .first(let tap):
+                    guard hold != nil else { return }
+                    playbackController.seek(by: tap.location.x < width / 2 ? -5 : 5)
+                case .second(let tap):
+                    if abs(tap.location.x - width / 2) <= 50,
+                       abs(tap.location.y - centerY) <= 50 {
+                        playbackController.togglePlayback()
+                    } else {
+                        toggleControls()
+                    }
+                }
+            }
+    }
+
+    private func holdGesture(_ region: Hold) -> some Gesture {
         LongPressGesture(
             minimumDuration: 0.5,
             maximumDistance: 10
@@ -2202,22 +2463,40 @@ private struct GalleryVideoInteractionLayer: View {
                 coordinateSpace: .local
             )
         )
+        .updating($isHolding) { value, active, _ in
+            if case .second(true, _) = value {
+                active = true
+            }
+        }
         .onChanged { value in
-            switch value {
-            case .second(true, let drag):
-                playbackController.beginScrubbing(width: width)
+            guard case .second(true, let drag) = value else { return }
+            switch region {
+            case .speed:
+                playbackController.beginSpeedBoost()
+                if let drag {
+                    playbackController.updateSpeedBoost(
+                        horizontalTranslation: drag.translation.width
+                    )
+                }
+            case .scrub:
+                playbackController.beginScrubbing(width: viewportWidth)
                 if let drag {
                     playbackController.updateScrubbing(
                         horizontalTranslation: drag.translation.width,
-                        width: width
+                        width: viewportWidth
                     )
                 }
-            default:
-                break
             }
         }
         .onEnded { _ in
-            playbackController.endScrubbing()
+            finishHold(region)
+        }
+    }
+
+    private func finishHold(_ region: Hold) {
+        switch region {
+        case .speed: playbackController.endSpeedBoost()
+        case .scrub: playbackController.endScrubbing()
         }
     }
 }

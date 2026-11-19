@@ -87,6 +87,10 @@
 
 "浏览与搜索" = "Browse & Search";
 "搜索账号、正文或 #标签" = "Search account, text, or #tag";
+"搜索媒体" = "Search Media";
+"关闭媒体搜索" = "Close Media Search";
+"搜索范围" = "Search Scope";
+"清除搜索文字" = "Clear Search Text";
 "全部" = "All";
 "账号" = "Accounts";
 "正文" = "Text";

@@ -4,6 +4,9 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+- Restored gallery search with a magnifying-glass button beside Shuffle, without a pull-down search field.
+- Gallery videos now play at 2× while holding the upper part of the screen. Drag right to step up to 4× where supported, with pitch correction; hold in the bottom fifth to scrub instead.
+
 - Moved the save-estimate gallery arrow from Filtered Total to the Estimated new Files data row. It now shows only currently filtered media not already saved in Folder, using the same pending-media set as the estimate.
 
 - Added related-Post links to File Information and Save to Folder to Post Preview, including explicit recovery of matching files left without export metadata.
@@ -15,7 +18,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 - Fixed File Information preview/sharing to use the actual local file; replaced the unreliable Recents-opening picker with direct in-app folder browsing and added explicit Save to Photos with result/error feedback.
 - Popular/recommended rule-group hashtags can expand in additional batches of 12 and collapse again.
 
-- Added a grid destination for current Browse & Search filter results; removed the separate in-gallery search bar to keep gallery navigation simple.
+- Added a grid destination for current Browse & Search filter results.
 - Added local, editable rule groups combining related hashtags and Post-text keywords, with overlapping membership and persistent rules independent of the bookmark index/media library.
 - Added frequency-ranked existing hashtag selection, tag autocomplete/co-occurrence recommendations, one-tap hashtag-to-keyword copying, and local text-word suggestions.
 - Removed the temporary audio-comparison test page, documentation, localization, and saved test notes; production player behavior is unchanged.

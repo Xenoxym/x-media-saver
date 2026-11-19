@@ -2,6 +2,24 @@ import XCTest
 @testable import XMediaSaver
 
 final class BookmarkModelsTests: XCTestCase {
+    func testGalleryVideoHoldSplitsAtEightyPercentOfViewport() {
+        // The existing top chrome is excluded from the gesture surface.
+        XCTAssertEqual(GalleryVideoHoldPolicy.speedRegionHeight(viewportHeight: 800, topInset: 92), 548)
+        XCTAssertEqual(GalleryVideoHoldPolicy.speedRegionHeight(viewportHeight: 400, topInset: 100), 220)
+        XCTAssertEqual(GalleryVideoHoldPolicy.speedRegionHeight(viewportHeight: 100, topInset: 92), 0)
+    }
+
+    func testGalleryVideoHoldSpeedUsesDiscreteStepsAndHysteresis() {
+        XCTAssertEqual(GalleryVideoHoldPolicy.rate(for: -90, currentRate: 2, allowsFastForward: true), 2)
+        XCTAssertEqual(GalleryVideoHoldPolicy.rate(for: 35, currentRate: 2, allowsFastForward: true), 2)
+        XCTAssertEqual(GalleryVideoHoldPolicy.rate(for: 36, currentRate: 2, allowsFastForward: true), 2.5)
+        XCTAssertEqual(GalleryVideoHoldPolicy.rate(for: 30, currentRate: 2.5, allowsFastForward: true), 2.5)
+        XCTAssertEqual(GalleryVideoHoldPolicy.rate(for: 29, currentRate: 2.5, allowsFastForward: true), 2)
+        XCTAssertEqual(GalleryVideoHoldPolicy.rate(for: 108, currentRate: 2, allowsFastForward: true), 3.5)
+        XCTAssertEqual(GalleryVideoHoldPolicy.rate(for: 200, currentRate: 3.5, allowsFastForward: true), 4)
+        XCTAssertEqual(GalleryVideoHoldPolicy.rate(for: 200, currentRate: 4, allowsFastForward: false), 2)
+    }
+
     func testDirectoryURLScanPreservesFullRelativePathsAndFileActionsResolveTheSameFile() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("folder test " + UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
