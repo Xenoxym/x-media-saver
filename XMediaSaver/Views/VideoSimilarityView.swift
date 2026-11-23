@@ -18,8 +18,6 @@ struct VideoSimilarityView: View {
                 resultsSection(result)
             }
         }
-        .navigationTitle("相似视频")
-        .navigationBarTitleDisplayMode(.inline)
         .onChange(of: criteria) { _ in
             cancelScan()
             result = nil

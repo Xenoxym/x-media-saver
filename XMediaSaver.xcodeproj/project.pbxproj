@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A10000000000000000000034 /* PhotoSimilarityService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000039 /* PhotoSimilarityService.swift */; };
+		A10000000000000000000035 /* PhotoSimilarityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003A /* PhotoSimilarityView.swift */; };
+		A10000000000000000000036 /* PhotoSimilarityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003B /* PhotoSimilarityTests.swift */; };
 		A1000000000000000000002F /* VideoSimilarityRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000034 /* VideoSimilarityRules.swift */; };
 		A10000000000000000000030 /* VideoPosterFingerprints.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000035 /* VideoPosterFingerprints.swift */; };
 		A10000000000000000000031 /* VideoSimilarityFrameVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000036 /* VideoSimilarityFrameVerifier.swift */; };
@@ -70,6 +73,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		A20000000000000000000039 /* PhotoSimilarityService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSimilarityService.swift; sourceTree = "<group>"; };
+		A2000000000000000000003A /* PhotoSimilarityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSimilarityView.swift; sourceTree = "<group>"; };
+		A2000000000000000000003B /* PhotoSimilarityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoSimilarityTests.swift; sourceTree = "<group>"; };
 		A20000000000000000000034 /* VideoSimilarityRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoSimilarityRules.swift; sourceTree = "<group>"; };
 		A20000000000000000000035 /* VideoPosterFingerprints.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPosterFingerprints.swift; sourceTree = "<group>"; };
 		A20000000000000000000036 /* VideoSimilarityFrameVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoSimilarityFrameVerifier.swift; sourceTree = "<group>"; };
@@ -200,6 +206,7 @@
 				A2000000000000000000002F /* MediaLibraryAnalysis.swift */,
 				A20000000000000000000034 /* VideoSimilarityRules.swift */,
 				A20000000000000000000035 /* VideoPosterFingerprints.swift */,
+				A20000000000000000000039 /* PhotoSimilarityService.swift */,
 				A20000000000000000000036 /* VideoSimilarityFrameVerifier.swift */,
 				A20000000000000000000032 /* BookmarkSearchRules.swift */,
 			);
@@ -232,6 +239,7 @@
 				A20000000000000000000029 /* SettingsView.swift */,
 				A20000000000000000000030 /* LibraryToolsView.swift */,
 				A20000000000000000000037 /* VideoSimilarityView.swift */,
+				A2000000000000000000003A /* PhotoSimilarityView.swift */,
 				A20000000000000000000031 /* StorageUsageView.swift */,
 				A20000000000000000000033 /* BookmarkRulesView.swift */,
 			);
@@ -246,6 +254,7 @@
 				A2000000000000000000001B /* BrowserCaptureParserTests.swift */,
 				A2000000000000000000001C /* BookmarkModelsTests.swift */,
 				A20000000000000000000038 /* VideoSimilarityTests.swift */,
+				A2000000000000000000003B /* PhotoSimilarityTests.swift */,
 			);
 			path = XMediaSaverTests;
 			sourceTree = "<group>";
@@ -414,8 +423,10 @@
 				A1000000000000000000002A /* MediaLibraryAnalysis.swift in Sources */,
 				A1000000000000000000002F /* VideoSimilarityRules.swift in Sources */,
 				A10000000000000000000030 /* VideoPosterFingerprints.swift in Sources */,
+				A10000000000000000000034 /* PhotoSimilarityService.swift in Sources */,
 				A10000000000000000000031 /* VideoSimilarityFrameVerifier.swift in Sources */,
 				A10000000000000000000032 /* VideoSimilarityView.swift in Sources */,
+				A10000000000000000000035 /* PhotoSimilarityView.swift in Sources */,
 				A1000000000000000000002B /* LibraryToolsView.swift in Sources */,
 				A1000000000000000000002C /* StorageUsageView.swift in Sources */,
 				A1000000000000000000002D /* BookmarkSearchRules.swift in Sources */,
@@ -432,6 +443,7 @@
 				A10000000000000000000018 /* BrowserCaptureParserTests.swift in Sources */,
 				A10000000000000000000019 /* BookmarkModelsTests.swift in Sources */,
 				A10000000000000000000033 /* VideoSimilarityTests.swift in Sources */,
+				A10000000000000000000036 /* PhotoSimilarityTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

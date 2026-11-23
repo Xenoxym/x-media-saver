@@ -14,6 +14,7 @@ struct LocalMediaThumbnailView: View {
     let showsPlayIndicator: Bool
     let showsLocalIndicator: Bool
     let alignment: Alignment
+    let allowsNetwork: Bool
     @StateObject private var loader: LocalMediaThumbnailLoader
 
     init(
@@ -24,7 +25,8 @@ struct LocalMediaThumbnailView: View {
         showsPlaceholder: Bool = true,
         showsPlayIndicator: Bool = true,
         showsLocalIndicator: Bool = true,
-        alignment: Alignment = .topTrailing
+        alignment: Alignment = .topTrailing,
+        allowsNetwork: Bool = true
     ) {
         self.media = media
         self.maximumPixelSize = maximumPixelSize
@@ -34,6 +36,7 @@ struct LocalMediaThumbnailView: View {
         self.showsPlayIndicator = showsPlayIndicator
         self.showsLocalIndicator = showsLocalIndicator
         self.alignment = alignment
+        self.allowsNetwork = allowsNetwork
         _loader = StateObject(
             wrappedValue: LocalMediaThumbnailLoader(
                 cachedImage: LocalMediaThumbnailLoader.cachedImage(
@@ -91,11 +94,12 @@ struct LocalMediaThumbnailView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
-        .task(id: "\(media.mediaKey)-\(maximumPixelSize)-\(remoteImageName)") {
+        .task(id: "\(media.mediaKey)-\(maximumPixelSize)-\(remoteImageName)-\(allowsNetwork)") {
             await loader.load(
                 media: media,
                 maximumPixelSize: maximumPixelSize,
-                remoteImageName: remoteImageName
+                remoteImageName: remoteImageName,
+                allowsNetwork: allowsNetwork
             )
         }
     }
@@ -144,7 +148,8 @@ final class LocalMediaThumbnailLoader: ObservableObject {
     func load(
         media: BookmarkedMedia,
         maximumPixelSize: Int,
-        remoteImageName: String
+        remoteImageName: String,
+        allowsNetwork: Bool = true
     ) async {
         let key = Self.cacheKey(
             media: media,
@@ -178,7 +183,7 @@ final class LocalMediaThumbnailLoader: ObservableObject {
                     maximumPixelSize: maximumPixelSize
                 )
             }
-        } else if let previewURL = Self.previewURL(
+        } else if allowsNetwork, let previewURL = Self.previewURL(
             media.previewImageURL ?? media.url,
             name: remoteImageName
         ) {
@@ -215,13 +220,21 @@ final class LocalMediaThumbnailLoader: ObservableObject {
             )
             Self.cache.setObject(result, forKey: key, cost: cost)
             image = result
-            if media.type == .video, let thumbnail = result.cgImage {
+            if let thumbnail = result.cgImage {
                 // Learn from the thumbnail already loaded for browsing, not
                 // from another download or frame extraction.
                 Task(priority: .utility) {
-                    await VideoPosterFingerprints.shared.remember(
-                        thumbnail: thumbnail, media: media, isLocal: localURL != nil
-                    )
+                    switch media.type {
+                    case .photo:
+                        await PhotoSimilarityIndex.shared.remember(
+                            thumbnail: thumbnail, media: media, isLocal: localURL != nil
+                        )
+                    case .video:
+                        await VideoPosterFingerprints.shared.remember(
+                            thumbnail: thumbnail, media: media, isLocal: localURL != nil
+                        )
+                    case .animatedGIF: break
+                    }
                 }
             }
         } else {

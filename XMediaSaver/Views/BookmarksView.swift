@@ -912,9 +912,9 @@ struct BookmarksView: View {
                     .font(.subheadline)
             }
             NavigationLink {
-                VideoSimilarityView(posts: session.capturedPosts + folderLibrary.posts)
+                SimilarMediaView(posts: session.capturedPosts + folderLibrary.posts)
             } label: {
-                Label("相似视频", systemImage: "film.stack")
+                Label("相似媒体", systemImage: "square.stack")
                     .font(.subheadline)
             }
             if let result = viewModel.exportResult {

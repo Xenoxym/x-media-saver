@@ -4,6 +4,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+- Combined photo and video similarity in one Similar Media screen. Photos support three matching levels, an offline quick scan, explicit indexing of local Folder originals, and reverse lookup from Photos or Files.
 - Moved the gallery playback speed badge below the Dynamic Island in portrait.
 - Added Possible Video Matches alongside exact duplicate detection. Mix and edit size, duration, and poster rules, scan the existing index offline, and optionally verify two local videos using sampled frames.
 - Restored gallery search with a magnifying-glass button beside Shuffle, without a pull-down search field.
