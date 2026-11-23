@@ -870,13 +870,17 @@ private struct GalleryFullScreenViewer: View {
                 interactivePages(width: geometry.size.width)
 
                 if let rate = playbackController.speedBoostRate {
+                    // The full-screen reader can report a zero top inset.
+                    // Keep the centered badge below the cutout in portrait.
+                    let minimumTop = geometry.size.width > geometry.size.height
+                        ? CGFloat(32) : CGFloat(80)
                     Text(rate.formatted(.number.precision(.fractionLength(0...1))) + "×")
                         .font(.subheadline.monospacedDigit().weight(.semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 7)
                         .background(.black.opacity(0.68), in: Capsule())
-                        .padding(.top, 32)
+                        .padding(.top, max(minimumTop, geometry.safeAreaInsets.top + 12))
                         .allowsHitTesting(false)
                 }
 
