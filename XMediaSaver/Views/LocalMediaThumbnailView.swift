@@ -215,6 +215,15 @@ final class LocalMediaThumbnailLoader: ObservableObject {
             )
             Self.cache.setObject(result, forKey: key, cost: cost)
             image = result
+            if media.type == .video, let thumbnail = result.cgImage {
+                // Learn from the thumbnail already loaded for browsing, not
+                // from another download or frame extraction.
+                Task(priority: .utility) {
+                    await VideoPosterFingerprints.shared.remember(
+                        thumbnail: thumbnail, media: media, isLocal: localURL != nil
+                    )
+                }
+            }
         } else {
             failed = true
         }

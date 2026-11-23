@@ -911,6 +911,12 @@ struct BookmarksView: View {
                 Label("重复媒体", systemImage: "square.on.square")
                     .font(.subheadline)
             }
+            NavigationLink {
+                VideoSimilarityView(posts: session.capturedPosts + folderLibrary.posts)
+            } label: {
+                Label("相似视频", systemImage: "film.stack")
+                    .font(.subheadline)
+            }
             if let result = viewModel.exportResult {
                 resultLabel(
                     "Files：写入 \(result.saved)，已存在 \(result.skipped)，失败 \(result.failed)",
