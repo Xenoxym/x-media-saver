@@ -433,3 +433,11 @@
 "图片 A 的来源帖" = "Source Posts for Photo A";
 "图片 B 的来源帖" = "Source Posts for Photo B";
 "匹配图片的来源帖" = "Source Posts for the Matched Photo";
+"只显示封面相似的组" = "Require Similar Covers";
+"补齐封面并扫描（联网）" = "Load Missing Covers & Scan (Online)";
+"快速扫描不联网、不抽帧。封面筛选跳过黑屏、信息不足或尚未分析的封面。补齐封面只加载封面图片，不下载视频。" = "Quick Scan is offline and does not extract frames. The cover filter skips black, low-detail, and unanalyzed covers. Loading missing covers downloads images only, not videos.";
+"没有找到符合条件的视频组。" = "No video groups match these criteria.";
+"%lld 组相似视频" = "%lld Similar Video Groups";
+"%lld 个视频" = "%lld Videos";
+"%lld 组相似图片" = "%lld Similar Photo Groups";
+"%lld 张图片" = "%lld Photos";

@@ -1,10 +1,12 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 struct VideoSimilarityView: View {
     let posts: [BookmarkedPost]
 
     @State private var criteria = VideoSimilarityPreset.parameters.criteria
+    @State private var filtersByPoster = true
     @State private var result: ScanResult?
     @State private var scanID: UUID?
     @State private var scanTask: Task<Void, Never>?
@@ -14,11 +16,11 @@ struct VideoSimilarityView: View {
         List {
             settingsSection
             scanSection
-            if let result, result.criteria == criteria {
+            if let result, result.criteria == effectiveCriteria {
                 resultsSection(result)
             }
         }
-        .onChange(of: criteria) { _ in
+        .onChange(of: effectiveCriteria) { _ in
             cancelScan()
             result = nil
             showsScanError = false
@@ -32,6 +34,7 @@ struct VideoSimilarityView: View {
                 ForEach(VideoSimilarityPreset.allCases) { preset in
                     Button {
                         criteria = preset.criteria
+                        if preset == .previewVersions { filtersByPoster = true }
                     } label: {
                         if criteria == preset.criteria {
                             Label(preset.title, systemImage: "checkmark")
@@ -59,11 +62,7 @@ struct VideoSimilarityView: View {
                     Text(rule.title).tag(rule)
                 }
             }
-            Picker("封面", selection: $criteria.poster) {
-                ForEach(VideoSimilarityPosterRule.allCases) { rule in
-                    Text(rule.title).tag(rule)
-                }
-            }
+            Toggle("只显示封面相似的组", isOn: $filtersByPoster)
         } header: {
             Text("匹配条件")
         } footer: {
@@ -83,10 +82,16 @@ struct VideoSimilarityView: View {
                         .buttonStyle(.borderless)
                 }
             } else {
-                Button(action: startScan) {
+                Button { startScan() } label: {
                     Label("扫描相似视频", systemImage: "magnifyingglass")
                 }
                 .disabled(!hasActiveCriteria)
+                if filtersByPoster {
+                    Button { startScan(fillPosters: true) } label: {
+                        Label("补齐封面并扫描（联网）", systemImage: "photo.stack")
+                    }
+                    .font(.subheadline)
+                }
             }
             if !hasActiveCriteria {
                 Text("请至少启用一项匹配条件。")
@@ -99,39 +104,27 @@ struct VideoSimilarityView: View {
                     .foregroundStyle(.orange)
             }
         } footer: {
-            Text("仅使用索引信息和本机已有的封面指纹；不联网、不下载视频，也不会删除或合并文件。")
+            Text("快速扫描不联网、不抽帧。封面筛选跳过黑屏、信息不足或尚未分析的封面。补齐封面只加载封面图片，不下载视频。")
         }
     }
 
     private func resultsSection(_ result: ScanResult) -> some View {
         Section {
             resultCoverage(result)
-            if result.matches.isEmpty {
-                Text("没有找到满足条件的视频对。")
+            if result.groups.isEmpty {
+                Text("没有找到符合条件的视频组。")
                     .foregroundStyle(.secondary)
             }
-            ForEach(result.matches) { match in
-                NavigationLink {
-                    VideoSimilarityPairView(
-                        match: match,
-                        firstPosts: result.references[match.first.id] ?? [],
-                        secondPosts: result.references[match.second.id] ?? [],
-                        relatedPosts: posts
-                    )
-                } label: {
-                    pairRow(match, references: result.references)
-                }
+            ForEach(result.groups) { group in
+                groupRow(group, result: result)
             }
         } header: {
-            Text(L10n.format("%lld 对候选视频", result.matches.count))
+            Text(L10n.format("%lld 组相似视频", result.groups.count))
         }
     }
 
     private func resultCoverage(_ result: ScanResult) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            if result.truncated {
-                Text("结果已达显示上限，可缩小条件后重新扫描。")
-            }
             Text(L10n.format(
                 "已检查 %lld 个视频 · 已知尺寸 %lld · 已知时长 %lld",
                 result.videoCount, result.dimensionsCount, result.durationCount
@@ -149,28 +142,49 @@ struct VideoSimilarityView: View {
         .foregroundStyle(.secondary)
     }
 
-    private func pairRow(
-        _ match: VideoSimilarityMatch, references: [String: [BookmarkedPost]]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: "video")
-                VideoSimilarityMetadata(descriptor: match.first, source: references[match.first.id]?.first)
-                Image(systemName: "arrow.left.arrow.right")
-                    .imageScale(.small)
-                    .foregroundStyle(.secondary)
-                VideoSimilarityMetadata(descriptor: match.second, source: references[match.second.id]?.first)
-            }
-            Text(match.evidence.map(\.title).joined(separator: " · "))
+    private func groupRow(_ group: VideoSimilarityGroup, result: ScanResult) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.format("%lld 个视频", group.matches.count + 1))
+                .font(.subheadline.weight(.semibold))
+            Text(group.matches.first?.evidence.map(\.title).joined(separator: " · ") ?? "")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            if match.possiblePreview {
+            if group.matches.contains(where: \.possiblePreview) {
                 Label("可能是预览片段", systemImage: "scissors")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 2)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+                if let match = group.matches.first {
+                    groupTile(group.reference, match: match, result: result)
+                }
+                ForEach(group.matches) { match in
+                    let member = match.first.id == group.id ? match.second : match.first
+                    groupTile(member, match: match, result: result)
+                }
+            }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 5)
+    }
+
+    private func groupTile(
+        _ video: VideoSimilarityDescriptor, match: VideoSimilarityMatch, result: ScanResult
+    ) -> some View {
+        NavigationLink {
+            VideoSimilarityPairView(
+                match: match,
+                firstPosts: result.references[match.first.id] ?? [],
+                secondPosts: result.references[match.second.id] ?? [],
+                relatedPosts: posts
+            )
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                VideoSimilarityPosterTile(media: result.media[video.id])
+                VideoSimilarityMetadata(descriptor: video, source: result.references[video.id]?.first)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var selectedPresetTitle: String {
@@ -179,20 +193,27 @@ struct VideoSimilarityView: View {
     }
 
     private var hasActiveCriteria: Bool {
-        criteria.size != .any || criteria.duration != .any || criteria.poster != .any
+        criteria.size != .any || criteria.duration != .any || filtersByPoster
     }
 
-    private func startScan() {
+    private var effectiveCriteria: VideoSimilarityCriteria {
+        var input = criteria
+        input.poster = filtersByPoster ? .similar : .any
+        input.requiresUsablePoster = filtersByPoster
+        return input
+    }
+
+    private func startScan(fillPosters: Bool = false) {
         guard scanID == nil, hasActiveCriteria else { return }
         let id = UUID()
-        let input = criteria
+        let input = effectiveCriteria
         let sourcePosts = posts
         scanID = id
         showsScanError = false
         result = nil
         scanTask = Task { @MainActor in
             let worker = Task.detached(priority: .utility) {
-                try await Self.scan(posts: sourcePosts, criteria: input)
+                try await Self.scan(posts: sourcePosts, criteria: input, fillPosters: fillPosters)
             }
             defer {
                 if scanID == id {
@@ -206,7 +227,7 @@ struct VideoSimilarityView: View {
                 } onCancel: {
                     worker.cancel()
                 }
-                guard !Task.isCancelled, scanID == id, criteria == input else { return }
+                guard !Task.isCancelled, scanID == id, effectiveCriteria == input else { return }
                 result = found
             } catch is CancellationError {
                 // Cancellation is a normal way to change the search or leave.
@@ -223,7 +244,7 @@ struct VideoSimilarityView: View {
     }
 
     private nonisolated static func scan(
-        posts: [BookmarkedPost], criteria: VideoSimilarityCriteria
+        posts: [BookmarkedPost], criteria: VideoSimilarityCriteria, fillPosters: Bool
     ) async throws -> ScanResult {
         var videos: [BookmarkedMedia] = []
         for post in posts {
@@ -231,23 +252,30 @@ struct VideoSimilarityView: View {
             videos.append(contentsOf: post.media.filter { $0.type == .video })
         }
 
+        if fillPosters {
+            try await VideoPosterFingerprints.shared.fillMissingPosters(for: videos)
+        }
         let descriptors = await VideoPosterFingerprints.shared.descriptors(for: videos)
         try Task.checkCancellation()
-        let scan = try VideoSimilarityMatcher.scan(descriptors, criteria: criteria)
-        let matchedKeys = Set(scan.matches.flatMap { [$0.first.id, $0.second.id] })
+        let groups = try VideoSimilarityMatcher.groups(descriptors, criteria: criteria)
+        let matchedKeys = Set(groups.flatMap { $0.members.map(\.id) })
+        var mediaByKey: [String: BookmarkedMedia] = [:]
         var references: [String: [BookmarkedPost]] = [:]
         var seenReferences: [String: Set<String>] = [:]
         for post in posts {
             try Task.checkCancellation()
             for media in post.media where matchedKeys.contains(media.mediaKey) {
+                if mediaByKey[media.mediaKey]?.previewImageURL == nil {
+                    mediaByKey[media.mediaKey] = media
+                }
                 guard seenReferences[media.mediaKey, default: []].insert(post.id).inserted else { continue }
                 references[media.mediaKey, default: []].append(post)
             }
         }
         return ScanResult(
             criteria: criteria,
-            matches: scan.matches,
-            truncated: scan.truncated,
+            groups: groups,
+            media: mediaByKey,
             references: references,
             videoCount: descriptors.count,
             dimensionsCount: descriptors.lazy.filter { ($0.width ?? 0) > 0 && ($0.height ?? 0) > 0 }.count,
@@ -259,14 +287,38 @@ struct VideoSimilarityView: View {
 
     private struct ScanResult: Sendable {
         let criteria: VideoSimilarityCriteria
-        let matches: [VideoSimilarityMatch]
-        let truncated: Bool
+        let groups: [VideoSimilarityGroup]
+        let media: [String: BookmarkedMedia]
         let references: [String: [BookmarkedPost]]
         let videoCount: Int
         let dimensionsCount: Int
         let durationCount: Int
         let posterURLCount: Int
         let fingerprintCount: Int
+    }
+}
+
+private struct VideoSimilarityPosterTile: View {
+    let media: BookmarkedMedia?
+    @State private var image: UIImage?
+
+    var body: some View {
+        Color(uiColor: .secondarySystemGroupedBackground)
+            .aspectRatio(1.5, contentMode: .fit)
+            .overlay {
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFit()
+                } else {
+                    Image(systemName: "photo").foregroundStyle(.secondary)
+                }
+            }
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .task(id: media?.mediaKey) {
+                guard let media else { return }
+                let data = await VideoPosterFingerprints.shared.previewData(for: media)
+                image = data.flatMap { UIImage(data: $0) }
+            }
     }
 }
 

@@ -2,6 +2,18 @@ import XCTest
 @testable import XMediaSaver
 
 final class PhotoSimilarityTests: XCTestCase {
+    func testSimilarPhotosAreGroupedWithoutCartesianPairs() throws {
+        let media = [
+            descriptor("a", hash: fingerprint(0)),
+            descriptor("b", hash: fingerprint(1)),
+            descriptor("c", hash: fingerprint(3))
+        ]
+        let groups = try PhotoSimilarityMatcher.groups(media, mode: .strict)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.representativeID, "a")
+        XCTAssertEqual(groups.first?.matches.map(\.secondID), ["b", "c"])
+    }
+
     func testStrictStandardAndAdvancedWholeImageThresholds() {
         let first = fingerprint(0)
         let fiveBitsAway = fingerprint(0x1F)

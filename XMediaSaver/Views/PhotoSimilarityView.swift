@@ -133,7 +133,7 @@ private struct PhotoSimilarityView: View {
 
     private func results(_ result: PhotoScanResult) -> some View {
         Section {
-            if result.matches.isEmpty {
+            if result.matches.isEmpty, result.groups.isEmpty {
                 Text("没有找到符合条件的图片。")
                     .foregroundStyle(.secondary)
             }
@@ -164,8 +164,13 @@ private struct PhotoSimilarityView: View {
                     }
                 }
             }
+            ForEach(result.groups) { group in
+                photoGroup(group, result: result)
+            }
         } header: {
-            Text(L10n.format("%lld 条候选图片结果", result.matches.count))
+            Text(result.isQuery
+                ? L10n.format("%lld 条候选图片结果", result.matches.count)
+                : L10n.format("%lld 组相似图片", result.groups.count))
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 Text(L10n.format(
@@ -178,6 +183,48 @@ private struct PhotoSimilarityView: View {
                 Text("相似结果仅供核对，不会合并或删除文件。")
             }
         }
+    }
+
+    private func photoGroup(_ group: PhotoSimilarityGroup, result: PhotoScanResult) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.format("%lld 张图片", group.matches.count + 1))
+                .font(.subheadline.weight(.semibold))
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 2)
+            LazyVGrid(columns: columns, alignment: .leading, spacing: 10) {
+                if let first = result.references[group.representativeID] {
+                    photoTile(first, comparing: nil, evidence: group.matches.first?.evidence ?? .sameSource)
+                    ForEach(group.matches) { match in
+                        if let other = result.references[match.secondID] {
+                            photoTile(other, comparing: first, evidence: match.evidence)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 5)
+    }
+
+    private func photoTile(
+        _ reference: PhotoReference, comparing first: PhotoReference?, evidence: PhotoSimilarityEvidence
+    ) -> some View {
+        NavigationLink {
+            PhotoSimilarityDetail(first: first, second: reference, evidence: evidence, posts: posts)
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Color(uiColor: .secondarySystemGroupedBackground)
+                    .aspectRatio(1.5, contentMode: .fit)
+                    .overlay {
+                        LocalMediaThumbnailView(
+                            media: reference.media, maximumPixelSize: 420, contentMode: .fit,
+                            showsLocalIndicator: false, allowsNetwork: false
+                        )
+                    }
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                Text(reference.description).font(.caption).lineLimit(1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private func scan(indexLocal: Bool) {
@@ -219,9 +266,17 @@ private struct PhotoSimilarityView: View {
                     }
                 }
                 let candidates = await PhotoSimilarityIndex.shared.descriptors(for: photos)
-                let ranked = try PhotoSimilarityMatcher.scan(candidates, mode: selectedMode, query: fingerprint)
+                let ranked: (matches: [PhotoSimilarityMatch], truncated: Bool)
+                let groups: [PhotoSimilarityGroup]
+                if let fingerprint {
+                    ranked = try PhotoSimilarityMatcher.scan(candidates, mode: selectedMode, query: fingerprint)
+                    groups = []
+                } else {
+                    ranked = ([], false)
+                    groups = try PhotoSimilarityMatcher.groups(candidates, mode: selectedMode)
+                }
                 let found = PhotoScanResult.make(
-                    posts: sourcePosts, candidates: candidates, query: fingerprint, ranked: ranked
+                    posts: sourcePosts, candidates: candidates, query: fingerprint, ranked: ranked, groups: groups
                 )
                 return (fingerprint, found)
             }
@@ -278,6 +333,7 @@ private struct PhotoSimilarityView: View {
 
 private struct PhotoScanResult: Sendable {
     let matches: [PhotoSimilarityMatch]
+    let groups: [PhotoSimilarityGroup]
     let truncated: Bool
     let isQuery: Bool
     let photoCount: Int
@@ -286,9 +342,14 @@ private struct PhotoScanResult: Sendable {
 
     static func make(
         posts: [BookmarkedPost], candidates: [PhotoSimilarityDescriptor],
-        query: PhotoVisualFingerprint?, ranked: (matches: [PhotoSimilarityMatch], truncated: Bool)
+        query: PhotoVisualFingerprint?, ranked: (matches: [PhotoSimilarityMatch], truncated: Bool),
+        groups: [PhotoSimilarityGroup]
     ) -> Self {
-        let ids = Set(ranked.matches.flatMap { [$0.firstID, $0.secondID].compactMap { $0 } })
+        var ids = Set(ranked.matches.map(\.secondID))
+        for group in groups {
+            ids.insert(group.representativeID)
+            ids.formUnion(group.matches.map(\.secondID))
+        }
         var references: [String: PhotoReference] = [:]
         var seenByMediaKey: [String: Set<String>] = [:]
         for post in posts {
@@ -298,7 +359,7 @@ private struct PhotoScanResult: Sendable {
             }
         }
         return Self(
-            matches: ranked.matches, truncated: ranked.truncated, isQuery: query != nil,
+            matches: ranked.matches, groups: groups, truncated: ranked.truncated, isQuery: query != nil,
             photoCount: candidates.count, fingerprintCount: candidates.filter { $0.fingerprint != nil }.count,
             references: references
         )

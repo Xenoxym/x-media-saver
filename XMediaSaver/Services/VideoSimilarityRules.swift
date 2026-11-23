@@ -31,6 +31,7 @@ struct VideoSimilarityCriteria: Equatable, Sendable {
     var size: VideoSimilaritySizeRule
     var duration: VideoSimilarityDurationRule
     var poster: VideoSimilarityPosterRule
+    var requiresUsablePoster = false
 }
 
 enum VideoSimilarityPreset: String, CaseIterable, Identifiable, Sendable {
@@ -108,7 +109,57 @@ struct VideoSimilarityMatch: Identifiable, Sendable {
     }
 }
 
+struct VideoSimilarityGroup: Identifiable, Sendable {
+    let reference: VideoSimilarityDescriptor
+    let matches: [VideoSimilarityMatch]
+
+    var id: String { reference.id }
+    var members: [VideoSimilarityDescriptor] {
+        [reference] + matches.map { $0.first.id == id ? $0.second : $0.first }
+    }
+}
+
 enum VideoSimilarityMatcher {
+    static func groups(
+        _ descriptors: [VideoSimilarityDescriptor], criteria: VideoSimilarityCriteria
+    ) throws -> [VideoSimilarityGroup] {
+        guard criteria.size != .any || criteria.duration != .any || criteria.poster != .any else { return [] }
+        var seen = Set<String>()
+        let candidates = descriptors.sorted {
+            let a = $0.posterFingerprint != nil
+            let b = $1.posterFingerprint != nil
+            return a == b ? $0.id < $1.id : a
+        }.compactMap { descriptor -> Candidate? in
+            guard seen.insert(descriptor.id).inserted,
+                  !criteria.requiresUsablePoster || descriptor.posterFingerprint != nil else { return nil }
+            let candidate = Candidate(descriptor)
+            guard criteria.size == .any || candidate.pixels != nil,
+                  criteria.duration == .any || candidate.duration != nil else { return nil }
+            return candidate
+        }
+        var assigned = Set<String>()
+        var groups: [VideoSimilarityGroup] = []
+        for (index, anchor) in candidates.enumerated() {
+            try Task.checkCancellation()
+            guard !assigned.contains(anchor.descriptor.id) else { continue }
+            var matches: [VideoSimilarityMatch] = []
+            for next in (index + 1)..<candidates.count {
+                if next.isMultiple(of: 256) { try Task.checkCancellation() }
+                let candidate = candidates[next]
+                guard !assigned.contains(candidate.descriptor.id),
+                      let pair = matchingPair(anchor, candidate, criteria: criteria, commonPosters: [])
+                else { continue }
+                assigned.insert(candidate.descriptor.id)
+                matches.append(pair.match)
+            }
+            if !matches.isEmpty {
+                groups.append(.init(reference: anchor.descriptor, matches: matches))
+            }
+        }
+        return groups.sorted {
+            $0.matches.count == $1.matches.count ? $0.id < $1.id : $0.matches.count > $1.matches.count
+        }
+    }
     static func scan(
         _ candidates: [VideoSimilarityDescriptor],
         criteria: VideoSimilarityCriteria,
@@ -130,6 +181,7 @@ enum VideoSimilarityMatcher {
                 posterCounts[poster, default: 0] += 1
             }
             guard criteria.size == .any || candidate.pixels != nil,
+                  !criteria.requiresUsablePoster || descriptor.posterFingerprint != nil,
                   durationWindow == nil || candidate.duration != nil,
                   criteria.poster == .any || candidate.posterIdentity != nil
                     || (criteria.poster == .similar && descriptor.posterFingerprint != nil),
@@ -272,12 +324,15 @@ enum VideoSimilarityMatcher {
 
         let poster: VideoSimilarityEvidence?
         var commonPoster = false
-        if let a = first.posterIdentity, let b = second.posterIdentity, a == b {
+        if let a = first.posterIdentity, let b = second.posterIdentity, a == b,
+           !criteria.requiresUsablePoster {
             poster = .samePosterURL
             commonPoster = commonPosters.contains(a)
         } else if let a = first.descriptor.posterFingerprint, let b = second.descriptor.posterFingerprint,
                   (a ^ b).nonzeroBitCount <= VideoPerceptualFingerprint.matchingDistance {
-            poster = .similarPoster
+            let sharedAddress = first.posterIdentity != nil && first.posterIdentity == second.posterIdentity
+            poster = sharedAddress ? .samePosterURL : .similarPoster
+            commonPoster = sharedAddress && commonPosters.contains(first.posterIdentity ?? "")
         } else {
             poster = nil
         }

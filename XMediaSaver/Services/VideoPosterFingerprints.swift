@@ -1,6 +1,8 @@
 import CoreGraphics
 import CryptoKit
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// Compact low-frequency luminance hash. Used on thumbnails already drawn for
 /// browsing and on small frames explicitly requested for manual verification.
@@ -85,6 +87,9 @@ actor VideoPosterFingerprints {
     }
 
     private let cacheURL: URL
+    private var previewDirectory: URL {
+        cacheURL.deletingPathExtension().appendingPathExtension("covers")
+    }
     private var entries: [String: Entry]?
     private var flushTask: Task<Void, Never>?
     private static let entryLimit = 8_000
@@ -107,18 +112,123 @@ actor VideoPosterFingerprints {
         guard let identity else { return }
         let key = Self.cacheKey(identity)
         loadIfNeeded()
-        guard entries?[key] == nil else { return }
+        if let recorded = entries?[key] {
+            if recorded.fingerprint != nil { savePreviewIfNeeded(thumbnail, key: key) }
+            return
+        }
         entries?[key] = Entry(
             fingerprint: VideoPerceptualFingerprint.make(from: thumbnail),
             observedAt: Date()
         )
+        if entries?[key]?.fingerprint != nil { savePreviewIfNeeded(thumbnail, key: key) }
         if let entries, entries.count > Self.entryLimit {
-            self.entries = Dictionary(uniqueKeysWithValues: entries
+            let kept = Dictionary(uniqueKeysWithValues: entries
                 .sorted { $0.value.observedAt > $1.value.observedAt }
                 .prefix(Self.entryLimit - 500)
                 .map { ($0.key, $0.value) })
+            for key in entries.keys where kept[key] == nil {
+                try? FileManager.default.removeItem(at: previewURL(for: key))
+            }
+            self.entries = kept
         }
         scheduleFlush()
+    }
+
+    func previewData(for media: BookmarkedMedia) -> Data? {
+        let remote = Self.posterIdentity(media.previewImageURL).map { "poster:" + $0 }
+        for identity in [remote, Self.localIdentity(for: media)].compactMap({ $0 }) {
+            if let data = try? Data(contentsOf: previewURL(for: Self.cacheKey(identity))) { return data }
+        }
+        return nil
+    }
+
+    /// User-initiated cover backfill only. The normal quick scan never
+    /// invokes this, and the URLs here are image posters, never MP4 assets.
+    func fillMissingPosters(for media: [BookmarkedMedia]) async throws {
+        loadIfNeeded()
+        var seen = Set<String>()
+        var pending: [(BookmarkedMedia, URL)] = []
+        for item in media where item.type == .video {
+            try Task.checkCancellation()
+            guard let url = LocalMediaThumbnailLoader.previewURL(item.previewImageURL, name: "small"),
+                  url.scheme == "https", url.host?.lowercased() == "pbs.twimg.com",
+                  let identity = Self.posterIdentity(item.previewImageURL), seen.insert(identity).inserted
+            else { continue }
+            let key = Self.cacheKey("poster:" + identity)
+            if let entry = entries?[key],
+               entry.fingerprint == nil || FileManager.default.fileExists(atPath: previewURL(for: key).path) {
+                continue
+            }
+            pending.append((item, url))
+            if pending.count >= 160 { break }
+        }
+        for start in stride(from: 0, to: pending.count, by: 4) {
+            try Task.checkCancellation()
+            let end = min(start + 4, pending.count)
+            await withTaskGroup(of: (BookmarkedMedia, CGImage?).self) { group in
+                for (item, url) in pending[start..<end] {
+                    group.addTask { (item, await Self.fetchPoster(url)) }
+                }
+                for await (item, cover) in group {
+                    guard !Task.isCancelled, let cover else { continue }
+                    remember(thumbnail: cover, media: item, isLocal: false)
+                }
+            }
+        }
+        try Task.checkCancellation()
+    }
+
+    private static func fetchPoster(_ url: URL) async -> CGImage? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        guard let (data, response) = try? await posterSession.data(for: request),
+              let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+              http.url?.host?.lowercased() == "pbs.twimg.com",
+              data.count <= 4 * 1_048_576,
+              let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 160
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    private static let posterSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.httpCookieStorage = nil
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
+
+    private func previewURL(for key: String) -> URL {
+        previewDirectory.appendingPathComponent(key.replacingOccurrences(of: "/", with: "_") + ".jpg")
+    }
+
+    private func savePreviewIfNeeded(_ image: CGImage, key: String) {
+        let output = previewURL(for: key)
+        guard !FileManager.default.fileExists(atPath: output.path) else { return }
+        let scale = min(1, 128 / CGFloat(max(image.width, image.height)))
+        let width = max(Int(CGFloat(image.width) * scale), 1)
+        let height = max(Int(CGFloat(image.height) * scale), 1)
+        guard let context = CGContext(
+            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        ) else { return }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        let bytes = NSMutableData()
+        guard let small = context.makeImage(),
+              let destination = CGImageDestinationCreateWithData(bytes, UTType.jpeg.identifier as CFString, 1, nil)
+        else { return }
+        // A compact disk cache lets results retain their covers after a restart.
+        CGImageDestinationAddImage(destination, small, [
+            kCGImageDestinationLossyCompressionQuality: 0.58
+        ] as CFDictionary)
+        guard CGImageDestinationFinalize(destination), bytes.length <= 8192 else { return }
+        try? FileManager.default.createDirectory(at: previewDirectory, withIntermediateDirectories: true)
+        try? (bytes as Data).write(to: output, options: .atomic)
     }
 
     /// Only reads the compact on-device fingerprint cache and the supplied

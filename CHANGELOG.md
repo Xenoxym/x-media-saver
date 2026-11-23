@@ -4,6 +4,7 @@ All notable user-facing changes are recorded here. Version numbers follow Semant
 
 ## [Unreleased]
 
+- Similar photos and videos are shown as visual groups rather than repeated pairs. Video searches require usable similar covers by default, with a toggle to match metadata only and an optional cover-only online backfill.
 - Combined photo and video similarity in one Similar Media screen. Photos support three matching levels, an offline quick scan, explicit indexing of local Folder originals, and reverse lookup from Photos or Files.
 - Moved the gallery playback speed badge below the Dynamic Island in portrait.
 - Added Possible Video Matches alongside exact duplicate detection. Mix and edit size, duration, and poster rules, scan the existing index offline, and optionally verify two local videos using sampled frames.

@@ -106,7 +106,56 @@ struct PhotoSimilarityMatch: Identifiable, Sendable {
     }
 }
 
+struct PhotoSimilarityGroup: Identifiable, Sendable {
+    let representativeID: String
+    let matches: [PhotoSimilarityMatch]
+    var id: String { representativeID }
+}
+
 enum PhotoSimilarityMatcher {
+    static func groups(
+        _ input: [PhotoSimilarityDescriptor], mode: PhotoSimilarityMode
+    ) throws -> [PhotoSimilarityGroup] {
+        var seen = Set<String>()
+        let photos = input.sorted {
+            let a = $0.fingerprint != nil
+            let b = $1.fingerprint != nil
+            return a == b ? $0.id < $1.id : a
+        }.filter { seen.insert($0.id).inserted && ($0.source != nil || $0.fingerprint != nil) }
+        var assigned = Set<String>()
+        var groups: [PhotoSimilarityGroup] = []
+        for (index, anchor) in photos.enumerated() {
+            try Task.checkCancellation()
+            guard !assigned.contains(anchor.id) else { continue }
+            var matches: [PhotoSimilarityMatch] = []
+            for next in (index + 1)..<photos.count {
+                if next.isMultiple(of: 256) { try Task.checkCancellation() }
+                let candidate = photos[next]
+                guard !assigned.contains(candidate.id) else { continue }
+                let evidence: PhotoSimilarityEvidence?
+                if let source = anchor.source, source == candidate.source {
+                    evidence = .sameSource
+                } else if let a = anchor.fingerprint, let b = candidate.fingerprint {
+                    evidence = compare(a, b, mode: mode)
+                } else {
+                    evidence = nil
+                }
+                if let evidence {
+                    assigned.insert(candidate.id)
+                    matches.append(.init(firstID: anchor.id, secondID: candidate.id, evidence: evidence))
+                }
+            }
+            if !matches.isEmpty {
+                groups.append(.init(representativeID: anchor.id, matches: matches.sorted {
+                    $0.evidence.rank == $1.evidence.rank ? $0.secondID < $1.secondID : $0.evidence.rank < $1.evidence.rank
+                }))
+            }
+        }
+        return groups.sorted {
+            $0.matches.count == $1.matches.count ? $0.id < $1.id : $0.matches.count > $1.matches.count
+        }
+    }
+
     static func compare(
         _ a: PhotoVisualFingerprint, _ b: PhotoVisualFingerprint, mode: PhotoSimilarityMode
     ) -> PhotoSimilarityEvidence? {

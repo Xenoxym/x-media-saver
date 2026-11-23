@@ -3,6 +3,32 @@ import XCTest
 @testable import XMediaSaver
 
 final class VideoSimilarityTests: XCTestCase {
+    func testThreeSimilarVideosFormOneGroupAndUnknownOrDissimilarCoversAreExcluded() throws {
+        let candidates = [
+            video("a", poster: "shared", hash: 0),
+            video("b", poster: "other", hash: 1),
+            video("c", poster: "third", hash: 3),
+            video("darkOrUnseen", poster: "shared"),
+            video("dissimilar", poster: "shared", hash: 0xFFFF)
+        ]
+        var criteria = VideoSimilarityPreset.parameters.criteria
+        criteria.poster = .similar
+        criteria.requiresUsablePoster = true
+        let visual = try VideoSimilarityMatcher.groups(candidates, criteria: criteria)
+        XCTAssertEqual(visual.count, 1)
+        XCTAssertEqual(visual.first?.members.map(\.id), ["a", "b", "c"])
+        XCTAssertEqual(visual.first?.matches.count, 2)
+        let metadata = try VideoSimilarityMatcher.groups(candidates, criteria: VideoSimilarityPreset.parameters.criteria)
+        XCTAssertEqual(metadata.first?.members.count, 5)
+    }
+
+    func testVideoGroupDoesNotChainDissimilarEnds() throws {
+        let candidates = [video("a", hash: 0), video("b", hash: 0x3F), video("c", hash: 0xFFF)]
+        let groups = try VideoSimilarityMatcher.groups(candidates, criteria: VideoSimilarityPreset.previewVersions.criteria)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups.first?.members.map(\.id), ["a", "b"])
+    }
+
     func testActiveDimensionsMustAllMatchAndInactiveMissingFieldsAreAllowed() throws {
         let first = video("a", poster: "shared")
         let exact = video("b", poster: "shared")
