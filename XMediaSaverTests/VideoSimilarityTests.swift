@@ -195,10 +195,16 @@ final class VideoSimilarityTests: XCTestCase {
     }
 
     private func patternedLuminance() -> [UInt8] {
-        (0..<1024).map { index in
-            let x = index % 32
-            let y = index / 32
-            return UInt8(20 + x * 2 + y * 3 + x * y / 16)
+        var pixels = [UInt8]()
+        pixels.reserveCapacity(1_024)
+        for y in 0..<32 {
+            let rowBase: Int = 20 + y * 3
+            for x in 0..<32 {
+                let column: Int = x * 2
+                let variation: Int = (x * y) / 16
+                pixels.append(UInt8(rowBase + column + variation))
+            }
         }
+        return pixels
     }
 }
